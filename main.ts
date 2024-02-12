@@ -106,18 +106,23 @@ namespace heading {
         let diffNow = xData[2]
         let diffWas = diffNow
         let then = stamp[0] - 20
+        let ahead = 0
+        let behind = 0
 
         datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
         datalogger.mirrorToSerial(false)
         datalogger.setColumnTitles("xt", "xlim")
 
         for (let k = 2; k <= stamp.length - 3; k++) {
-            let behind = xData[k] + xData[k - 1] + xData[k - 2]
-            let ahead = xData[k] + xData[k + 1] + xData[k + 2]
+            behind = xData[k] + xData[k - 1] + xData[k - 2]
+            ahead = xData[k] + xData[k + 1] + xData[k + 2]
             diffWas = diffNow
             diffNow = ahead - behind
-            // difference crosses zero at an inflection-point, so its sign changes
-            // (but ignoring any jittery repeated crossings)
+            // an inflection-point is where the difference crosses zero,  
+            // (so its sign changes and the product will be negative).
+            // This test fails for exactly zero, so nudge zeroes negative
+            if (diffNow == 0) diffNow = -0.1
+            // Also ignore any too-close crossings (due to jitter)
             if ((diffWas * diffNow < 0) && ((stamp[k] - then) > 100)){
                 let maybe = new Limit
                 maybe.value = ahead + behind // = local average x 6
@@ -133,17 +138,18 @@ namespace heading {
         diffWas = diffNow
         then = stamp[0] - 20
         for (let l = 2; l <= stamp.length - 3; l++) {
-            let behind2 = yData[l] + yData[l - 1] + yData[l - 2]
-            let ahead2 = yData[l] + yData[l + 1] + yData[l + 2]
+            behind = yData[l] + yData[l - 1] + yData[l - 2]
+            ahead = yData[l] + yData[l + 1] + yData[l + 2]
             diffWas = diffNow
-            diffNow = ahead2 - behind2
+            diffNow = ahead - behind
+            if (diffNow == 0) diffNow = -0.1
             // difference crosses zero at an inflection-point, so its sign changes
             if ((diffWas * diffNow < 0) && ((stamp[l] - then) > 100)) {
-                let maybe2 = new Limit
-                maybe2.value = ahead2 + behind2 //
-                maybe2.time = stamp[l]
+                let maybe = new Limit
+                maybe.value = ahead + behind //
+                maybe.time = stamp[l]
                 then = stamp[l]
-                yLimits.push(maybe2)
+                yLimits.push(maybe)
             }
         }
 
@@ -151,16 +157,17 @@ namespace heading {
         diffWas = diffNow
         then = stamp[0] - 20
         for (let m = 2; m <= stamp.length - 3; m++) {
-            let behind3 = zData[m] + zData[m - 1] + zData[m - 2]
-            let ahead3 = zData[m] + zData[m + 1] + zData[m + 2]
+            behind = zData[m] + zData[m - 1] + zData[m - 2]
+            ahead = zData[m] + zData[m + 1] + zData[m + 2]
             diffWas = diffNow
-            diffNow = ahead3 - behind3
+            diffNow = ahead - behind
+            if (diffNow == 0) diffNow = -0.1
             // difference crosses zero at an inflection-point, so its sign changes
             if ((diffWas * diffNow < 0) && ((stamp[m] - then) > 100)) {
-                let maybe3 = new Limit
-                maybe3.value = ahead3 + behind3 //
-                maybe3.time = stamp[m]
-                zLimits.push(maybe3)
+                let maybe = new Limit
+                maybe.value = ahead + behind //
+                maybe.time = stamp[m]
+                zLimits.push(maybe)
             }
         }
         // we've now finished with the raw scan data
@@ -198,7 +205,7 @@ namespace heading {
                 vDim = Dimension.Z
                 vAmp = zAmp
                 vOff2 = zOff
-                vLimits = xLimits
+                vLimits = zLimits
                 plane = "XZ"
             }
         }
