@@ -103,15 +103,15 @@ namespace heading {
         // Wherever the difference (c+d+e)-(a+b+c) changes sign we record a Limit: a duple object
         // comprising the time-stamp, and the smoothed peak value: (c+d+e)+(a+b+c)
 
-        let diffNow = xData[2]
+        let diffNow = xData[2] * 6 
         let diffWas = diffNow
-        let then = stamp[0] - 20
+        let then = stamp[0] - 101
         let ahead = 0
         let behind = 0
 
         datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
-        datalogger.mirrorToSerial(false)
-        datalogger.setColumnTitles("xt", "xlim")
+        datalogger.mirrorToSerial(true)
+        datalogger.setColumnTitles("xt", "xlim", "yt", "ylim", "zt", "zlim", )
 
         for (let k = 2; k <= stamp.length - 3; k++) {
             behind = xData[k] + xData[k - 1] + xData[k - 2]
@@ -122,19 +122,21 @@ namespace heading {
             // (so its sign changes and the product will be negative).
             // This test fails for exactly zero, so nudge zeroes negative
             if (diffNow == 0) diffNow = -0.1
-            // Also ignore any too-close crossings (due to jitter)
-            if ((diffWas * diffNow < 0) && ((stamp[k] - then) > 100)){
+            // Also disallow incomplete element 2, or any too-close crossings 
+            // (arising from to jitter) 
+            // 
+            if ((diffWas * diffNow < 0) && (k > 2) &&((stamp[k] - then) > 100)){
                 let maybe = new Limit
-                maybe.value = ahead + behind // = local average x 6
+                maybe.value = ahead + behind // double weight to [k] at centre of 5
                 maybe.time = stamp[k]
                 then = stamp[k]
                 xLimits.push(maybe)
-                datalogger.log(datalogger.createCV("xt", maybe.time),
-                    datalogger.createCV("xlim", maybe.value))
+                datalogger.log( datalogger.createCV("xt", maybe.time),
+                                datalogger.createCV("xlim", maybe.value))
             }
         }
 
-        diffNow = yData[2]
+        diffNow = yData[2] * 6 
         diffWas = diffNow
         then = stamp[0] - 20
         for (let l = 2; l <= stamp.length - 3; l++) {
@@ -143,13 +145,14 @@ namespace heading {
             diffWas = diffNow
             diffNow = ahead - behind
             if (diffNow == 0) diffNow = -0.1
-            // difference crosses zero at an inflection-point, so its sign changes
-            if ((diffWas * diffNow < 0) && ((stamp[l] - then) > 100)) {
+            if ((diffWas * diffNow < 0) && (l > 2) && ((stamp[l] - then) > 100)) {
                 let maybe = new Limit
-                maybe.value = ahead + behind //
+                maybe.value = ahead + behind
                 maybe.time = stamp[l]
                 then = stamp[l]
                 yLimits.push(maybe)
+                datalogger.log( datalogger.createCV("yt", maybe.time),
+                                datalogger.createCV("ylim", maybe.value))
             }
         }
 
@@ -162,12 +165,14 @@ namespace heading {
             diffWas = diffNow
             diffNow = ahead - behind
             if (diffNow == 0) diffNow = -0.1
-            // difference crosses zero at an inflection-point, so its sign changes
-            if ((diffWas * diffNow < 0) && ((stamp[m] - then) > 100)) {
+            if ((diffWas * diffNow < 0) && (m > 2) && ((stamp[m] - then) > 100)) {
                 let maybe = new Limit
-                maybe.value = ahead + behind //
+                maybe.value = ahead + behind
                 maybe.time = stamp[m]
+                then = stamp[m]
                 zLimits.push(maybe)
+                datalogger.log( datalogger.createCV("zt", maybe.time),
+                                datalogger.createCV("zlim", maybe.value))
             }
         }
         // we've now finished with the raw scan data
@@ -307,10 +312,6 @@ namespace heading {
         if (reversed) {
             val = 360 - val // sensor upside-down
         }
-
-        datalogger.log(datalogger.createCV("u", u),
-            datalogger.createCV("v", v),
-            datalogger.createCV("val", val))
         return (val + 360) % 360
     }
 

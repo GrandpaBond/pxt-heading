@@ -15,7 +15,7 @@ input.onButtonPressed(Button.A, function () {
 input.onButtonPressed(Button.B, function () {
     basic.showString("?")
     let spinRPM = heading.prepare(true)
-    heading.dumpLimits()
+    //heading.dumpLimits()
     basic.clearScreen()
     basic.showNumber(spinRPM)
     basic.pause(1000)
@@ -27,13 +27,13 @@ input.onButtonPressed(Button.AB, function () {
     //meter.use(meter.Styles.Dial, 0, 360)
     while (test < 300) {
         let compass = heading.degrees()
-        //basic.showNumber(Math.floor(compass))
-
+        basic.showNumber(Math.floor(compass))
+        basic.pause(1000)
         //meter.show(compass,250)
     }
 })
 
-let testing = true
+let testing = false
 let test = -1
 basic.pause(1000)
 basic.clearScreen()
