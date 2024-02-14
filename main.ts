@@ -111,7 +111,7 @@ namespace heading {
 
         datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
         datalogger.mirrorToSerial(true)
-        datalogger.setColumnTitles("xt", "xlim", "yt", "ylim", "zt", "zlim", )
+        //datalogger.setColumnTitles("xt", "xlim", "yt", "ylim", "zt", "zlim", )
 
         for (let k = 2; k <= stamp.length - 3; k++) {
             behind = xData[k] + xData[k - 1] + xData[k - 2]
@@ -131,8 +131,8 @@ namespace heading {
                 maybe.time = stamp[k]
                 then = stamp[k]
                 xLimits.push(maybe)
-                datalogger.log( datalogger.createCV("xt", maybe.time),
-                                datalogger.createCV("xlim", maybe.value))
+                //datalogger.log( datalogger.createCV("xt", maybe.time),
+                //                datalogger.createCV("xlim", maybe.value))
             }
         }
 
@@ -151,8 +151,8 @@ namespace heading {
                 maybe.time = stamp[l]
                 then = stamp[l]
                 yLimits.push(maybe)
-                datalogger.log( datalogger.createCV("yt", maybe.time),
-                                datalogger.createCV("ylim", maybe.value))
+                //datalogger.log( datalogger.createCV("yt", maybe.time),
+                //                datalogger.createCV("ylim", maybe.value))
             }
         }
 
@@ -171,8 +171,8 @@ namespace heading {
                 maybe.time = stamp[m]
                 then = stamp[m]
                 zLimits.push(maybe)
-                datalogger.log( datalogger.createCV("zt", maybe.time),
-                                datalogger.createCV("zlim", maybe.value))
+                //datalogger.log( datalogger.createCV("zt", maybe.time),
+                //                datalogger.createCV("zlim", maybe.value))
             }
         }
         // we've now finished with the raw scan data
@@ -198,18 +198,18 @@ namespace heading {
         if ((xAmp > yAmp) && (xAmp > zAmp)) {  // X is the major dim
             uDim = Dimension.X
             uAmp = xAmp
-            uOff2 = xOff
+            uOff = xOff
             uLimits = xLimits // for periodicity calculations later
             if (yAmp > zAmp) {  		      // Y is the minor dim
                 vDim = Dimension.Y
                 vAmp = yAmp
-                vOff2 = yOff
+                vOff = yOff
                 vLimits = yLimits
                 plane = "XY"
             } else {  		                  // Z is the minor dim
                 vDim = Dimension.Z
                 vAmp = zAmp
-                vOff2 = zOff
+                vOff = zOff
                 vLimits = zLimits
                 plane = "XZ"
             }
@@ -218,18 +218,18 @@ namespace heading {
         if ((yAmp > xAmp) && (yAmp > zAmp)) {  // Y is the major dim
             uDim = Dimension.Y
             uAmp = yAmp
-            uOff2 = yOff
+            uOff = yOff
             uLimits = yLimits
             if (xAmp > zAmp) {  		      // X is the minor dim
                 vDim = Dimension.X
                 vAmp = xAmp
-                vOff2 = xOff
+                vOff = xOff
                 vLimits = xLimits
                 plane = "YX"
             } else {  		                  // Z is the minor dim
                 vDim = Dimension.Z
                 vAmp = zAmp
-                vOff2 = zOff
+                vOff = zOff
                 vLimits = zLimits
                 plane = "YZ"
             }
@@ -238,18 +238,18 @@ namespace heading {
         if ((zAmp > xAmp) && (zAmp > yAmp)) {  // Z is the major dim
             uDim = Dimension.Z
             uAmp = zAmp
-            uOff2 = zOff
+            uOff = zOff
             uLimits = zLimits
             if (yAmp > xAmp) {  		      // Y is the minor dim
                 vDim = Dimension.Y
                 vAmp = yAmp
-                vOff2 = yOff
+                vOff = yOff
                 vLimits = yLimits
                 plane = "ZY"
             } else {  		                  // X is the minor dim
                 vDim = Dimension.X
                 vAmp = xAmp
-                vOff2 = xOff
+                vOff = xOff
                 vLimits = xLimits
                 plane = "ZX"
             }
@@ -299,14 +299,20 @@ namespace heading {
     export function degrees(): number {
         let u = 0
         let v = 0
-        if (testing) {
+        if (!turning) {
             u = zData[test] - uOff
             v = xData[test] - vOff
             test++
             if (test == zData.length) test = 0 // roll round
         } else {
-            let u = input.magneticForce(uDim) - uOff
-            let v = input.magneticForce(vDim) - vOff
+            //let u = input.magneticForce(uDim) - uOff
+            //let v = input.magneticForce(vDim) - vOff
+            let u = input.magneticForce(Dimension.Z) - uOff
+            let v = input.magneticForce(Dimension.X) - vOff
+            basic.showNumber(u)
+            basic.pause(1000)
+            basic.showNumber(v)
+            basic.pause(1000)
         }
         let val = 57.29578 * Math.atan2(u, v * magScale)
         if (reversed) {

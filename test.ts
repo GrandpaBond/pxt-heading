@@ -33,7 +33,13 @@ input.onButtonPressed(Button.AB, function () {
     }
 })
 
-let testing = false
-let test = -1
+input.onLogoEvent(TouchButtonEvent.Pressed, function() {
+    let compass = heading.degrees()
+    basic.showNumber(Math.floor(compass))
+})
+
+let testing = true
+let turning = true
+let test = 0
 basic.pause(1000)
 basic.clearScreen()
