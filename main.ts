@@ -297,27 +297,30 @@ namespace heading {
 
     // read the magnetometer and return the current heading in degrees from North
     export function degrees(): number {
-        let u = 0
-        let v = 0
+        let uRaw = 0
+        let vRaw = 0
         if (!turning) {
-            u = zData[test] - uOff
-            v = xData[test] - vOff
+            uRaw = zData[test]
+            vRaw = xData[test]
             test++
             if (test == zData.length) test = 0 // roll round
         } else {
-            //let u = input.magneticForce(uDim) - uOff
-            //let v = input.magneticForce(vDim) - vOff
-            let u = input.magneticForce(Dimension.Z) - uOff
-            let v = input.magneticForce(Dimension.X) - vOff
-            basic.showNumber(u)
-            basic.pause(1000)
-            basic.showNumber(v)
-            basic.pause(1000)
+            uRaw = input.magneticForce(uDim)
+            vRaw = input.magneticForce(vDim)
+            //uRaw = input.magneticForce(Dimension.Z)
+            //uRaw = input.magneticForce(Dimension.X)
         }
+        let u = uRaw - uOff
+        let v = vRaw - vOff
         let val = 57.29578 * Math.atan2(u, v * magScale)
         if (reversed) {
             val = 360 - val // sensor upside-down
         }
+        datalogger.log(datalogger.createCV("uRaw", uRaw),
+            datalogger.createCV("vRaw", vRaw),
+            datalogger.createCV("u", u),
+            datalogger.createCV("v", v),
+            datalogger.createCV("val", val))
         return (val + 360) % 360
     }
 

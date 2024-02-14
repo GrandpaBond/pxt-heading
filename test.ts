@@ -14,10 +14,11 @@ input.onButtonPressed(Button.A, function () {
 })
 input.onButtonPressed(Button.B, function () {
     basic.showString("?")
-    let spinRPM = heading.prepare(true)
+    spinRPM = heading.prepare(true)
     //heading.dumpLimits()
     basic.clearScreen()
     basic.showNumber(spinRPM)
+    datalogger.setColumnTitles("uRaw", "vRaw", "u", "v", "val")
     basic.pause(1000)
 })
 
@@ -25,21 +26,29 @@ input.onButtonPressed(Button.B, function () {
 input.onButtonPressed(Button.AB, function () {
     basic.showIcon(IconNames.Heart)
     //meter.use(meter.Styles.Dial, 0, 360)
-    while (test < 300) {
+    while (test < 50) {
         let compass = heading.degrees()
         basic.showNumber(Math.floor(compass))
-        basic.pause(1000)
+        basic.pause(100)
         //meter.show(compass,250)
     }
 })
 
 input.onLogoEvent(TouchButtonEvent.Pressed, function() {
-    let compass = heading.degrees()
-    basic.showNumber(Math.floor(compass))
+    let turn45 = 60000 / (8 * spinRPM)
+    for (let i = 0; i < 8 ; i ++) {
+        Kitronik_Move_Motor.spin(Kitronik_Move_Motor.SpinDirections.Right, 30)
+        basic.pause(turn45)
+        Kitronik_Move_Motor.stop()
+        let compass = heading.degrees()
+        basic.showNumber(Math.floor(compass))
+        basic.pause(1000)
+    }
 })
 
-let testing = true
+let testing = false
 let turning = true
 let test = 0
+let spinRPM = 0
 basic.pause(1000)
 basic.clearScreen()
