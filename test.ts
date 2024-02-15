@@ -31,7 +31,7 @@ input.onLogoEvent(TouchButtonEvent.Pressed, function() {
         Kitronik_Move_Motor.stop()
         let compass = heading.degrees()
         basic.showNumber(Math.floor(compass))
-        basic.pause(1000)
+        basic.pause(200)
     }
 })
 

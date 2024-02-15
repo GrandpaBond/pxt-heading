@@ -130,7 +130,7 @@ namespace heading {
             // 
             if ((diffWas * diffNow < 0) && (k > 2) &&((stamp[k] - then) > 100)){
                 let maybe = new Limit
-                maybe.value = ahead + behind // double weight to [k] at centre of 5
+                maybe.value = (ahead + behind) / 6 // double weight to [k] at centre of 5
                 maybe.time = stamp[k]
                 then = stamp[k]
                 xLimits.push(maybe)
@@ -150,7 +150,7 @@ namespace heading {
             if (diffNow == 0) diffNow = -0.1
             if ((diffWas * diffNow < 0) && (l > 2) && ((stamp[l] - then) > 100)) {
                 let maybe = new Limit
-                maybe.value = ahead + behind
+                maybe.value = (ahead + behind) / 6
                 maybe.time = stamp[l]
                 then = stamp[l]
                 yLimits.push(maybe)
@@ -170,7 +170,7 @@ namespace heading {
             if (diffNow == 0) diffNow = -0.1
             if ((diffWas * diffNow < 0) && (m > 2) && ((stamp[m] - then) > 100)) {
                 let maybe = new Limit
-                maybe.value = ahead + behind
+                maybe.value = (ahead + behind) / 6
                 maybe.time = stamp[m]
                 then = stamp[m]
                 zLimits.push(maybe)
@@ -303,10 +303,10 @@ namespace heading {
         let uRaw = 0
         let vRaw = 0
         if (testing) {
-            uRaw = zData[test]
-            vRaw = xData[test]
-            test += 20
-            if (test == zData.length) test = 0 // roll round
+            uRaw = xData[test]  // prior knowledge U=X & V=Z!
+            vRaw = zData[test]
+            test += 5
+            if (test > zData.length) test = 0 // roll round
         } else {
             uRaw = input.magneticForce(uDim)
             vRaw = input.magneticForce(vDim)
