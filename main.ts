@@ -38,20 +38,23 @@ namespace heading {
         zData = [-19.5, -17.4, -18.6, -20.4, -18, -19.65, -21.9, -20.55, -24.15, -25.05, -27.6, -30.15, -29.7, -34.8, -37.35, -39.9, -42.3, -44.85, -47.85, -48, -51.15, -54.75, -55.8, -55.65, -58.65, -56.85, -57.45, -56.55, -59.55, -58.65, -55.2, -57.15, -55.65, -54.6, -52.65, -48.6, -49.8, -46.95, -43.8, -40.65, -41.25, -36.6, -34.05, -32.85, -30, -28.8, -24.75, -23.7, -23.55, -21.75, -19.8, -18.9, -18.9, -18.3, -18.3, -17.85, -19.65, -21.45, -23.85, -23.1, -25.35, -27.15, -27.9, -30.45, -34.95, -39.45, -38.7, -42.3, -45.3, -45.15, -47.1, -49.8, -50.85, -52.5, -54.75, -55.95, -58.8, -58.5, -56.55, -59.1, -59.85, -57.9, -57.75, -55.8, -57.15, -55.35, -51, -49.05, -47.4, -44.25, -42.45, -39.45, -36.6, -36.75, -31.05, -30.45, -29.7, -26.7, -23.7, -23.7, -19.65, -19.35, -19.05, -18.45, -18.15, -18.15, -18.45, -20.25, -20.85, -21.15, -21.75, -24.3, -27.3, -27.6, -31.35, -31.05, -34.8, -37.95, -42.75, -41.7, -45.75, -46.95, -49.2, -53.4, -52.05, -55.2, -56.4, -57.6, -58.65, -57.3, -57.6, -59.1, -58.65, -55.8, -56.7, -53.55, -54, -51, -47.7]
     }
 
-    // Use the average max and min values of a list of limits to get the magnitude and offset
+    // Use the average of a list of paired limits to get the magnitude and offset
     // returns [0,0] unless there are at least two of each (resulting from a complete spin)
     function getRange(limits: Limit[]): [number, number] {
         let amp = 0
         let off = 0
-        if (limits.length > 0) {
+        if ( limits.length > 2) {
             // 1st pass to get offset
             let sum = 0
-            for (let i = 0; i < limits.length; i++) {
+            let n = 0
+            // use balanced pairs (skipping first limit if length is odd)
+            for (let i = limits.length % 2; i < limits.length; i++) {
                 sum += limits[i].value
+                n++
             }
-            off = sum / limits.length
+            off = sum / n
 
-            // 2nd pass to get amplitude
+            // 2nd pass uses offset to give amplitude 
             sum = 0
             for (let j = 0; j < limits.length; j++) {
                 sum += Math.abs(limits[j].value - off)
@@ -299,16 +302,14 @@ namespace heading {
     export function degrees(): number {
         let uRaw = 0
         let vRaw = 0
-        if (!turning) {
+        if (testing) {
             uRaw = zData[test]
             vRaw = xData[test]
-            test++
+            test += 20
             if (test == zData.length) test = 0 // roll round
         } else {
             uRaw = input.magneticForce(uDim)
             vRaw = input.magneticForce(vDim)
-            //uRaw = input.magneticForce(Dimension.Z)
-            //uRaw = input.magneticForce(Dimension.X)
         }
         let u = uRaw - uOff
         let v = vRaw - vOff

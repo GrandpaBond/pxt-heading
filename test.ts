@@ -23,22 +23,11 @@ input.onButtonPressed(Button.B, function () {
 })
 
 
-input.onButtonPressed(Button.AB, function () {
-    basic.showIcon(IconNames.Heart)
-    //meter.use(meter.Styles.Dial, 0, 360)
-    while (test < 50) {
-        let compass = heading.degrees()
-        basic.showNumber(Math.floor(compass))
-        basic.pause(100)
-        //meter.show(compass,250)
-    }
-})
-
 input.onLogoEvent(TouchButtonEvent.Pressed, function() {
-    let turn45 = 60000 / (8 * spinRPM)
-    for (let i = 0; i < 8 ; i ++) {
+    let turn30 = 60000 / (12 * spinRPM) // time to turn 30 degrees
+    for (let i = 0; i < 24 ; i ++) {  // twice round the clock
         Kitronik_Move_Motor.spin(Kitronik_Move_Motor.SpinDirections.Right, 30)
-        basic.pause(turn45)
+        basic.pause(turn30)
         Kitronik_Move_Motor.stop()
         let compass = heading.degrees()
         basic.showNumber(Math.floor(compass))
@@ -46,8 +35,7 @@ input.onLogoEvent(TouchButtonEvent.Pressed, function() {
     }
 })
 
-let testing = false
-let turning = true
+let testing = true
 let test = 0
 let spinRPM = 0
 basic.pause(1000)
