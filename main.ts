@@ -13,6 +13,15 @@ namespace heading {
     let magScale = 1
     let reversed = false
     let plane = "??"
+    class Axis {
+        dim: number
+        bias: number
+        amp: number
+        time0: number
+        peak0: number
+        period: number
+
+    }
 
     // a Limit is a [time,value] duple
     class Limit {
