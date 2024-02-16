@@ -69,6 +69,9 @@ namespace heading {
     // Assuming the buggy is currently spinning on the spot, capture a time-stamped sequence
     // of magnetometer readings into four internal arrays: times[], xVals[], yVals[] & zVals[],
     // sampled every ~30 ms over the specified duration (which should be at least a second)
+    // A clockwise scan should start with the buggy pointing roughly NW, so that it passes
+    // N before E, W or S.
+    
     export function scan(duration: number) {
         basic.showNumber(xData.length)
         let now = input.runningTime()
@@ -260,30 +263,7 @@ namespace heading {
 
         // From now on, we work with the projection of the magnetic flux vector 
         // onto the selected [U,V] plane.
-        // Compass-headings will be based on the strongest component (U),
-        // so North equates to a positive maximum in U and a near-zero value of V.
-        // Set up the normalisation factor to balance U & V projection components,
-        // so that North-East equates to equal positive values of U & V
-        magScale = uAmp / vAmp
-
-        // Use the quadrant phasing of the limits[] vectors to check the sequencing 
-        // of N-E-S-W compass points. If the magnetometer is mounted upside-down,
-        // it will sense flux rotating in the opposite sense to the buggy's actual rotation.
-        // (The scan data obvioulsy also depends on that original rotation direction)
-        //          uLimits:     + 0 - 0 + 0 - 0        + 0 - 0 + 0 - 0         
-        //          vLimits:     0 - 0 + 0 - 0 +        0 + 0 - 0 + 0 -
-        //          heading:     N E S W N E S W        N W S E N W S E 
-        // Scanned clockwise?	   matches buggy          reversed sense
-        // Scanned anticlockwise?  reversed sense         matches buggy
-
-        // see if uDim leads or trails vDim (normally we'd expect to encounter limits with opposite signs)
-        if (uLimits[0].value * vLimits[0].value < 0) {
-            reversed = !clockwise
-        } else {
-            reversed = clockwise
-        }
-
-
+  
         // Each limits vector comprises alternate hi & lo values, half a cycle apart
         // Add the averaged semi-cycles from each dimension to get an average full period
         let uSpans = uLimits.length - 1
@@ -291,6 +271,57 @@ namespace heading {
         let uSemi = (uLimits[uSpans].time - uLimits[0].time) / uSpans
         let vSemi = (vLimits[vSpans].time - vLimits[0].time) / vSpans
         let period = uSemi + vSemi
+
+        // For a clockwise scan, the maths requires the U-dim to lead the V-dim by 90 degrees
+        // (so that when U = 2*V and both are positive we get +60 degrees).
+        // Check the timings and, if necessary, swap the major/minor dimensions:
+        let uTime = uLimits[0].time
+        let uValue = uLimits[0].value
+        let vTime = vLimits[0].time
+        let vValue = vLimits[0].value
+        if (uLimits[0].time < vLimits[0].time) {
+            let temp = uOff
+            uOff = vOff
+            vOff = temp
+
+            temp = uAmp
+            uAmp = vAmp
+            vAmp = temp
+
+            temp = uTime
+            uTime = vTime
+            vTime = temp
+
+            temp = uValue
+            uValue = vValue
+            vValue = temp
+        }
+        // Also check polarities of these first limits in case the microbit is mounted backwards
+        let quadOffset = 0
+        if (uValue > vValue) quadOffset += 180
+        if (Math.abs(uValue) > Math.abs(vValue)) quadOffset += 90
+        
+
+
+        // Set up the normalisation factor to balance U & V projection components,
+
+        // Use the quadrant phasing of the limits[] vectors to check the sequencing 
+        // of N-E-S-W compass points. 
+        // (The scan data obviously also depends on that original rotation direction)
+        //          uLimits:     0 + 0 - 0 + 0 -        0 - 0 + 0 - 0 +         
+        //          vLimits:     + 0 - 0 + 0 - 0        - 0 + 0 - 0 + 0
+        //          heading:     N E S W N E S W        N W S E N W S E 
+        // Scanned clockwise?	   matches buggy          reversed sense
+        // Scanned anticlockwise?  reversed sense         matches buggy
+
+        // see if uDim leads or trails vDim (normally we'd expect to encounter limits with opposite signs)
+        if (uLimits[0].value * vLimits[0].value < 0) {
+            magScale = uAmp / vAmp
+            reversed = !clockwise
+        } else {
+            reversed = clockwise
+        }
+
 
 
         // return RPM of original scan    
