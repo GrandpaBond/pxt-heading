@@ -13,6 +13,7 @@ namespace heading {
     let magScale = 1
     let reversed = false
     let plane = "??"
+
     class Axis {
         dim: number
         bias: number
@@ -21,6 +22,28 @@ namespace heading {
         peak0: number
         period: number
 
+        checkLimits(dim: number, limits: Limit[]) {
+         this.dim = dim
+         this.amp = 0 
+         this.off = 0 
+         if ( limits.length > 2) { 
+             // 1st pass to get offset 
+             let sum = 0 
+             let n = 0 
+             // use balanced pairs (skipping first limit if length is odd) 
+             for (let i = limits.length % 2; i < limits.length; i++) { 
+                 sum += limits[i].value 
+                 n++ 
+             } 
+             this.off = sum / n 
+  
+             // 2nd pass uses offset to give amplitude  
+             sum = 0 
+             for (let j = 0; j < limits.length; j++) { 
+                 sum += Math.abs(limits[j].value - off) 
+             } 
+             this.amp = sum / limits.length 
+         } 
     }
 
     // a Limit is a [time,value] duple
