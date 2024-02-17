@@ -15,7 +15,8 @@ namespace heading {
     // an Axis holds characteristics of one magnetometer axis
     class Axis {
         dim: number // the dimension this axis is describing (X=0;Y=1;Z=2)
-        bias: number // the fixed offset to centre the scanned wave-form
+        scanData: number[] // sequence of readings comprising the scanned wave-form
+        bias: number // the fixed offset to re-centre the scanned wave-form
         amp: number  // the average amplitude of the scanned wave-form
         limits: Limit[] // the array of local extremes detected
         time0: number   // the timestamp of the first limit == Limit[0].time
@@ -82,16 +83,12 @@ namespace heading {
     }
 
     // GLOBALS
-    let xWave: number[] = []
-    let yWave: number[] = []
-    let zWave: number[] = []
-    let stamp: number[] = []
+    let stamp: number[] = [] // sequence of time-stamps for Axis.scanData readings 
 
-    let uDim = Dimension.X
-    let vDim = Dimension.Z
-    let uOff = 0
-    let vOff = 0
-    let magScale = 1
+    let uDim = Dimension.X // the horizontal axis for North vector
+    let vDim = Dimension.Z // the vertical axis for North vector
+    
+    
     let reversed = false
     let plane = "??"
     let quadrantOffset = 0
@@ -120,9 +117,10 @@ namespace heading {
         let now = input.runningTime()
         let finish = now + duration
         while (now < finish) {
-            xData.push(input.magneticForce(Dimension.X))
-            yData.push(input.magneticForce(Dimension.Y))
-            zData.push(input.magneticForce(Dimension.Z))
+                            axes[0].scanData.push(input.magneticForce(0))
+          axes[1].scanData.push(input.magneticForce(1))
+          axes[2].scanData.push(input.magneticForce(2))
+    
             stamp.push(now)
             basic.pause(25)
             now = input.runningTime()
