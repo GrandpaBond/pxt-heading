@@ -15,7 +15,7 @@ namespace heading {
     // an Axis holds characteristics of one magnetometer axis
     class Axis {
         dim: number // the dimension this axis is describing (X=0;Y=1;Z=2)
-        scanData: number[] // sequence of readings comprising the scanned wave-form
+        wave: number[] // sequence of readings comprising the scanned wave-form
         bias: number // the fixed offset to re-centre the scanned wave-form
         amp: number  // the average amplitude of the scanned wave-form
         limits: Limit[] // the array of local extremes detected
@@ -28,8 +28,8 @@ namespace heading {
         }
 
         // method to extract Limits from a scanned wave-form
-        findLimits(wave: number[], stamp: number[]) {
-            let diffNow = wave[2] * 6
+        findLimits(stamp: number[]) {
+            let diffNow = this.wave[2] * 6
             let diffWas = diffNow
             let then = stamp[0] - 100
             for (let i = 2; i <= stamp.length - 3; i++) {
