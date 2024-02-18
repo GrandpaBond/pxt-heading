@@ -15,7 +15,6 @@ namespace heading {
     // an Axis holds characteristics of one magnetometer axis
     class Axis {
         dim: number // the dimension this axis is describing (X=0;Y=1;Z=2)
-        wave: number[] // sequence of readings comprising the scanned wave-form
         bias: number // the fixed offset to re-centre the scanned wave-form
         amp: number  // the average amplitude of the scanned wave-form
         limits: Limit[] // the array of local extremes detected
@@ -27,8 +26,17 @@ namespace heading {
            this.dim = dim
         }
 
-        // method to extract Limits from a scanned wave-form
-        findLimits(stamp: number[]) {
+        // Method to extract Limits from a sequence of readings comprising the scanned wave-form
+        // (To cure jitter, each reading is a rolling sum of three consecutive readings) 
+        // For each dimension, extract the times and smoothed values of the local maxima and minima.
+        
+        // For element c in [...a,b,c,d,e...], we take the sum & difference of (a+b+c) and (c+d+e).
+        // Wherever the difference (c+d+e)-(a+b+c) changes sign we record a Limit: a duple object
+        // comprising the time-stamp, and the smoothed peak value: (c+d+e)+(a+b+c).
+        // But the Data array already contains the rolling sums (a+b+c), (b+c+d), (c+d+e) etc,
+        // so we merely need to take the sums and differences of data-elements two apart.
+
+        findLimits(stamp: number[], wave: number[]) {
             let diffNow = this.wave[2] * 6
             let diffWas = diffNow
             let then = stamp[0] - 100
@@ -83,15 +91,20 @@ namespace heading {
     }
 
     // GLOBALS
-    let stamp: number[] = [] // sequence of time-stamps for Axis.scanData readings 
-
+    let stamp: number[] = [] // sequence of time-stamps for scanned readings 
+    let xScanData: number[] = [] // scanned sequence of magnetometer X-Axis readings 
+    let yScanData: number[] = [] // scanned sequence of magnetometer Y-Axis readings
+    let zScanData: number[] = [] // scanned sequence of magnetometer Z-Axis readings  
+    let axes: Axis[] = []
+    axes.push(new Axis(0)) // X
+    axes.push(new Axis(1)) // Y
+    axes.push(new Axis(2)) // Z
+    
     let uDim = Dimension.X // the horizontal axis for North vector
     let vDim = Dimension.Z // the vertical axis for North vector
     
-    
     let reversed = false
     let plane = "??"
-    let quadrantOffset = 0
 
 
 
@@ -111,19 +124,41 @@ namespace heading {
     // sampled every ~30 ms over the specified duration (which should be at least a second)
     // A clockwise scan should start with the buggy pointing roughly NW, so that it passes
     // N before E, W or S.
+    // (To cure jitter, each reading is always a rolling sum of three consecutive readings)
     
     export function scan(duration: number) {
         basic.showNumber(xData.length)
         let now = input.runningTime()
         let finish = now + duration
+        let sum = 0
+        // take the first couple of readings...
+        xRoll.push(input.magneticForce(0))
+        yRoll.push(input.magneticForce(1))
+        zRoll.push(input.magneticForce(2))
+        basic.pause(25)
+        xRoll.push(input.magneticForce(0))
+        yRoll.push(input.magneticForce(1))
+        zRoll.push(input.magneticForce(2))
+        // continue cranking out rolling sums, adding a new reading and dropping the oldest
         while (now < finish) {
-                            axes[0].scanData.push(input.magneticForce(0))
-          axes[1].scanData.push(input.magneticForce(1))
-          axes[2].scanData.push(input.magneticForce(2))
-    
-            stamp.push(now)
-            basic.pause(25)
             now = input.runningTime()
+            stamp.push(now) // the time of the middle readings (roughly)
+            basic.pause(25)
+            xRoll.push(input.magneticForce(0))
+            yRoll.push(input.magneticForce(1))
+            zRoll.push(input.magneticForce(2))
+            sum = 0
+            xRoll.forEach(a => sum += a)
+            xRoll.shift() 
+            xData.push(sum)
+            sum = 0
+            yRoll.forEach(a => sum += a)
+            yRoll.shift()
+            yData.push(sum)
+            sum = 0
+            zRoll.forEach(a => sum += a)
+            zRoll.shift()   
+            zData.push(sum)  
         }
     }
 
@@ -145,11 +180,7 @@ namespace heading {
             return -1 // "NOT ENOUGH SCAN DATA"
         }
 
-        // For each dimension, extract the times and smoothed values of the local maxima and minima.
-        // For element c in [...a,b,c,d,e...], we take the sum & difference of (a+b+c) and (c+d+e).
-        // Wherever the difference (c+d+e)-(a+b+c) changes sign we record a Limit: a duple object
-        // comprising the time-stamp, and the smoothed peak value: (c+d+e)+(a+b+c)
-
+       
         let diffNow = xData[2] * 6 
         let diffWas = diffNow
         let then = stamp[0] - 101
@@ -160,68 +191,10 @@ namespace heading {
         datalogger.mirrorToSerial(true)
         //datalogger.setColumnTitles("xt", "xlim", "yt", "ylim", "zt", "zlim", )
 
-        for (let k = 2; k <= stamp.length - 3; k++) {
-            behind = xData[k] + xData[k - 1] + xData[k - 2]
-            ahead = xData[k] + xData[k + 1] + xData[k + 2]
-            diffWas = diffNow
-            diffNow = ahead - behind
-            // an inflection-point is where the difference crosses zero,  
-            // (so its sign changes and the product will be negative).
-            // This test fails for exactly zero, so nudge zeroes negative
-            if (diffNow == 0) diffNow = -0.1
-            // Also disallow incomplete element 2, or any too-close crossings 
-            // (arising from to jitter) 
-            // 
-            if ((diffWas * diffNow < 0) && (k > 2) &&((stamp[k] - then) > 100)){
-                let maybe = new Limit
-                maybe.value = (ahead + behind) / 6 // double weight to [k] at centre of 5
-                maybe.time = stamp[k]
-                then = stamp[k]
-                xLimits.push(maybe)
-                //datalogger.log( datalogger.createCV("xt", maybe.time),
-                //                datalogger.createCV("xlim", maybe.value))
-            }
-        }
-
-        diffNow = yData[2] * 6 
-        diffWas = diffNow
-        then = stamp[0] - 20
-        for (let l = 2; l <= stamp.length - 3; l++) {
-            behind = yData[l] + yData[l - 1] + yData[l - 2]
-            ahead = yData[l] + yData[l + 1] + yData[l + 2]
-            diffWas = diffNow
-            diffNow = ahead - behind
-            if (diffNow == 0) diffNow = -0.1
-            if ((diffWas * diffNow < 0) && (l > 2) && ((stamp[l] - then) > 100)) {
-                let maybe = new Limit
-                maybe.value = (ahead + behind) / 6
-                maybe.time = stamp[l]
-                then = stamp[l]
-                yLimits.push(maybe)
-                //datalogger.log( datalogger.createCV("yt", maybe.time),
-                //                datalogger.createCV("ylim", maybe.value))
-            }
-        }
-
-        diffNow = zData[2]
-        diffWas = diffNow
-        then = stamp[0] - 20
-        for (let m = 2; m <= stamp.length - 3; m++) {
-            behind = zData[m] + zData[m - 1] + zData[m - 2]
-            ahead = zData[m] + zData[m + 1] + zData[m + 2]
-            diffWas = diffNow
-            diffNow = ahead - behind
-            if (diffNow == 0) diffNow = -0.1
-            if ((diffWas * diffNow < 0) && (m > 2) && ((stamp[m] - then) > 100)) {
-                let maybe = new Limit
-                maybe.value = (ahead + behind) / 6
-                maybe.time = stamp[m]
-                then = stamp[m]
-                zLimits.push(maybe)
-                //datalogger.log( datalogger.createCV("zt", maybe.time),
-                //                datalogger.createCV("zlim", maybe.value))
-            }
-        }
+        axes[0].findLimits(stamp, xData)
+        axes[1].findLimits(stamp, yData)
+        axes[2].findLimits(stamp, zData)
+        
         // we've now finished with the raw scan data
         if (!testing) {
             stamp = []
@@ -321,18 +294,16 @@ namespace heading {
         let vTime = vLimits[0].time
         let vValue = vLimits[0].value
         if (uLimits[0].time < vLimits[0].time) {
+            // swap axes
             let temp = uOff
             uOff = vOff
             vOff = temp
-
             temp = uAmp
             uAmp = vAmp
             vAmp = temp
-
             temp = uTime
             uTime = vTime
             vTime = temp
-
             temp = uValue
             uValue = vValue
             vValue = temp
@@ -370,22 +341,29 @@ namespace heading {
 
     }
 
-    // read the magnetometer and return the current heading in degrees from North
+    // read the magnetometer (three times) and return the current heading in degrees from North
     export function degrees(): number {
         let uRaw = 0
         let vRaw = 0
-        if (testing) {
-            uRaw = xData[test]  // prior knowledge U=X & V=Z!
-            vRaw = zData[test]
+        if (testing) { // NOTE: prior knowledge U=X & V=Z !
+            uRaw = xData[test] + xData[test+1] + xData[test+2] 
+            vRaw = zData[test] + zData[test+1] + zData[test+2]
             test += 5
-            if (test > zData.length) test = 0 // roll round
+            if (test > xData.length-2) test = 0 // roll round
         } else {
+            // get a rolling sum of three readings
             uRaw = input.magneticForce(uDim)
             vRaw = input.magneticForce(vDim)
+            basic.pause(5)
+            uRaw += input.magneticForce(uDim)
+            vRaw += input.magneticForce(vDim)
+            basic.pause(5)
+            uRaw += input.magneticForce(uDim)
+            vRaw += input.magneticForce(vDim)
         }
-        let u = uRaw - uOff
-        let v = vRaw - vOff
-        let val = 57.29578 * Math.atan2(u, v * magScale)
+        let u = (uRaw - axes[uDim].bias) / axes[uDim].amp
+        let v = (vRaw - axes[vDim].bias) / axes[vDim].amp
+        let val = 57.29578 * Math.atan2(u, v)
         if (reversed) {
             val = 360 - val // sensor upside-down
         }
@@ -396,34 +374,7 @@ namespace heading {
             datalogger.createCV("val", val))
         return (val + 360) % 360
     }
-    // read the magnetometer and return the current heading in degrees from North
-    export function degrees2(): number {
-        let uRaw = 0
-        let vRaw = 0
-        if (testing) {
-            uRaw = xData[test]  // prior knowledge U=X & V=Z!
-            vRaw = zData[test]
-            test += 5
-            if (test > zData.length) test = 0 // roll round
-        } else {
-            uRaw = input.magneticForce(uDim)
-            vRaw = input.magneticForce(vDim)
-        }
-        let u = uRaw - axes[uDim].bias
-        let v = vRaw - axes[vDim].bias
-        let val = 57.29578 * Math.atan2(u, v * magScale)
-        if (reversed) {
-            val = 360 - val // sensor upside-down
-        }
-        return (val + quadOffset + 360) % 360
-        datalogger.log(datalogger.createCV("uRaw", uRaw),
-            datalogger.createCV("vRaw", vRaw),
-            datalogger.createCV("u", u),
-            datalogger.createCV("v", v),
-            datalogger.createCV("val", val))
-        return (val + 360) % 360
-    }
-
+    
     /*export function dumpData() {
         datalogger.deleteLog()
         datalogger.setColumnTitles("t","x","y","z")
@@ -446,16 +397,4 @@ namespace heading {
                 datalogger.createCV("v", vLimits[o].value))
         }
     }
-
-    let xLimits: Limit[] = []
-    let yLimits: Limit[] = []
-    let zLimits: Limit[] = []
-    let uLimits: Limit[] = []
-    let vLimits: Limit[] = []
-
-    let axes: Axis[] = []
-    axes.push(new Axis(0)) // X
-    axes.push(new Axis(1)) // Y
-    axes.push(new Axis(2)) // Z
-
 }
