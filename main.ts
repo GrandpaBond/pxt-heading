@@ -26,66 +26,51 @@ namespace heading {
            this.dim = dim
         }
 
-        // Method to extract Limits from a sequence of readings comprising the scanned wave-form
-        // (To cure jitter, each reading is a rolling sum of three consecutive readings) 
-        // For each dimension, extract the times and smoothed values of the local maxima and minima.
-        
-        // For element c in [...a,b,c,d,e...], we take the sum & difference of (a+b+c) and (c+d+e).
-        // Wherever the difference (c+d+e)-(a+b+c) changes sign we record a Limit: a duple object
-        // comprising the time-stamp, and the smoothed peak value: (c+d+e)+(a+b+c).
-        // But the Data array already contains the rolling sums (a+b+c), (b+c+d), (c+d+e) etc,
-        // so we merely need to take the sums and differences of data-elements two apart.
-
+        // Method to extract local maxima and minima from a sequence of scanned wave-form readings
+        // For element [d] in [...a,b,c,d,e,f,g...], we multiply the averaged slope behind it
+        // (given by [d]-[a]), with the slope ahead (given by [g]-[d]). 
+        // Whenever the sign of the slopechanges (i.e this product is negative) we record a Limit: 
+        // a duple object comprising the peak value [d], together with its time-stamp.
         findLimits(stamp: number[], wave: number[]) {
-            let diffNow = this.wave[2] * 6
-            let diffWas = diffNow
             let then = stamp[0] - 100
-            for (let i = 2; i <= stamp.length - 3; i++) {
-                let behind = wave[i] + wave[i - 1] + wave[i - 2]
-                let ahead = wave[i] + wave[i + 1] + wave[i + 2]
-                diffWas = diffNow
-                diffNow = ahead - behind
-            // An inflection-point is where the difference crosses zero:
-            // its sign has changed, so the product will be negative.
-            // This test fails for exact zeroes, so nudge them negative
-                if (diffNow == 0) diffNow = -0.1
-                if ((diffWas * diffNow < 0) 
-            // Disallow element 2 (for which diffWas is incomplete)... 
-                && (i > 2) 
-            // ...or any too-close crossings, arising from excessive jitter 
-                && ((stamp[i] - then) > 100)) {
+            let this.nLimits = 0
+            // loop through from [d] onwards
+            for (let i = 3; i <= stamp.length - 4; i++) {
+            // An inflection-point is where the product will be negative.
+            // (Ignore any too-close crossings, arising from excessive jitter)
+                if ((wave[i] - wave[i-3) * (wave[i+3] - wave[i] < 0) && ((stamp[i] - then) > 100)) {
                     let newLimit = new Limit
-                    newLimit.value = (ahead + behind) / 6
+                    newLimit.value = wave[i]
                     newLimit.time = stamp[i]
                     then = stamp[i]
                     this.limits.push(newLimit)
+                    this.nLimits++
                 }
             }
 
         }
-        // Use the average of a list of paired limits to get the magnitude and offset
-        // returns [0,0] unless there are at least two of each (resulting from a complete spin)
-
-        checkLimits(dim: number, limits: Limit[]) {
+        // Use the averages of a list of paired limits to set the magnitude and offset.
+        // Returns [0,0] unless there are at least two of each (resulting from a complete spin)
+        checkLimits() {
             this.amp = 0
             this.bias = 0
-            if (limits.length > 2) {
+            if (this.nLimits > 2) {
                 // 1st pass to get offset 
                 let sum = 0
                 let n = 0
                 // use balanced pairs (skipping first limit if length is odd) 
-                for (let i = limits.length % 2; i < limits.length; i++) {
-                    sum += limits[i].value
+                for (let i = this.nLimits % 2; i < this.nLimits; i++) {
+                    sum += this.limits[i].value
                     n++
                 }
                 this.bias = sum / n
 
                 // 2nd pass uses offset to give amplitude  
                 sum = 0
-                for (let j = 0; j < limits.length; j++) {
-                    sum += Math.abs(limits[j].value - this.bias)
+                for (let i = 0; i < this.nLimits; i++) {
+                    sum += Math.abs(this.limits[i].value - this.bias)
                 }
-                this.amp = sum / limits.length
+                this.amp = sum / this.nLimits
             }
         }
     }
