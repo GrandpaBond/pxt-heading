@@ -35,7 +35,7 @@ input.onLogoEvent(TouchButtonEvent.Pressed, function() {
     }
 })
 
-let testing = false
+let testing = true
 let test = 0
 let spinRPM = 0
 basic.pause(1000)

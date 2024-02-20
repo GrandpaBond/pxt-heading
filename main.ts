@@ -1,22 +1,9 @@
 namespace heading {
-    enum Dim {
+    enum Dim { // ...for brevity
         X = Dimension.X,
         Y = Dimension.Y,
-        Z = Dimension.Z,
-        U = -1,
-        V = -1
+        Z = Dimension.Z
     }
-
-    let xLimits: Limit[] = []
-    let yLimits: Limit[] = []
-    let zLimits: Limit[] = []
-    let uLimits: Limit[] = []
-    let vLimits: Limit[] = []
-
-    let axes: Axis[] = []
-    axes.push(new Axis(0)) // X
-    axes.push(new Axis(1)) // Y
-    axes.push(new Axis(2)) // Z
 
     // OBJECT CLASSES 
     // a Limit is a local minimum or maximum in a scanned array of readings 
@@ -47,12 +34,12 @@ namespace heading {
         }
 
         // Method to characterise the scanData for each axis
+        analyse(timeStamp: number[], scanData: number[]) {
         // First we extract local maxima and minima from a sequence of scanned wave-form readings
         // For element [d] in [...a,b,c,d,e,f,g...], we multiply the averaged slope behind it
         // (given by [d]-[a]), with the slope ahead (given by [g]-[d]). 
         // Whenever the sign of the slopechanges (i.e this product is negative) we record a Limit: 
         // a duple object comprising the peak value [d], together with its time-stamp.
-        findLimits(timeStamp: number[], scanData: number[]) {
             this.nLimits = 0
             let then = timeStamp[0] - 100
             // loop through from [d] onwards
@@ -69,10 +56,8 @@ namespace heading {
                 }
             }
 
-        }
-        // Use the averages of a list of paired limits to set the magnitude and offset.
-        // Returns [0,0] unless there are at least two of each (resulting from a complete spin)
-        checkLimits() {
+        // Use the averages of paired limits to set the magnitude and offset.
+        // Needs at least two of each (resulting from a complete spin)
             this.amp = 0
             this.bias = 0
             if (this.nLimits > 2) {
@@ -93,6 +78,10 @@ namespace heading {
                 }
                 this.amp = sum / this.nLimits
             }
+
+        // work out the periodicity
+            let spans = this.nLimits - 1
+            this.period = 2* (this.limits[spans].time - this.limits[0].time) / spans
         }
     }
 
@@ -102,14 +91,16 @@ namespace heading {
     let xScanData: number[] = [] // scanned sequence of magnetometer X-Axis readings 
     let yScanData: number[] = [] // scanned sequence of magnetometer Y-Axis readings
     let zScanData: number[] = [] // scanned sequence of magnetometer Z-Axis readings  
+    
     let axes: Axis[] = []
-    axes.push(new Axis(0)) // X
-    axes.push(new Axis(1)) // Y
-    axes.push(new Axis(2)) // Z
+    axes.push(new Axis(Dim.X))
+    axes.push(new Axis(Dim.Y))
+    axes.push(new Axis(Dim.Z))
     
-    let uDim = Dimension.X // the horizontal axis for North vector
-    let vDim = Dimension.Z // the vertical axis for North vector
+    let uDim = -1 // will hold the horizontal axis for North vector
+    let vDim = -1 // will hold the vertical axis for North vector
     
+    let quadOffset = 0
     let reversed = false
     let plane = "??"
 
@@ -134,10 +125,12 @@ namespace heading {
     // (To cure jitter, each reading is always a rolling sum of three consecutive readings)
     
     export function scan(duration: number) {
-        basic.showNumber(xData.length)
         let now = input.runningTime()
         let finish = now + duration
         let sum = 0
+        let xRoll: number[] = []
+        let yRoll: number[] = []
+        let zRoll: number[] = []
         // take the first couple of readings...
         xRoll.push(input.magneticForce(0))
         yRoll.push(input.magneticForce(1))
@@ -177,30 +170,18 @@ namespace heading {
     // returns the (quite interesting) RPM of the original scan (or a negative error-code)
     export function prepare(clockwise: boolean): number {
 
-        let uAmp = 0
-        let vAmp = 0
-        let uOff2 = 0
-        let vOff2 = 0
-
         // we need at least a second's worth of readings...
         if (scanTimes.length < 40) {
             return -1 // "NOT ENOUGH SCAN DATA"
         }
 
-       
-        let diffNow = xData[2] * 6 
-        let diffWas = diffNow
-        let then = scanTimes[0] - 101
-        let ahead = 0
-        let behind = 0
+        // datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
+        // datalogger.mirrorToSerial(true)
+        // datalogger.setColumnTitles("xt", "xlim", "yt", "ylim", "zt", "zlim", )
 
-        datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
-        datalogger.mirrorToSerial(true)
-        //datalogger.setColumnTitles("xt", "xlim", "yt", "ylim", "zt", "zlim", )
-
-        axes[0].findLimits(scanTimes, xData)
-        axes[1].findLimits(scanTimes, yData)
-        axes[2].findLimits(scanTimes, zData)
+        axes[0].analyse(scanTimes, xScanData)
+        axes[1].analyse(scanTimes, yScanData)
+        axes[2].analyse(scanTimes, zScanData)
         
 
         // To guarantee an example of a maximum and a minimum in each dimension, we
@@ -209,72 +190,31 @@ namespace heading {
             return -2  // "NOT ENOUGH SCAN ROTATION"
         }
 
-        // characterise each dim for normalisation purposes
-        axes[0].analyse(scanTimes, xScanData)
-        axes[1].analyse(scanTimes, yScanData)
-        axes[2].analyse(scanTimes, zScanData)
-
-        // choose the two dimensions showing the biggest amplitude
-        let hi = Math.max(axes[X].amp, axes[Y].amp, axes[Z].amp)
-        let lo = Math.min(axes[X].amp, axes[Y].amp, axes[Z].amp)
+        // Choose the two dimensions showing the biggest amplitudes. From now on, we work
+        // with the projection of the magnetic flux vector onto the selected [U,V] plane.
+        let hi = Math.max(axes[Dim.X].amp, Math.max(axes[Dim.Y].amp, axes[Dim.Z].amp))
+        let lo = Math.min(axes[Dim.X].amp, Math.max(axes[Dim.Y].amp, axes[Dim.Z].amp))
         uDim = axes.find(i => i.amp === hi).dim
         vDim = axes.find(i => (i.amp != hi) && (i.amp != lo)).dim
 
-        // From now on, we work with the projection of the magnetic flux vector 
-        // onto the selected [U,V] plane.
-  
-        // Each limits vector comprises alternate hi & lo values, half a cycle apart
-        // Add the averaged semi-cycles from each dimension to get an average full period
-        let uSpans = uLimits.length - 1
-        let vSpans = vLimits.length - 1
-        let uSemi = (uLimits[uSpans].time - uLimits[0].time) / uSpans
-        let vSemi = (vLimits[vSpans].time - vLimits[0].time) / vSpans
-        let period = uSemi + vSemi
-
         // For a clockwise scan, the maths requires the U-dim to lead the V-dim by 90 degrees
         // (so that e.g. when U = 2*V and both are positive we get +60 degrees).
-        // Check the timings and, if necessary, swap the major/minor dimensions:
-        let uTime = uLimits[0].time
-        let uValue = uLimits[0].value
-        let vTime = vLimits[0].time
-        let vValue = vLimits[0].value
-        if (uLimits[0].time < vLimits[0].time) {
-            // swap axes
+        // Check the timings of their first limits and, if necessary, swap the major/minor dimensions:
+        if (axes[uDim].limits[0].time < axes[vDim].limits[0].time) {
             let temp = uDim
             uDim = vDim
             vDim = temp
         }
 
         // Also check polarities of these first limits in case the microbit is mounted backwards
-        let quadOffset = 0
-        if (uValue > vValue) quadOffset += 180
-        if (Math.abs(uValue) > Math.abs(vValue)) quadOffset += 90
-        
-
-
-        // Set up the normalisation factor to balance U & V projection components,
-
-        // Use the quadrant phasing of the limits[] vectors to check the sequencing 
-        // of N-E-S-W compass points. 
-        // (The scan data obviously also depends on that original rotation direction)
-        //          uLimits:     0 + 0 - 0 + 0 -        0 - 0 + 0 - 0 +         
-        //          vLimits:     + 0 - 0 + 0 - 0        - 0 + 0 - 0 + 0
-        //          heading:     N E S W N E S W        N W S E N W S E 
-        // Scanned clockwise?	   matches buggy          reversed sense
-        // Scanned anticlockwise?  reversed sense         matches buggy
-
-        // see if uDim leads or trails vDim (normally we'd expect to encounter limits with opposite signs)
-        if (uLimits[0].value * vLimits[0].value < 0) {
-            magScale = uAmp / vAmp
-            reversed = !clockwise
-        } else {
-            reversed = clockwise
-        }
-
-
+        quadOffset = 0
+        let uVal = axes[uDim].limits[0].value
+        let vVal = axes[vDim].limits[0].value
+        if (uVal > vVal) quadOffset += 180
+        if (Math.abs(uVal) > Math.abs(vVal)) quadOffset += 90
 
         // return RPM of original scan    
-        return 60000 / period
+        return 60000 / axes[uDim].period
 
     }
 
@@ -283,10 +223,10 @@ namespace heading {
         let uRaw = 0
         let vRaw = 0
         if (testing) { // NOTE: prior knowledge U=X & V=Z !
-            uRaw = xData[test] + xData[test+1] + xData[test+2] 
-            vRaw = zData[test] + zData[test+1] + zData[test+2]
+            uRaw = xScanData[test] + xScanData[test + 1] + xScanData[test+2]
+            vRaw = zScanData[test] + zScanData[test + 1] + zScanData[test+2]
             test += 5
-            if (test > xData.length-2) test = 0 // roll round
+            if (test > xScanData.length-2) test = 0 // roll round
         } else {
             // get a rolling sum of three readings
             uRaw = input.magneticForce(uDim)
@@ -298,40 +238,29 @@ namespace heading {
             uRaw += input.magneticForce(uDim)
             vRaw += input.magneticForce(vDim)
         }
-        let u = (uRaw - axes[uDim].bias) / axes[uDim].amp
-        let v = (vRaw - axes[vDim].bias) / axes[vDim].amp
-        let val = 57.29578 * Math.atan2(u, v)
+        // normalise the horizontal & vertical components
+        let uPart = (uRaw - axes[uDim].bias) / axes[uDim].amp
+        let vPart = (vRaw - axes[vDim].bias) / axes[vDim].amp
+        let val = 57.29578 * Math.atan2(uPart, vPart) + quadOffset
         if (reversed) {
             val = 360 - val // sensor upside-down
         }
         datalogger.log(datalogger.createCV("uRaw", uRaw),
             datalogger.createCV("vRaw", vRaw),
-            datalogger.createCV("u", u),
-            datalogger.createCV("v", v),
+            datalogger.createCV("u", uPart),
+            datalogger.createCV("v", vPart),
             datalogger.createCV("val", val))
         return (val + 360) % 360
     }
     
-    /*export function dumpData() {
+    export function dumpData() {
         datalogger.deleteLog()
         datalogger.setColumnTitles("t","x","y","z")
-        for (let i = 0; i < stamp.length; i++) {
-            datalogger.log(datalogger.createCV("t", stamp[i]),
-                            datalogger.createCV("x", xData[i]),
-                            datalogger.createCV("y", yData[i]),
-                            datalogger.createCV("z", zData[i]))
-        }
-    */
-
-    export function dumpLimits() {
-        datalogger.deleteLog()
-        datalogger.mirrorToSerial(true)
-        datalogger.setColumnTitles("ut", "u", "vt", "v")
-        for (let o = 0; o < scanTimes.length; o++) {
-            datalogger.log(datalogger.createCV("ut", uLimits[o].time),
-                datalogger.createCV("u", uLimits[o].value),
-                datalogger.createCV("vt", vLimits[o].time),
-                datalogger.createCV("v", vLimits[o].value))
+        for (let i = 0; i < scanTimes.length; i++) {
+            datalogger.log(datalogger.createCV("t", scanTimes[i]),
+                            datalogger.createCV("x", xScanData[i]),
+                            datalogger.createCV("y", yScanData[i]),
+                            datalogger.createCV("z", zScanData[i]))
         }
     }
 }
