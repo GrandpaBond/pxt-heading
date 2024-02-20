@@ -31,6 +31,7 @@ namespace heading {
        constructor(dim: Dim) {
        // dim should be redundant, as it always matches index as axes[] array is built
            this.dim = dim
+           this.limits = []
         }
 
         // Method to characterise the scanData for each axis
