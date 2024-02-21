@@ -61,10 +61,10 @@ namespace heading {
             }
 
         // Use the averages of paired limits to set the magnitude and offset.
-        // Needs at least two of each (resulting from a complete spin)
+        // Needs at least three of each (resulting from a complete spin)
             this.amp = 0
             this.bias = 0
-            if (this.nLimits > 2) {
+            if (this.nLimits > 3) {
                 // 1st pass to get offset 
                 let sum = 0
                 let n = 0
@@ -188,20 +188,21 @@ namespace heading {
         
 
         // To guarantee an example of a maximum and a minimum in each dimension, we
-        // need to hace scanned at least one and a bit full revolutions of the buggy...
-        if ((axes[0].nLimits < 2) || (axes[1].nLimits < 2) || (axes[2].nLimits < 2)) {
+        // need to have scanned at least one and a bit full revolutions of the buggy...
+        if ((axes[0].nLimits < 3) || (axes[1].nLimits < 3) || (axes[2].nLimits < 3)) {
             return -2  // "NOT ENOUGH SCAN ROTATION"
         }
 
         // Choose the two dimensions showing the biggest amplitudes. From now on, we work
         // with the projection of the magnetic flux vector onto the selected [U,V] plane.
         let hi = Math.max(axes[Dim.X].amp, Math.max(axes[Dim.Y].amp, axes[Dim.Z].amp))
-        let lo = Math.min(axes[Dim.X].amp, Math.max(axes[Dim.Y].amp, axes[Dim.Z].amp))
+        let lo = Math.min(axes[Dim.X].amp, Math.min(axes[Dim.Y].amp, axes[Dim.Z].amp))
         uDim = axes.find(i => i.amp === hi).dim
         vDim = axes.find(i => (i.amp != hi) && (i.amp != lo)).dim
 
         // For a clockwise scan, the maths requires the U-dim to lead the V-dim by 90 degrees
         // (so that e.g. when U = 2*V and both are positive we get +60 degrees).
+        // From the point of view of a buggy spinning clockwise from ~NW, the North vector appears to rotate anticlockwise, passing the + U axis first, and then the -V axis.
         // Check the timings of their first limits and, if necessary, swap the major/minor dimensions:
         if (axes[uDim].limits[0].time < axes[vDim].limits[0].time) {
             let temp = uDim
@@ -209,9 +210,9 @@ namespace heading {
             vDim = temp
         }
 
-        // Also check polarities of these first limits in case the microbit is mounted backwards
-        quadOffset = 0
-        let uVal = axes[uDim].limits[0].value
+        // Also check the polarities of these first limits in case the microbit is mounted backwards: we expect uVal>0 and vVal<0
+        uFlip = 1
+        if(axes[uDim].limits[0].value>0) uFlip= -1
         let vVal = axes[vDim].limits[0].value
         if (uVal > vVal) quadOffset += 180
         if (Math.abs(uVal) > Math.abs(vVal)) quadOffset += 90
