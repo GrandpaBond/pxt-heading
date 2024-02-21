@@ -104,8 +104,8 @@ namespace heading {
     let uDim = -1 // will hold the horizontal axis for North vector
     let vDim = -1 // will hold the vertical axis for North vector
     
-    let quadOffset = 0
-    let reversed = false
+    let uFlip = 1 // set to -1 if uDim polarity is inverted
+    let vFlip = 1 // set to -1 if vDim polarity is inverted
     let plane = "??"
 
 
@@ -202,34 +202,33 @@ namespace heading {
 
         // For a clockwise scan, the maths requires the U-dim to lead the V-dim by 90 degrees
         // (so that e.g. when U = 2*V and both are positive we get +60 degrees).
-        // From the point of view of a buggy spinning clockwise from ~NW, the North vector appears to rotate anticlockwise, passing the + U axis first, and then the -V axis.
+        // From the point of view of a buggy spinning clockwise from ~NW, the North vector appears 
+        // to rotate anticlockwise, passing the +V axis first, and then the -U axis.
         // Check the timings of their first limits and, if necessary, swap the major/minor dimensions:
         if (axes[uDim].limits[0].time < axes[vDim].limits[0].time) {
             let temp = uDim
             uDim = vDim
             vDim = temp
         }
-
-        // Also check the polarities of these first limits in case the microbit is mounted backwards: we expect uVal>0 and vVal<0
-        uFlip = 1
-        if(axes[uDim].limits[0].value>0) uFlip= -1
+        let uVal = axes[uDim].limits[0].value
         let vVal = axes[vDim].limits[0].value
-        if (uVal > vVal) quadOffset += 180
-        if (Math.abs(uVal) > Math.abs(vVal)) quadOffset += 90
+        // Also check the polarities of these first limits in case the microbit 
+        // is mounted backwards: we expect uVal<0 and vVal>0
+        uFlip = -(uVal / Math.abs(uVal)) // = 1 unless uVal>0
+        vFlip = vVal / Math.abs(vVal)    // = 1 unless vVal<0
 
-        // return RPM of original scan    
-        return 60000 / axes[uDim].period
-
+        // return best average RPM of original scan    
+        return 120000 / (axes[uDim].period + axes[vDim].period)
     }
 
     // read the magnetometer (three times) and return the current heading in degrees from North
     export function degrees(): number {
         let uRaw = 0
         let vRaw = 0
-        if (testing) { // NOTE: prior knowledge U=X & V=Z !
-            uRaw = xScanData[test] + xScanData[test + 1] + xScanData[test+2]
-            vRaw = zScanData[test] + zScanData[test + 1] + zScanData[test+2]
-            test += 5
+        if (testing) { // NOTE: a-priori knowledge U=X & V=Z !
+            uRaw = xScanData[test]
+            vRaw = zScanData[test]
+            test += 4
             if (test > xScanData.length-2) test = 0 // roll round
         } else {
             // get a rolling sum of three readings
@@ -243,18 +242,17 @@ namespace heading {
             vRaw += input.magneticForce(vDim)
         }
         // normalise the horizontal & vertical components
-        let uPart = (uRaw - axes[uDim].bias) / axes[uDim].amp
-        let vPart = (vRaw - axes[vDim].bias) / axes[vDim].amp
-        let val = 57.29578 * Math.atan2(uPart, vPart) + quadOffset
-        if (reversed) {
-            val = 360 - val // sensor upside-down
-        }
+        let uPart = uFlip * (uRaw - axes[uDim].bias) / axes[uDim].amp
+        let vPart = vFlip * (vRaw - axes[vDim].bias) / axes[vDim].amp
+        let val = 57.29578 * Math.atan2(uPart, vPart)
+        // shift negative [-180...0] range to positive [180...360]
+        val = (val + 360) % 360
         datalogger.log(datalogger.createCV("uRaw", uRaw),
             datalogger.createCV("vRaw", vRaw),
             datalogger.createCV("u", uPart),
             datalogger.createCV("v", vPart),
             datalogger.createCV("val", val))
-        return (val + 360) % 360
+        return val
     }
     
     export function dumpData() {
