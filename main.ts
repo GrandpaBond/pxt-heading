@@ -45,8 +45,8 @@ namespace heading {
             let then = timeStamp[0] - 201
             // loop through from [d] onwards
             for (let i = 3; i <= timeStamp.length - 3; i++) {
-                let ahead = (scanData[i+1] - scanData[i-2])
-                let behind = (scanData[i+2] - scanData[i])
+                let ahead = (scanData[i+2] - scanData[i-1])
+                let behind = (scanData[i+1] - scanData[i-2])
             // An inflection-point is where the product will be negative.
             // (Ignore any too-close crossings, arising from excessive jitter)
                 if (((ahead * behind) <= 0) 
