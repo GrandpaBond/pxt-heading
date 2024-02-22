@@ -35,7 +35,7 @@ namespace heading {
         }
 
         // Method to characterise the scanData for each axis
-        analyse(timeStamp: number[], scanData: number[]) {
+        characterise(timeStamp: number[], scanData: number[]) {
         // First we extract local maxima and minima from a sequence of scanned wave-form readings
         // For element [d] in [...a,b,c,d,e...], we multiply the averaged slope behind it
         // (given by [d]-[a]), with the slope ahead (given by [e]-[b]). 
@@ -90,6 +90,7 @@ namespace heading {
     }
 
     // GLOBALS
+    const MarginalField = 50 // minimum acceptable amplitude for magnetometer readings
 
     let scanTimes: number[] = [] // sequence of time-stamps for scanned readings 
     let xScanData: number[] = [] // scanned sequence of magnetometer X-Axis readings 
@@ -122,31 +123,27 @@ namespace heading {
 
     // EXPORTED USER INTERFACES   
   
-     /** 
-      * Capture a time-stamped sequence of magnetometer readings while buggy spins.
-      * @param ms for how long (long enough for at least one full rotation) 
-      */ 
-     //% block="scan for (ms) $ms| wait? $wait" 
+    /** 
+     * Assuming the buggy is currently spinning clockwise on the spot, capture a 
+     * time-stamped sequence of magnetometer readings, from which to set up the compass.
+     * NOTE that once scanning is complete, the heading.analyse() function must then 
+     * be called (to process the scanned data) before heading.degrees() will work.
+     * The buggy should be pointing approximately NW to start with, so that it passes
+     * the cardinal points in the order {N, E, S, W}.
+     * @param ms scanning-time in millisecs (long enough for at least one full rotation) 
+    */ 
+     //% block="scan for (ms) $ms" 
      //% inlineInputMode=inline 
-     //% expandableArgumentMode="enabled" 
      //% ms.shadow="timePicker" 
      //% ms.defl=0 
-     //% wait.shadow="toggleYesNo" 
-     //% wait.defl=true 
      //% weight=90 
-     ////export function showFace(eyes: Eyes, mouth: Mouth, ms: number = 0, wait: boolean = true) {
-
-
-    // Assuming the buggy is currently spinning on the spot, capture a time-stamped sequence
-    // of magnetometer readings into four internal arrays: times[], xVals[], yVals[] & zVals[],
-    // sampled every ~30 ms over the specified duration (which should be at least a second)
-    // A clockwise scan should start with the buggy pointing roughly NW, so that it passes
-    // N before E, W or S.
+     
+    export function scan(ms: number) {
+    // Magnetometer readings are scanned into four internal arrays: times[], xVals[], yVals[] & zVals[],
+    // sampled every ~30 ms over the specified duration (usually at least a second)
     // (To cure jitter, each reading is always a rolling sum of three consecutive readings)
-    
-    export function scan(duration: number) {
         let now = input.runningTime()
-        let finish = now + duration
+        let finish = now + ms
         let sum = 0
         let xRoll: number[] = []
         let yRoll: number[] = []
@@ -182,12 +179,23 @@ namespace heading {
         }
     }
 
+
+    /**
+     * Analyse scanned data to prepare for reading compass-headings.
+     * returns either the spin RPM, or a negative error code:
+     *      -1 : NOT ENOUGH SCAN DATA
+     *      -2 : NOT ENOUGH SCAN ROTATION
+     *      -3 : FIELD STRENGTH TOO WEAK
+     */
+    //% block="analyse scan" 
+    //% inlineInputMode=inline 
+    //% weight=80 
+    export function analyseScan(): number {
     // Analyse the arrays of scanned data to:
     // a) assign major and minor magnetometer dimensions [u,v] and find North
-    // b) calculate the normalisation offsets to be applied to [u,v]
-    // c) detect the periodicity and rotation sense
+    // b) calculate the normalisation offsets & scaling to be applied to [u,v]
+    // c) detect the periodicity
     // returns the (quite interesting) RPM of the original scan (or a negative error-code)
-    export function prepare(clockwise: boolean): number {
 
         // we need at least a second's worth of readings...
         if (scanTimes.length < 40) {
@@ -198,9 +206,9 @@ namespace heading {
         // datalogger.mirrorToSerial(true)
         // datalogger.setColumnTitles("xt", "xlim", "yt", "ylim", "zt", "zlim", )
 
-        axes[0].analyse(scanTimes, xScanData)
-        axes[1].analyse(scanTimes, yScanData)
-        axes[2].analyse(scanTimes, zScanData)
+        axes[0].characterise(scanTimes, xScanData)
+        axes[1].characterise(scanTimes, yScanData)
+        axes[2].characterise(scanTimes, zScanData)
         
 
         // To guarantee an example of a maximum and a minimum in each dimension, we
@@ -215,6 +223,10 @@ namespace heading {
         let lo = Math.min(axes[Dim.X].amp, Math.min(axes[Dim.Y].amp, axes[Dim.Z].amp))
         uDim = axes.find(i => i.amp === hi).dim
         vDim = axes.find(i => (i.amp != hi) && (i.amp != lo)).dim
+
+        if (axes[vDim].amp < MarginalField) {
+            return -3  // "FIELD STRENGTH TOO WEAK"
+        }
 
         // For a clockwise scan, the maths requires the U-dim to lead the V-dim by 90 degrees
         // (so that e.g. when U = 2*V and both are positive we get +60 degrees).
@@ -236,9 +248,15 @@ namespace heading {
         // return best average RPM of original scan    
         return 120000 / (axes[uDim].period + axes[vDim].period)
     }
-
-    // read the magnetometer (three times) and return the current heading in degrees from North
+    /**
+     * Read the magnetometer.
+     * returns the current heading of the buggy in degrees
+     */
+    //% block="heading" 
+    //% inlineInputMode=inline 
+    //% weight=70
     export function degrees(): number {
+    // read the magnetometer (three times) and return the current heading in degrees from North
         let uRaw = 0
         let vRaw = 0
         if (testing) { // NOTE: a-priori knowledge U=X & V=Z !
