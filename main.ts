@@ -3,7 +3,7 @@
  * (except at the magnetic poles), whatever the mounting orientation of the microbit.
  */
 
-//% color=#6040e0 weight=40 icon="\uf14e" block="Heading" 
+//% color=#6080e0 weight=40 icon="\uf14e" block="Heading" 
 namespace heading {
     enum Dim { // ...for brevity
         X = Dimension.X,
