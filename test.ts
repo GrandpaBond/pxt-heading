@@ -2,8 +2,9 @@
 input.onButtonPressed(Button.A, function () {
     basic.showIcon(IconNames.Heart)
     basic.pause(1000)
-    if (testing) {
-        heading.simulateScan()  // use sample data while debugging...   
+    if (!live) {
+        heading.testMode(true)  // use sample data while debugging...
+        heading.scan(2000)   
     } else {
         Kitronik_Move_Motor.spin(Kitronik_Move_Motor.SpinDirections.Right, 30)
         heading.scan(4000)
@@ -12,9 +13,10 @@ input.onButtonPressed(Button.A, function () {
         basic.clearScreen()
     }
 })
+
 input.onButtonPressed(Button.B, function () {
     basic.showString("?")
-    spinRPM = heading.prepare(true)
+    spinRPM = heading.analyseScan()
     //heading.dumpLimits()
     basic.clearScreen()
     basic.showNumber(spinRPM)
@@ -34,9 +36,7 @@ input.onLogoEvent(TouchButtonEvent.Pressed, function() {
         basic.pause(200)
     }
 })
-
-let testing = true
-let test = 0
+let live = false
 let spinRPM = 0
 basic.pause(1000)
 basic.clearScreen()

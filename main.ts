@@ -1,3 +1,9 @@
+/**
+ * An extension providing a compass-heading for a buggy anywhere on the globe 
+ * (except at the magnetic poles), whatever the mounting orientation of the microbit.
+ */
+
+//% color=#6040e0 weight=40 icon="\uf14e" block="Heading" 
 namespace heading {
     enum Dim { // ...for brevity
         X = Dimension.X,
@@ -28,29 +34,29 @@ namespace heading {
         peak0: number   // the value of the first limit == Limit[0].value
         period: number  // the RPM of the scanned wave-form in this axis
 
-       constructor(dim: Dim) {
-       // dim should be redundant, as it always matches index as axes[] array is built
-           this.dim = dim
-           this.limits = []
+        constructor(dim: Dim) {
+            // dim should be redundant, as it always matches index as axes[] array is built
+            this.dim = dim
+            this.limits = []
         }
 
         // Method to characterise the scanData for each axis
         characterise(timeStamp: number[], scanData: number[]) {
-        // First we extract local maxima and minima from a sequence of scanned wave-form readings
-        // For element [d] in [...a,b,c,d,e...], we multiply the averaged slope behind it
-        // (given by [d]-[a]), with the slope ahead (given by [e]-[b]). 
-        // Whenever the sign of the slopechanges (i.e this product is negative) we record a Limit: 
-        // a duple object comprising the peak value [d], together with its time-stamp.
+            // First we extract local maxima and minima from a sequence of scanned wave-form readings
+            // For element [d] in [...a,b,c,d,e...], we multiply the averaged slope behind it
+            // (given by [d]-[a]), with the slope ahead (given by [e]-[b]). 
+            // Whenever the sign of the slopechanges (i.e this product is negative) we record a Limit: 
+            // a duple object comprising the peak value [d], together with its time-stamp.
             this.nLimits = 0
             let then = timeStamp[0] - 201
             // loop through from [d] onwards
             for (let i = 3; i <= timeStamp.length - 3; i++) {
-                let ahead = (scanData[i+2] - scanData[i-1])
-                let behind = (scanData[i+1] - scanData[i-2])
-            // An inflection-point is where the product will be negative.
-            // (Ignore any too-close crossings, arising from excessive jitter)
-                if (((ahead * behind) <= 0) 
-                && ((timeStamp[i] - then) > 200)) {
+                let ahead = (scanData[i + 2] - scanData[i - 1])
+                let behind = (scanData[i + 1] - scanData[i - 2])
+                // An inflection-point is where the product will be negative.
+                // (Ignore any too-close crossings, arising from excessive jitter)
+                if (((ahead * behind) <= 0)
+                    && ((timeStamp[i] - then) > 200)) {
                     let newLimit = new Limit
                     newLimit.value = scanData[i]
                     newLimit.time = timeStamp[i]
@@ -60,8 +66,8 @@ namespace heading {
                 }
             }
 
-        // Use the averages of paired limits to set the magnitude and offset.
-        // Needs at least three of each (resulting from a complete spin)
+            // Use the averages of paired limits to set the magnitude and offset.
+            // Needs at least three of each (resulting from a complete spin)
             this.amp = 0
             this.bias = 0
             if (this.nLimits > 3) {
@@ -83,9 +89,9 @@ namespace heading {
                 this.amp = sum / this.nLimits
             }
 
-        // work out the periodicity
+            // work out the periodicity
             let spans = this.nLimits - 1
-            this.period = 2* (this.limits[spans].time - this.limits[0].time) / spans
+            this.period = 2 * (this.limits[spans].time - this.limits[0].time) / spans
         }
     }
 
@@ -96,25 +102,27 @@ namespace heading {
     let xScanData: number[] = [] // scanned sequence of magnetometer X-Axis readings 
     let yScanData: number[] = [] // scanned sequence of magnetometer Y-Axis readings
     let zScanData: number[] = [] // scanned sequence of magnetometer Z-Axis readings  
-    
+
     let axes: Axis[] = []
     axes.push(new Axis(Dim.X))
     axes.push(new Axis(Dim.Y))
     axes.push(new Axis(Dim.Z))
-    
+
     let uDim = -1 // will hold the horizontal axis for North vector
     let vDim = -1 // will hold the vertical axis for North vector
-    
+
     let uFlip = 1 // set to -1 if uDim polarity is inverted
     let vFlip = 1 // set to -1 if vDim polarity is inverted
     let plane = "??"
+    let testing = false  // test mode flag
+    let test = 0         // selector for test sample
 
 
 
     // USER INTERFACE
 
     // use some sample data, while debugging...
-    export function simulateScan() {    
+    export function simulateScan() {
         scanTimes = [5637, 5665, 5693, 5721, 5749, 5777, 5805, 5833, 5861, 5889, 5917, 5945, 5973, 6001, 6029, 6057, 6087, 6113, 6141, 6169, 6197, 6225, 6253, 6281, 6309, 6337, 6365, 6393, 6421, 6449, 6477, 6505, 6533, 6561, 6589, 6617, 6645, 6673, 6701, 6729, 6757, 6785, 6813, 6841, 6869, 6897, 6925, 6956, 6981, 7009, 7037, 7065, 7093, 7121, 7149, 7177, 7205, 7233, 7261, 7289, 7317, 7345, 7373, 7401, 7429, 7460, 7485, 7513, 7541, 7569, 7597, 7625, 7653, 7681, 7709, 7737, 7765, 7793, 7821, 7849, 7877, 7905, 7933, 7961, 7989, 8017, 8045, 8073, 8101, 8129, 8157, 8185, 8213, 8241, 8269, 8300, 8325, 8353, 8381, 8409, 8437, 8465, 8493, 8521, 8549, 8577, 8605, 8641, 8669, 8697, 8725, 8753, 8781, 8809, 8837, 8865, 8893, 8921, 8949, 8977, 9005, 9033, 9061, 9089, 9117, 9145, 9173, 9201, 9229, 9257, 9285, 9313, 9344, 9369, 9397, 9425, 9453, 9481, 9509, 9537, 9565, 9593, 9621]
         xScanData = [36.45, 34.05, 31.95, 29.55, 26.85, 24.6, 20.1, 15.6, 9.3, 3.75, -0.45, -6.45, -13.5, -24.15, -31.5, -38.1, -44.55, -51.15, -59.1, -65.1, -71.4, -76.65, -82.05, -85.5, -87.3, -87.9, -87.3, -87.6, -85.5, -83.85, -78.3, -74.25, -70.05, -66.6, -62.85, -58.2, -53.25, -46.35, -39.3, -33, -24.75, -15.9, -5.55, 2.55, 9, 13.8, 17.85, 21.75, 25.2, 28.8, 31.65, 34.2, 36.75, 37.5, 35.55, 30.3, 26.4, 22.2, 21, 17.85, 13.35, 5.85, -1.2, -8.85, -16.8, -25.8, -33.9, -41.4, -48.9, -55.65, -62.55, -68.1, -71.85, -75.9, -79.05, -82.95, -85.8, -87.45, -86.25, -85.05, -82.05, -80.1, -77.1, -73.95, -71.7, -66.6, -61.95, -53.85, -47.25, -41.1, -33.3, -26.4, -16.95, -10.35, -4.35, 0, 4.5, 12.45, 18.9, 26.1, 30, 32.55, 34.05, 34.2, 34.95, 32.4, 31.8, 29.4, 28.5, 25.05, 18.75, 11.7, 4.8, -0.6, -7.8, -16.8, -25.05, -32.7, -38.1, -43.5, -49.35, -55.5, -62.85, -69.3, -75.6, -80.7, -83.7, -85.65, -86.25, -86.7, -87.15, -85.95, -83.1, -79.95, -75.75, -70.5, -67.8, -62.7, -60.45, -51.75, -45, -37.05, -28.2]
         yScanData = [-387.75, -389.55, -385.2, -385.95, -386.1, -384.15, -381.15, -379.8, -381, -380.1, -380.7, -380.85, -382.95, -384.45, -385.5, -383.85, -381.15, -377.55, -376.2, -375.45, -375, -374.25, -372.6, -373.35, -373.05, -373.35, -373.35, -374.7, -376.5, -378.3, -378.15, -377.7, -375.9, -375.75, -375.45, -376.35, -377.55, -376.95, -376.95, -376.5, -378.6, -379.2, -381.3, -381.45, -382.95, -382.05, -382.2, -381.15, -381.45, -383.1, -384.9, -386.7, -385.5, -384.6, -382.8, -382.2, -382.8, -384.15, -385.5, -385.35, -387.3, -385.35, -382.8, -379.65, -380.7, -382.35, -381.45, -380.7, -380.85, -380.25, -379.35, -377.7, -377.85, -376.95, -376.95, -376.05, -376.8, -375.9, -376.8, -376.8, -377.85, -378.9, -379.8, -379.5, -377.85, -375.9, -376.95, -377.7, -380.55, -378.9, -378, -378.15, -379.35, -382.05, -380.55, -380.4, -381, -383.7, -387.15, -387.15, -387, -385.05, -384.15, -384.3, -384.3, -384.6, -383.25, -384, -384.45, -385.8, -384.6, -384, -382.35, -381.6, -380.1, -380.1, -381.3, -384, -382.8, -382.35, -379.5, -379.2, -378.9, -378.9, -379.05, -378.9, -377.1, -376.65, -377.7, -378.9, -377.1, -374.1, -373.05, -374.55, -374.1, -375.75, -377.1, -378.9, -378, -377.4, -376.8, -376.65, -375.75]
@@ -122,7 +130,7 @@ namespace heading {
     }
 
     // EXPORTED USER INTERFACES   
-  
+
     /** 
      * Assuming the buggy is currently spinning clockwise on the spot, capture a 
      * time-stamped sequence of magnetometer readings, from which to set up the compass.
@@ -131,17 +139,23 @@ namespace heading {
      * The buggy should be pointing approximately NW to start with, so that it passes
      * the cardinal points in the order {N, E, S, W}.
      * @param ms scanning-time in millisecs (long enough for at least one full rotation) 
-    */ 
-     //% block="scan for (ms) $ms" 
-     //% inlineInputMode=inline 
-     //% ms.shadow="timePicker" 
-     //% ms.defl=0 
-     //% weight=90 
-     
+    */
+    //% block="scan for (ms) $ms" 
+    //% inlineInputMode=inline 
+    //% ms.shadow="timePicker" 
+    //% ms.defl=0 
+    //% weight=90 
+
     export function scan(ms: number) {
-    // Magnetometer readings are scanned into four internal arrays: times[], xVals[], yVals[] & zVals[],
-    // sampled every ~30 ms over the specified duration (usually at least a second)
-    // (To cure jitter, each reading is always a rolling sum of three consecutive readings)
+        // Magnetometer readings are scanned into four internal arrays: times[], xVals[], yVals[] & zVals[],
+        // sampled every ~30 ms over the specified duration (usually at least a second)
+        if (testing) {
+            simulateScan()
+            basic.pause(ms)
+            return
+        }
+
+        // (To cure jitter, each reading is always a rolling sum of three consecutive readings)
         let now = input.runningTime()
         let finish = now + ms
         let sum = 0
@@ -166,7 +180,7 @@ namespace heading {
             zRoll.push(input.magneticForce(2))
             sum = 0
             xRoll.forEach(a => sum += a)
-            xRoll.shift() 
+            xRoll.shift()
             xScanData.push(sum)
             sum = 0
             yRoll.forEach(a => sum += a)
@@ -174,8 +188,8 @@ namespace heading {
             yScanData.push(sum)
             sum = 0
             zRoll.forEach(a => sum += a)
-            zRoll.shift()   
-            zScanData.push(sum)  
+            zRoll.shift()
+            zScanData.push(sum)
         }
     }
 
@@ -191,11 +205,11 @@ namespace heading {
     //% inlineInputMode=inline 
     //% weight=80 
     export function analyseScan(): number {
-    // Analyse the arrays of scanned data to:
-    // a) assign major and minor magnetometer dimensions [u,v] and find North
-    // b) calculate the normalisation offsets & scaling to be applied to [u,v]
-    // c) detect the periodicity
-    // returns the (quite interesting) RPM of the original scan (or a negative error-code)
+        // Analyse the arrays of scanned data to:
+        // a) assign major and minor magnetometer dimensions [u,v] and find North
+        // b) calculate the normalisation offsets & scaling to be applied to [u,v]
+        // c) detect the periodicity
+        // returns the (quite interesting) RPM of the original scan (or a negative error-code)
 
         // we need at least a second's worth of readings...
         if (scanTimes.length < 40) {
@@ -209,7 +223,7 @@ namespace heading {
         axes[0].characterise(scanTimes, xScanData)
         axes[1].characterise(scanTimes, yScanData)
         axes[2].characterise(scanTimes, zScanData)
-        
+
 
         // To guarantee an example of a maximum and a minimum in each dimension, we
         // need to have scanned at least one and a bit full revolutions of the buggy...
@@ -248,6 +262,8 @@ namespace heading {
         // return best average RPM of original scan    
         return 120000 / (axes[uDim].period + axes[vDim].period)
     }
+
+
     /**
      * Read the magnetometer.
      * returns the current heading of the buggy in degrees
@@ -256,14 +272,14 @@ namespace heading {
     //% inlineInputMode=inline 
     //% weight=70
     export function degrees(): number {
-    // read the magnetometer (three times) and return the current heading in degrees from North
+        // read the magnetometer (three times) and return the current heading in degrees from North
         let uRaw = 0
         let vRaw = 0
         if (testing) { // NOTE: a-priori knowledge U=X & V=Z !
             uRaw = xScanData[test]
             vRaw = zScanData[test]
             test += 4
-            if (test > xScanData.length-2) test = 0 // roll round
+            if (test > xScanData.length - 2) test = 0 // roll round
         } else {
             // get a rolling sum of three readings
             uRaw = input.magneticForce(uDim)
@@ -288,15 +304,26 @@ namespace heading {
             datalogger.createCV("val", val))
         return val
     }
-    
+
+
+    //% block="switch test mode" 
+    //% inlineInputMode=inline 
+    //% weight=50
+    export function testMode(turnOn: boolean) {
+        testing = turnOn
+    }
+
+    //% block="dumpData" 
+    //% inlineInputMode=inline 
+    //% weight=70
     export function dumpData() {
         datalogger.deleteLog()
-        datalogger.setColumnTitles("t","x","y","z")
+        datalogger.setColumnTitles("t", "x", "y", "z")
         for (let i = 0; i < scanTimes.length; i++) {
             datalogger.log(datalogger.createCV("t", scanTimes[i]),
-                            datalogger.createCV("x", xScanData[i]),
-                            datalogger.createCV("y", yScanData[i]),
-                            datalogger.createCV("z", zScanData[i]))
+                datalogger.createCV("x", xScanData[i]),
+                datalogger.createCV("y", yScanData[i]),
+                datalogger.createCV("z", zScanData[i]))
         }
     }
 }
