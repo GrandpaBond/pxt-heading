@@ -29,9 +29,9 @@ namespace heading {
         bias: number // the fixed offset to re-centre the scanned wave-form
         amp: number  // the average amplitude of the scanned wave-form
         limits: Limit[] // the array of local extremes detected
-        nLimits: number // tue count of local extremes detected
-        time0: number   // the timestamp of the first limit == Limit[0].time
-        peak0: number   // the value of the first limit == Limit[0].value
+        nLimits: number // the count of local extremes detected
+        time0: number   // the timestamp of the first limit in this axis
+        limit0: number  // the normalised value of the first limit in this axis
         period: number  // the RPM of the scanned wave-form in this axis
 
         constructor(dim: Dim) {
@@ -88,6 +88,9 @@ namespace heading {
                 }
                 this.amp = sum / this.nLimits
             }
+            // note the time & value(normlised) of the first limit
+            this.time0 = this.limits[0].time
+            this.limit0 = this.limits[0].value - this.bias
 
             // work out the periodicity
             let spans = this.nLimits - 1
@@ -243,21 +246,19 @@ namespace heading {
         }
 
         // For a clockwise scan, the maths requires the U-dim to lead the V-dim by 90 degrees
-        // (so that e.g. when U = 2*V and both are positive we get +60 degrees).
         // From the point of view of a buggy spinning clockwise from ~NW, the North vector appears 
         // to rotate anticlockwise, passing the +V axis first, and then the -U axis.
         // Check the timings of their first limits and, if necessary, swap the major/minor dimensions:
-        if (axes[uDim].limits[0].time < axes[vDim].limits[0].time) {
+        if (axes[uDim].time0 < axes[vDim].time0) {
             let temp = uDim
             uDim = vDim
             vDim = temp
         }
-        let uVal = axes[uDim].limits[0].value
-        let vVal = axes[vDim].limits[0].value
+
         // Also check the polarities of these first limits in case the microbit 
-        // is mounted backwards: we expect uVal<0 and vVal>0
-        uFlip = -(uVal / Math.abs(uVal)) // = 1 unless uVal>0
-        vFlip = vVal / Math.abs(vVal)    // = 1 unless vVal<0
+        // is mounted backwards: we expect the first uVal<0 and the first vVal>0
+        uFlip = -(axes[uDim].limit0 / Math.abs(axes[uDim].limit0)) // = -1 if uVal>0
+        vFlip = axes[vDim].limit0 / Math.abs(axes[vDim].limit0)    // = -1 if vVal<0
 
         // return best average RPM of original scan    
         return 120000 / (axes[uDim].period + axes[vDim].period)
