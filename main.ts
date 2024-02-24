@@ -60,6 +60,10 @@ namespace heading {
                     let newLimit = new Limit
                     newLimit.value = scanData[i]
                     newLimit.time = timeStamp[i]
+                    datalogger.log(datalogger.createCV("dim", this.dim),
+                                    datalogger.createCV("time", newLimit.time),
+                                    datalogger.createCV("value", newLimit.value))
+
                     then = timeStamp[i]
                     this.limits.push(newLimit)
                     this.nLimits++
@@ -120,6 +124,17 @@ namespace heading {
     let testing = false  // test mode flag
     let test = 0         // selector for test sample
 
+    function dumpData() {
+        datalogger.deleteLog()
+        datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
+        datalogger.setColumnTitles("t", "x", "y", "z")
+        for (let i = 0; i < scanTimes.length; i++) {
+            datalogger.log(datalogger.createCV("t", scanTimes[i]),
+                datalogger.createCV("x", xScanData[i]),
+                datalogger.createCV("y", yScanData[i]),
+                datalogger.createCV("z", zScanData[i]))
+        }
+    }
 
 
     // USER INTERFACE
@@ -199,9 +214,12 @@ namespace heading {
 
     /**
      * Analyse scanned data to prepare for reading compass-headings.
-     * returns either the spin RPM, or a negative error code:
+     * Returns either the spin RPM, or a negative error code:
+     * 
      *      -1 : NOT ENOUGH SCAN DATA
+     * 
      *      -2 : NOT ENOUGH SCAN ROTATION
+     * 
      *      -3 : FIELD STRENGTH TOO WEAK
      */
     //% block="analyse scan" 
@@ -219,9 +237,11 @@ namespace heading {
             return -1 // "NOT ENOUGH SCAN DATA"
         }
 
-        // datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
-        // datalogger.mirrorToSerial(true)
-        // datalogger.setColumnTitles("xt", "xlim", "yt", "ylim", "zt", "zlim", )
+        if (!testing) {
+            dumpData()
+        }
+        datalogger.setColumnTitles("dim", "time", "value") // prepare to log limits
+        datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
 
         axes[0].characterise(scanTimes, xScanData)
         axes[1].characterise(scanTimes, yScanData)
@@ -260,14 +280,26 @@ namespace heading {
         uFlip = -(axes[uDim].limit0 / Math.abs(axes[uDim].limit0)) // = -1 if uVal>0
         vFlip = axes[vDim].limit0 / Math.abs(axes[vDim].limit0)    // = -1 if vVal<0
 
+        datalogger.setColumnTitles("dim", "bias", "amp", "flip")
+        datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
+        datalogger.log(datalogger.createCV("dim", uDim),
+            datalogger.createCV("bias", axes[uDim].bias),
+            datalogger.createCV("amp", axes[uDim].amp),
+            datalogger.createCV("flip", uFlip))
+        datalogger.log(datalogger.createCV("dim", vDim),
+            datalogger.createCV("bias", axes[vDim].bias),
+            datalogger.createCV("amp", axes[vDim].amp),
+            datalogger.createCV("flip", vFlip))
+
+        datalogger.setColumnTitles("uRaw", "vRaw", "u", "v", "val") // prepare to log readings
+        datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
         // return best average RPM of original scan    
         return 120000 / (axes[uDim].period + axes[vDim].period)
     }
 
 
     /**
-     * Read the magnetometer.
-     * returns the current heading of the buggy in degrees
+     * Read the magnetometer and return the current heading of the buggy in degrees
      */
     //% block="heading" 
     //% inlineInputMode=inline 
@@ -295,7 +327,7 @@ namespace heading {
         // normalise the horizontal & vertical components
         let uPart = uFlip * (uRaw - axes[uDim].bias) / axes[uDim].amp
         let vPart = vFlip * (vRaw - axes[vDim].bias) / axes[vDim].amp
-        let val = 57.29578 * Math.atan2(uPart, vPart)
+        let val = 57.29578 * Math.atan2(vPart, uPart)
         // shift negative [-180...0] range to positive [180...360]
         val = (val + 360) % 360
         datalogger.log(datalogger.createCV("uRaw", uRaw),
@@ -314,17 +346,5 @@ namespace heading {
         testing = turnOn
     }
 
-    //% block="dumpData" 
-    //% inlineInputMode=inline 
-    //% weight=70
-    export function dumpData() {
-        datalogger.deleteLog()
-        datalogger.setColumnTitles("t", "x", "y", "z")
-        for (let i = 0; i < scanTimes.length; i++) {
-            datalogger.log(datalogger.createCV("t", scanTimes[i]),
-                datalogger.createCV("x", xScanData[i]),
-                datalogger.createCV("y", yScanData[i]),
-                datalogger.createCV("z", zScanData[i]))
-        }
-    }
+
 }

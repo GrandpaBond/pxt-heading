@@ -9,7 +9,6 @@ input.onButtonPressed(Button.A, function () {
         Kitronik_Move_Motor.spin(Kitronik_Move_Motor.SpinDirections.Right, 30)
         heading.scan(4000)
         Kitronik_Move_Motor.stop()
-        heading.dumpData()
         basic.clearScreen()
     }
 })
