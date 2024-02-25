@@ -261,9 +261,6 @@ namespace heading {
         uDim = axes.find(i => i.amp === hi).dim
         vDim = axes.find(i => (i.amp != hi) && (i.amp != lo)).dim
 
-        if (axes[vDim].amp < MarginalField) {
-            return -3  // "FIELD STRENGTH TOO WEAK"
-        }
 
         // For a clockwise scan, the maths requires the U-dim to lead the V-dim by 90 degrees
         // From the point of view of a buggy spinning clockwise from ~NW, the North vector appears 
@@ -293,8 +290,14 @@ namespace heading {
 
         datalogger.setColumnTitles("uRaw", "vRaw", "u", "v", "val") // prepare to log readings
         datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
+
+
+        if (axes[vDim].amp < MarginalField) {
+            return -3  // "FIELD STRENGTH TOO WEAK"
+        } else {
         // return best average RPM of original scan    
-        return 120000 / (axes[uDim].period + axes[vDim].period)
+            return 120000 / (axes[uDim].period + axes[vDim].period)
+        }
     }
 
 
@@ -345,6 +348,4 @@ namespace heading {
     export function testMode(turnOn: boolean) {
         testing = turnOn
     }
-
-
 }
