@@ -11,7 +11,7 @@ enum Task {
 
 // tests go here; this will not be compiled when this package is used as an extension.
 input.onButtonPressed(Button.A, function () {
-    switch (task) {
+    switch (nextTask) {
         case Task.Scan:
             basic.showString("S")
             if (config == Config.Buggy) {
@@ -20,13 +20,12 @@ input.onButtonPressed(Button.A, function () {
                 heading.scan(4000)
                 Kitronik_Move_Motor.stop()
             } else { // using jig, or in test mode
-                heading.scan(2000)   
+                heading.scan(4000)   
             }
-            basic.pause(1000)
             basic.showIcon(IconNames.Yes)
-            basic.pause(500)
+            basic.pause(1000)
             basic.showArrow(ArrowNames.West)
-            task = Task.Analyse
+            nextTask = Task.Analyse
         break
 
         case Task.Analyse:
@@ -40,7 +39,7 @@ input.onButtonPressed(Button.A, function () {
             basic.pause(1000)
             basic.showIcon(IconNames.Yes)
             basic.pause(500)
-            task = Task.Measure
+            nextTask = Task.Measure
             basic.showArrow(ArrowNames.East)
         break
 
@@ -48,7 +47,7 @@ input.onButtonPressed(Button.A, function () {
             basic.showIcon(IconNames.No)
             basic.pause(1000)
             basic.clearScreen()
-            task = Task.Scan // restart with a scan
+            nextTask = Task.Scan // restart with a scan
             basic.showArrow(ArrowNames.West)
         break
     }
@@ -56,7 +55,7 @@ input.onButtonPressed(Button.A, function () {
 })
 
 input.onButtonPressed(Button.B, function () {
-    if (task != Task.Measure) {
+    if (nextTask != Task.Measure) {
         basic.clearScreen()
         basic.pause(200)
         basic.showArrow(ArrowNames.West)
@@ -110,12 +109,12 @@ input.onLogoEvent(TouchButtonEvent.Pressed, function () {
     basic.pause(1000)
     basic.clearScreen()
     basic.pause(1000)
-    task = Task.Scan
+    nextTask = Task.Scan
     basic.showArrow(ArrowNames.West)
 })
 
 let config = Config.Buggy
-let task = Task.Scan
+let nextTask = Task.Scan
 basic.showArrow(ArrowNames.West) // normal live operation
 let spinRPM = 0
 let turn30 = 0
