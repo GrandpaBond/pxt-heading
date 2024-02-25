@@ -10,7 +10,7 @@ A rather simpler method is just to use a compass! The problem is that the built-
 This pxt-heading extension is designed to meet the need for an orientation-independent compass, based on the magnetometer readings. 
 
 ## Magnetometer
-The earth's magnetic field has a horizontal component at every location (apart from the magnetic poles). Whatever the microbit's mounting orientation, as the buggy turns, this North-South component sinusoidally changes the flux readings in at least two of the magnetometer channels. 
+The earth's magnetic field has a horizontal component at every location (apart from the magnetic poles). Whatever the microbit's mounting orientation, as the buggy turns around, this North-South component sinusoidally changes the flux readings in at least two of the magnetometer channels. 
 These sinusoidal curves will be 90 degrees out-of-phase, but need to be corrected in various ways.
 
 ## Calibration
@@ -19,7 +19,7 @@ The first task is to determine which two of the three axes to use. Then we'll ne
 Finally we'll need to balance up the detected field-strengths (depending where you are located on the globe) so that we can apply simple trigonometry to compute the angular bearing with respect to North.
 
 ## heading.scan()
-It is obviously not feasible for this extension to know how to turn your buggy in any particular direction, so you must first set it spinning on-the-spot (by running its motors in opposite directions) and then call heading.scan(ms) function to perform a magnetic scan of 3-D readings. The scanning time (ms) should be sufficient to complete one or two full rotations.
+It is obviously not feasible for this extension to know how to turn your buggy in any particular direction, so you must first set it spinning on-the-spot (by running its motors in opposite directions) and then call heading.scan(ms) function to perform a magnetic scan of 3-D readings. The scanning time (ms) should be sufficient to complete more than one full rotations.
 
 ## heading.prepare()
 This function analyses the data collected during the scan to choose the appropriate axes and how to balance them. As an interesting by-product, it returns the spin-rate of the buggy during the previous scan (in RPM), letting you compare the effects of setting different motor speeds.
