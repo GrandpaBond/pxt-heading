@@ -25,6 +25,7 @@ it points down into the ground. Near the equator it points roughly horizontally.
 has a horizontal component at every location (apart from at the magnetic poles). 
 As the buggy spins, this North-South component sinusoidally 
 Whatever the microbit's mounting orientation, changes the flux readings in at least two of the magnetometer channels. 
+
 These sinusoidal curves will be 90 degrees out-of-phase, but need to be corrected in various ways.
 
 ## Calibration
@@ -44,7 +45,6 @@ two full rotations.
 Because the extension can't know just how the microbit is mounted your particular buggy, you need to point it towards 
 North and then call this function to register that direction as North (or zero degrees). It can then
 analyse the data collected during the scan to choose the appropriate axes and how to calibrate them. 
-
 As an interesting by-product, it will return the spin-rate of the buggy during the previous scan (in RPM), letting 
 you compare the effects of setting different motor speeds.
 
