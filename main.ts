@@ -195,7 +195,7 @@ namespace heading {
             sum = 0
             xRoll.forEach(a => sum += a)
             xRoll.shift()
-         scanData[Dim.X].push(sum)
+            scanData[Dim.X].push(sum)
             sum = 0
             yRoll.forEach(a => sum += a)
             yRoll.shift()
@@ -229,8 +229,65 @@ namespace heading {
     with the least eccentric ellipse, and having selected those two axes, we need to transform 
     readings around the ellipse so that they lie on a circle, giving a relative angle that can
     eventually be offset by a fixed bias to return the true heading.
+
     */
+
+        // we need at least a second's worth of readings...
+        if (scanTimes.length < 40) {
+            return -1 // "NOT ENOUGH SCAN DATA"
+        }
         return 0
+        // find the raw extrema
+        let xlo = 999
+        let ylo = 999
+        let zlo = 999
+        let xhi = -999
+        let yhi = -999
+        let zhi = -999
+        let v = 0
+        for (let i = 0; i <= scanTimes.length; i++) {
+            v = scanData[Dim.X][i]
+            if (v < xlo) xlo = v
+            if (v > xhi) xhi = v
+            v = scanData[Dim.Y][i]
+            if (v < ylo) ylo = v
+            if (v > yhi) yhi = v
+            v = scanData[Dim.Z][i]
+            if (v < zlo) zlo = v
+            if (v > zhi) zhi = v
+        }
+        let xoff = (xlo + xhi) / 2
+        let yoff = (ylo + yhi) / 2
+        let zoff = (zlo + zhi) / 2
+
+        // now find the extreme radii for each axis-pair
+        let xylo = 99999
+        let yzlo = 99999
+        let zxlo = 99999
+        let xyhi = -99999
+        let yzhi = -99999
+        let zxhi = -99999
+        let xsq = 0
+        let ysq = 0
+        let zsq = 0
+        for (let i = 0; i <= scanTimes.length; i++) {
+            xsq = scanData[Dim.X][i] - xoff
+            ysq = scanData[Dim.Y][i] - yoff
+            zsq = scanData[Dim.Z][i] - zoff
+            xsq *= xsq
+            ysq *= ysq
+            zsq *= zsq
+            v = xsq+ysq
+            if (v < xylo) xylo = v
+            if (v > xyhi) xyhi = v
+            v = ysq+zsq
+            if (v < yzlo) yzlo = v
+            if (v > yzhi) yzhi = v
+            v = zsq+xsq
+            if (v < zxlo) zlo = v
+            if (v > zxhi) zhi = v
+        }
+        // 
     }
 
     function oldAnalysis() {}
