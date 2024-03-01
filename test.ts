@@ -6,7 +6,7 @@ enum Config {
 }
 enum Task {
     Scan,
-    Analyse,
+    SetNorth,
     Measure
 }
 
@@ -29,26 +29,26 @@ input.onButtonPressed(Button.A, function () {
                 break  
             case Config.Jig:
                 heading.testMode(false)
-                basic.showString("?")
-                heading.scan(10000)
+                basic.showString("?") // manually rotate jig (SMOOOOTHLY!)
+                heading.scan(8000)
                 music.setVolume(255)
-                music.tonePlayable(Note.C, music.beat(BeatFraction.Whole))
+                music.tonePlayable(5000, 500)
                 basic.pause(1000)
                 break
             }
             basic.showIcon(IconNames.Yes)
             basic.pause(1000)
             basic.showArrow(ArrowNames.West)
-            nextTask = Task.Analyse
+            nextTask = Task.SetNorth
         break
 
-        case Task.Analyse:
-            basic.showString("A")
+        case Task.SetNorth:
+            basic.showString("N")
             basic.pause(1000)
             basic.clearScreen()
-            spinRPM = heading.analyseScan()
+            spinRPM = heading.setNorth()
             basic.showNumber(Math.floor(spinRPM))
-            turn30 = 60000 / (12 * spinRPM) // time to turn 30 degree
+            turn30 = 60000 / (12 * spinRPM) // time needed to turn 30 degree
             datalogger.setColumnTitles("uRaw", "vRaw", "u", "v", "val")
             basic.pause(1000)
             basic.showIcon(IconNames.Yes)
@@ -71,29 +71,30 @@ input.onButtonPressed(Button.A, function () {
 input.onButtonPressed(Button.B, function () {
     if (nextTask != Task.Measure) {
         basic.clearScreen()
-        basic.pause(200)
+        basic.pause(100)
         basic.showArrow(ArrowNames.West)
-        basic.pause(200)
+        basic.pause(100)
         basic.clearScreen()
-        basic.pause(200)
+        basic.pause(100)
         basic.showArrow(ArrowNames.West)
-        basic.pause(200)
+        basic.pause(100)
         basic.clearScreen()
-        basic.pause(200)
+        basic.pause(100)
         basic.showArrow(ArrowNames.West)
 
     } else {
-        if (config == Config.Buggy){
+        if (config == Config.Buggy){  
+            basic.pause(1000)
             Kitronik_Move_Motor.spin(Kitronik_Move_Motor.SpinDirections.Right, 30)
-            basic.pause(turn30)
+            basic.pause(turn30) // spin to next angle
             Kitronik_Move_Motor.stop()
-        }
+        } // else manually move Jig to next test-angle
         let compass = heading.degrees()
         basic.clearScreen()   
         basic.pause(500)
         basic.showNumber(Math.floor(compass))
         basic.clearScreen()   
-        basic.pause(500)
+        basic.pause(200)
         basic.showArrow(ArrowNames.East)
     }
 })
@@ -122,12 +123,13 @@ input.onLogoEvent(TouchButtonEvent.Pressed, function () {
     }
     basic.pause(1000)
     basic.clearScreen()
-    basic.pause(1000)
+    basic.pause(200)
     nextTask = Task.Scan // new mode, so start with a scan
     basic.showArrow(ArrowNames.West)
 })
  // normal live operation...
 let config = Config.Buggy
+heading.testMode(false)
 let nextTask = Task.Scan
 basic.showArrow(ArrowNames.West)
 let spinRPM = 0
