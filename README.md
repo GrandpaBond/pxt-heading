@@ -12,15 +12,36 @@ when it is horizontal, yet most robot buggies mount it vertically. It also asks 
 possible direction.
 
 This pxt-heading extension is designed to meet the need for an orientation-independent compass, based just on the 
-magnetometer readings. 
+magnetometer readings. It, too, needs to first calibrate the magnetometer (to discover how it is affected by its 
+magnetic environment), but that is achieved simply by spinning the buggy on the spot for a couple of rotations, 
+and then teaching it where North is.
 
 ## Earth's Magnetic Field
 A simplified view is that the earth's magnetic field points towards the North magnetic pole (situated incidentally 
-in northern Canada!) in the southern hemisphere it points up out of the ground, and for the northern hemisphere 
-it points down into the ground. Near the equator it points roughly horizontally.
+in northern Canada!) In the southern hemisphere it points up out of the ground, and for the northern hemisphere 
+it points down into the ground; near the equator it points roughly horizontally.
 
+So, when viewed from the perspective of our spinning buggy, the magnetic field-vector sweeps out a cone:
+sharply pointed in polar regions, and opened-out flat when near the equator.
 
 ## Magnetometer
+Although the magnetometer provides three readings (X,Y & Z), we only need to use two to get our heading angle. 
+The challenge is to choose the best two for the job! 
+
+Depending on the specific mounting orientation of the microbit in the buggy, in a few special places and cases, 
+the field-vector cone is aligned with one of the three magnetometer axes, so as the magnetic field vector 
+apparently sweeps around its conical path, it traces out a neat circle on the plane of the other two axes. 
+Their readings can then be easily interpreted to give the heading angle. 
+
+However, in most places and cases this cone is tilted at an angle, and traces out an ellipse on each of the three 
+orthogonal planes defined by a pair of axes (XY,YZ & ZX).  The three ellipses will in general be offset from the
+origin and show different eccentricities. We will get the best heading discrimination by choosing the plane 
+with the least eccentric (i.e most nearly circular) ellipse. 
+
+Having selected the best two axes, we'll need to transform readings from around the ellipse back onto a true circle
+that is centred on the origin, giving us a relative angle that can (eventually) be offset by a fixed bias to return 
+the true heading with repect to North.
+
 
 has a horizontal component at every location (apart from at the magnetic poles). 
 As the buggy spins, this North-South component sinusoidally 
@@ -35,11 +56,7 @@ due to the buggy itself (i.e. fixed metalwork and motor magnets close to the mic
 Finally we'll need to balance up the detected field-strengths (depending where you are located on the globe) so 
 that we can apply simple trigonometry to compute the angular bearing with respect to North.    
 
-As the buggy spins, the magnetic field-vector sweeps out a cone. In the fully general case, 
-for each of the three orthogonal planes defined by a pair of axes (XY,YZ,ZX) this cone intersects it in an ellipse with a certain offset fro the origin and a certain eccentricity. We will get the best heading discrimination from the plane 
-with the least eccentric ellipse, and having selected those two axes, we'll need to 
-transform readings around the ellipse so that they lie on a circle, giving a relative 
-angle that can (eventually) be offset by a fixed bias to return the true heading.
+
 
 ## heading.scan()
 It is obviously not feasible for this extension to know how to turn your buggy in any particular direction, so you 
