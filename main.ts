@@ -405,41 +405,39 @@ namespace heading {
         uFlip = -(axes[uDim].limit0 / Math.abs(axes[uDim].limit0)) // = -1 if uVal>0
         vFlip = axes[vDim].limit0 / Math.abs(axes[vDim].limit0)    // = -1 if vVal<0
 */
-
+        // set up datalogger
+        datalogger.setColumnTitles("uRaw", "vRaw", "u", "v", "uNew", "vNew", "vScaled", "a")
+        datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
         // return average RPM of original scan    
         return 60000 / period
  
     }
     
+    // correct a two-axis raw magnetometer reading from the off-centre projected ellipse
+    // back onto a centred circle of headings
     function project(uRaw: number, vRaw: number) {
         // recentre point
         let u = uRaw - uOff
         let v = vRaw - vOff
-        // rotate 
+        // rotate by the major-axis angle theta (check direction!)
         let uNew = u * Math.cos(theta) - v * Math.sin(theta)
         let vNew = u * Math.sin(theta) + v * Math.cos(theta)
         // scale V to match U
-        vNew *= scale
+        let vScaled = vNew * scale
         // return projected angle
-        return Math.atan2(uNew,vNew)
+        let a = Math.atan2(uNew,vScaled)
+        
+        datalogger.log(datalogger.createCV("dim", uDim),
+            datalogger.createCV("bias", axes[uDim].bias),
+            datalogger.createCV("amp", axes[uDim].amp),
+            datalogger.createCV("flip", uFlip))    
     }
 
 
 
         
-        datalogger.setColumnTitles("dim", "bias", "amp", "flip")
-        datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
-        datalogger.log(datalogger.createCV("dim", uDim),
-            datalogger.createCV("bias", axes[uDim].bias),
-            datalogger.createCV("amp", axes[uDim].amp),
-            datalogger.createCV("flip", uFlip))
-        datalogger.log(datalogger.createCV("dim", vDim),
-            datalogger.createCV("bias", axes[vDim].bias),
-            datalogger.createCV("amp", axes[vDim].amp),
-            datalogger.createCV("flip", vFlip))
+        
 
-        datalogger.setColumnTitles("uRaw", "vRaw", "u", "v", "val") // prepare to log readings
-        datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
 
 
         if (axes[vDim].amp < MarginalField) {
