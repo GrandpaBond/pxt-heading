@@ -103,7 +103,7 @@ namespace heading {
     }
 
     // GLOBALS
-    const MarginalField = 50 // minimum acceptable amplitude for magnetometer readings
+    const MarginalField = 100 // minimum acceptable amplitude for sum of magnetometer readings
 
     let scanTimes: number[] = [] // sequence of time-stamps for scanned readings 
     let scanData: number[][]= [] // scanned sequence of magnetometer readings  
@@ -259,9 +259,16 @@ namespace heading {
             if (v < zlo) zlo = v
             if (v > zhi) zhi = v
         }
-        let xOff = (xlo + xhi) / 2
-        let yOff = (ylo + yhi) / 2
-        let zOff = (zlo + zhi) / 2
+        let xOff = (xhi + xlo) / 2
+        let yOff = (yhi + ylo) / 2
+        let zOff = (zhi + zlo) / 2
+        let xAmp = (xhi - xlo) / 2
+        let yAmp = (yhi - ylo) / 2
+        let zAmp = (zhi - zlo) / 2
+
+        if ((xAmp + yAmp + zAmp) < MarginalField) {
+            return -3  // "FIELD STRENGTH TOO WEAK"
+        }
 
         // now find the extreme radii for each axis-pair 
         let xylo = 99999
@@ -270,9 +277,9 @@ namespace heading {
         let xyhi = -99999
         let yzhi = -99999
         let zxhi = -99999
-        let xyt: number[] = [scanTimes[0]]
-        let yzt: number[] = [scanTimes[0]]
-        let zxt: number[] = [scanTimes[0]]
+        let xyMax: number[] = [0]
+        let yzMax: number[] = [0]
+        let zxMax: number[] = [0]
         let period = 0
         let x = 0
         let y = 0
@@ -297,21 +304,30 @@ namespace heading {
                 xyhi = v
                 xya = Math.atan2(x, y)
                 // record time if new extreme radius found at least ~15 readings on from last one
-                if (scanTimes[i] - xyt[xyt.length - 1] > 300) xyt.push(scanTimes[i])
+                let last = scanTimes[xyMax[xyMax.length - 1]]
+                if (scanTimes[i] - last > 300) xyMax.push(i)
             }
             v = ysq + zsq
             if (v < yzlo) yzlo = v
             if (v > yzhi) {
                 yzhi = v
-                yza = Math.atan2(y, z)
+                yza = Math.atan2(y, z) 
+                let last = scanTimes[yzMax[yzMax.length - 1]]
+                if (scanTimes[i] - last > 300) yzMax.push(i)
             }
 
             v = zsq + xsq
             if (v < zxlo) zlo = v
             if (v > zxhi) {
                 zxhi = v
-                zxa = Math.atan2(z, x)
+                zxa = Math.atan2(z, x) 
+                let last = scanTimes[zxMax[zxMax.length - 1]]
+                if (scanTimes[i] - last > 300) zxMax.push(i)
             }
+        }
+        
+        if (axes[vDim].amp < MarginalField) {
+            return -3  // "FIELD STRENGTH TOO WEAK"
         }
         // use eccentricities to select best axes to use
         let xye = Math.sqrt(xyhi / xylo)
@@ -326,7 +342,7 @@ namespace heading {
                 vOff = yOff
                 theta = xya
                 scale = xye
-                period = 2 * (xyt.pop() - xyt[0]) / xyt.length
+                period = 2 * (xyMax.pop() - xyMax[0]) / xyMax.length
             }
         } else { // not XY: either YZ or ZX
             if (yze < zxe) { // not ZX so use YZ
@@ -337,7 +353,7 @@ namespace heading {
                 vOff = zOff
                 theta = yza
                 scale = yze
-                period = 2 * (yzt.pop() - yzt[0]) / yzt.length
+                period = 2 * (yzMax.pop() - yzMax[0]) / yzMax.length
             } else { // not YZ so use ZX
                 plane = "ZX"
                 uDim = Dim.Z
@@ -346,20 +362,22 @@ namespace heading {
                 vOff = xOff
                 theta = zxa
                 scale = zxe
-                period = 2 * (zxt.pop() - zxt[0]) / zxt.length
+                period = 2 * (zxMax
+    .pop() - zxMax
+    [0]) / zxMax
+    .length
             }
         }
+
 // We have set up the projection parameters. Now we need to relate them to North.
-// Take the average of five new readings to get a stable fix on the current heading
+// Take the average of three new readings to get a stable fix on the current heading
         let uRaw = 0
         let vRaw = 0
-        if (testing) { // NOTE: a-priori knowledge U=X & V=Z !
-            uRaw = scanData[Dim.X][test]
-            vRaw = scanData[Dim.Z][test]
-            test += 4
-            if (test > scanData[Dim.X].length - 2) test = 0 // roll round
+        if (testing) { // choose some arbitrary reading for North (we know U=X & V=Z)
+            uRaw = scanData[Dim.X][40]
+            vRaw = scanData[Dim.Z][40]
         } else {
-            // get a rolling sum of five readings
+            // get a rolling sum of three readings
             uRaw = input.magneticForce(uDim)
             vRaw = input.magneticForce(vDim)
             basic.pause(5)
@@ -368,14 +386,29 @@ namespace heading {
             basic.pause(5)
             uRaw += input.magneticForce(uDim)
             vRaw += input.magneticForce(vDim)
-            basic.pause(5)
-            uRaw += input.magneticForce(uDim)
-            vRaw += input.magneticForce(vDim)
-            basic.pause(5)
-            uRaw += input.magneticForce(uDim)
-            vRaw += input.magneticForce(vDim)
         }
-        toNorth = project(uRaw/5, vRaw/5)
+        toNorth = project(uRaw/3, vRaw/3)
+
+
+        // For a clockwise scan, the maths requires the U-dim to lead the V-dim by 90 degrees
+        // From the point of view of a buggy spinning clockwise from ~NW, the North vector appears 
+        // to rotate anticlockwise, passing the +V axis first, and then the -U axis.
+        // Check the timings of their first limits and, if necessary, swap the major/minor dimensions:
+        /* if (axes[uDim].time0 < axes[vDim].time0) {
+            let temp = uDim
+            uDim = vDim
+            vDim = temp
+        }
+
+        // Also check the polarities of these first limits in case the microbit
+        // is mounted backwards: we expect the first uVal<0 and the first vVal>0
+        uFlip = -(axes[uDim].limit0 / Math.abs(axes[uDim].limit0)) // = -1 if uVal>0
+        vFlip = axes[vDim].limit0 / Math.abs(axes[vDim].limit0)    // = -1 if vVal<0
+*/
+
+        // return average RPM of original scan    
+        return 60000 / period
+ 
     }
     
     function project(uRaw: number, vRaw: number) {
@@ -393,21 +426,7 @@ namespace heading {
 
 
 
-        // For a clockwise scan, the maths requires the U-dim to lead the V-dim by 90 degrees
-        // From the point of view of a buggy spinning clockwise from ~NW, the North vector appears 
-        // to rotate anticlockwise, passing the +V axis first, and then the -U axis.
-        // Check the timings of their first limits and, if necessary, swap the major/minor dimensions:
-        /* if (axes[uDim].time0 < axes[vDim].time0) {
-            let temp = uDim
-            uDim = vDim
-            vDim = temp
-        }
-
-        // Also check the polarities of these first limits in case the microbit 
-        // is mounted backwards: we expect the first uVal<0 and the first vVal>0
-        uFlip = -(axes[uDim].limit0 / Math.abs(axes[uDim].limit0)) // = -1 if uVal>0
-        vFlip = axes[vDim].limit0 / Math.abs(axes[vDim].limit0)    // = -1 if vVal<0
-
+        
         datalogger.setColumnTitles("dim", "bias", "amp", "flip")
         datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
         datalogger.log(datalogger.createCV("dim", uDim),
@@ -430,7 +449,7 @@ namespace heading {
             return 120000 / (axes[uDim].period + axes[vDim].period)
         }
     }
-    */
+  
 
 
     /**
@@ -459,16 +478,13 @@ namespace heading {
             uRaw += input.magneticForce(uDim)
             vRaw += input.magneticForce(vDim)
         }
-        // normalise the horizontal & vertical components
-        let uPart = uFlip * (uRaw - axes[uDim].bias) / axes[uDim].amp
-        let vPart = vFlip * (vRaw - axes[vDim].bias) / axes[vDim].amp
-        let val = 57.29578 * Math.atan2(vPart, uPart)
+        // project reading from ellipse to circle and relate to North
+        // (converting from radians to degrees)
+        let val = 57.29578 * (project(uRaw,vRaw) - toNorth)
         // shift negative [-180...0] range to positive [180...360]
         val = (val + 360) % 360
         datalogger.log(datalogger.createCV("uRaw", uRaw),
             datalogger.createCV("vRaw", vRaw),
-            datalogger.createCV("u", uPart),
-            datalogger.createCV("v", vPart),
             datalogger.createCV("val", val))
         return val
     }
