@@ -9,11 +9,11 @@ buggies have rotation sensors.
 
 A rather simpler method is just to use a compass! The problem is that the built-in microbit compass expects to operate
 when it is horizontal, yet most robot buggies mount it vertically. It also asks to be calibrated by tilting in every 
-possible direction.
+possible direction, an fairly awkward operation with a buggy.
 
 This pxt-heading extension is designed to meet the need for an orientation-independent compass, based just on the 
-magnetometer readings. It, too, needs to first calibrate the magnetometer (to discover how it is affected by its 
-magnetic environment), but that is achieved simply by spinning the buggy on the spot for a couple of rotations, 
+magnetometer readings. It, too, needs to first calibrate the magnetometer (to discover how it sees its magnetic 
+environment), but that is achieved simply by spinning the buggy on the spot for a couple of rotations, 
 and then teaching it where North is.
 
 ## Earth's Magnetic Field
@@ -21,20 +21,20 @@ A simplified view is that the earth's magnetic field points towards the North ma
 in northern Canada!) In the southern hemisphere it points up out of the ground, and for the northern hemisphere 
 it points down into the ground; near the equator it points roughly horizontally.
 
-So, when viewed from the perspective of our spinning buggy, the magnetic field-vector sweeps out a cone:
+So, when viewed from the perspective of our spinning buggy's magnetometer, the magnetic field-vector sweeps out a cone:
 sharply pointed in polar regions, and opened-out flat when near the equator.
 
 ## Magnetometer
-Although the magnetometer provides three readings (X,Y & Z), we only need to use two to get our heading angle. 
+Although the magnetometer provides three readings (X,Y & Z), we really only need to use two to get our heading angle. 
 The challenge is to choose the best two for the job! 
 
-Depending on the specific mounting orientation of the microbit in the buggy, in a few special places and cases, 
-the field-vector cone is aligned with one of the three magnetometer axes, so as the magnetic field vector 
+Depending on the specific mounting orientation of the microbit in the buggy, there are a few special places and cases, 
+where the field-vector cone is aligned with one of the three magnetometer axes, so as the magnetic field vector 
 apparently sweeps around its conical path, it traces out a neat circle on the plane of the other two axes. 
-Their readings can then be easily interpreted to give the heading angle. 
+Their readings can then be easily interpreted to give us the heading angle. 
 
 However, in most places and cases this cone is tilted at an angle, and traces out an ellipse on each of the three 
-orthogonal planes defined by a pair of axes (XY,YZ & ZX).  The three ellipses will in general be offset from the
+orthogonal planes defined by pairs of axes (XY,YZ & ZX). The three ellipses will in general be offset from the
 origin and show different eccentricities. We will get the best heading discrimination by choosing the plane 
 with the least eccentric (i.e most nearly circular) ellipse. 
 
@@ -42,12 +42,12 @@ Having selected the best two axes, we'll need to transform readings from around 
 that is centred on the origin, giving us a relative angle that can (eventually) be offset by a fixed bias to return 
 the true heading with repect to North.
 
-
-has a horizontal component at every location (apart from at the magnetic poles). 
-As the buggy spins, this North-South component sinusoidally 
-Whatever the microbit's mounting orientation, changes the flux readings in at least two of the magnetometer channels. 
-
-These sinusoidal curves will be 90 degrees out-of-phase, but need to be corrected in various ways.
+## Field Distortions
+So much for the theory! In the real world there are several factors which conspire to distort the actual field as 
+measured by the magnetometer.
+1) Fixed magnets on the buggy
+2) Electro-magnetic field due to flowing currents
+3) Environmental magnetic anomalies
 
 ## Calibration
 The first task is to determine which two of the three axes to use. Then we'll need to compensate for field-distortions 
