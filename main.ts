@@ -235,7 +235,7 @@ namespace heading {
     angle that can (eventually) be offset by a fixed bias to return the true heading.
     */
 
-        // we need at least a second's worth of readings...
+        // we need at least a second's worth of scanned readings...
         if (scanTimes.length < 40) {
             return -1 // "NOT ENOUGH SCAN DATA"
         }
@@ -349,11 +349,48 @@ namespace heading {
                 period = 2 * (zxt.pop() - zxt[0]) / zxt.length
             }
         }
+// We have set up the projection parameters. Now we need to relate them to North.
+// Take the average of five new readings to get a stable fix on the current heading
+        let uRaw = 0
+        let vRaw = 0
+        if (testing) { // NOTE: a-priori knowledge U=X & V=Z !
+            uRaw = scanData[Dim.X][test]
+            vRaw = scanData[Dim.Z][test]
+            test += 4
+            if (test > scanData[Dim.X].length - 2) test = 0 // roll round
+        } else {
+            // get a rolling sum of five readings
+            uRaw = input.magneticForce(uDim)
+            vRaw = input.magneticForce(vDim)
+            basic.pause(5)
+            uRaw += input.magneticForce(uDim)
+            vRaw += input.magneticForce(vDim)
+            basic.pause(5)
+            uRaw += input.magneticForce(uDim)
+            vRaw += input.magneticForce(vDim)
+            basic.pause(5)
+            uRaw += input.magneticForce(uDim)
+            vRaw += input.magneticForce(vDim)
+            basic.pause(5)
+            uRaw += input.magneticForce(uDim)
+            vRaw += input.magneticForce(vDim)
+        }
+        toNorth = project(uRaw/5, vRaw/5)
     }
-   
+    
+    function project(uRaw: number, vRaw: number) {
+        // recentre point
+        let u = uRaw - uOff
+        let v = vRaw - vOff
+        // rotate 
+        let uNew = u * Math.cos(theta) - v * Math.sin(theta)
+        let vNew = u * Math.sin(theta) + v * Math.cos(theta)
+        // scale V to match U
+        vNew *= scale
+        // return projected angle
+        return Math.atan2(uNew,vNew)
+    }
 
-    
-    
 
 
         // For a clockwise scan, the maths requires the U-dim to lead the V-dim by 90 degrees
