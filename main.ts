@@ -23,7 +23,7 @@ namespace heading {
     }
 
 
-    // an Axis holds characteristics of one magnetometer axis
+    /* an Axis holds characteristics of one magnetometer axis
     class Axis {
         dim: Dim // the dimension this axis is describing (X=0;Y=1;Z=2)
         bias: number // the fixed offset to re-centre the scanned wave-form
@@ -101,6 +101,7 @@ namespace heading {
             this.period = 2 * (this.limits[spans].time - this.limits[0].time) / spans
         }
     }
+*/
 
     // GLOBALS
     const MarginalField = 100 // minimum acceptable amplitude for sum of magnetometer readings
@@ -373,7 +374,7 @@ namespace heading {
 // Take the average of three new readings to get a stable fix on the current heading
         let uRaw = 0
         let vRaw = 0
-        if (testing) { // choose some arbitrary reading for North (we know U=X & V=Z)
+        if (testing) { // choose some arbitrary reading for North (using X for U Z for V)
             uRaw = scanData[Dim.X][40]
             vRaw = scanData[Dim.Z][40]
         } else {
@@ -413,7 +414,7 @@ namespace heading {
  
     }
     
-    // correct a two-axis raw magnetometer reading from the off-centre projected ellipse
+    // transform a two-axis raw magnetometer reading from the off-centre projected ellipse
     // back onto a centred circle of headings
     function project(uRaw: number, vRaw: number) {
         // recentre point
@@ -427,10 +428,14 @@ namespace heading {
         // return projected angle
         let a = Math.atan2(uNew,vScaled)
         
-        datalogger.log(datalogger.createCV("dim", uDim),
-            datalogger.createCV("bias", axes[uDim].bias),
-            datalogger.createCV("amp", axes[uDim].amp),
-            datalogger.createCV("flip", uFlip))    
+        datalogger.log(datalogger.createCV("uRaw", uRaw),
+            datalogger.createCV("vRaw",vRaw),
+            datalogger.createCV("U", u),
+            datalogger.createCV("V", v)
+            datalogger.createCV("uNew", uNew),
+            datalogger.createCV("vNew", vNew),
+            datalogger.createCV("vScaled", vScaled)) 
+            datalogger.createCV("a", a) )
     }
 
 
