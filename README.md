@@ -33,7 +33,14 @@ The first task is to determine which two of the three axes to use. Then we'll ne
 due to the buggy itself (i.e. fixed metalwork and motor magnets close to the microbit mounting-point).
 
 Finally we'll need to balance up the detected field-strengths (depending where you are located on the globe) so 
-that we can apply simple trigonometry to compute the angular bearing with respect to North.
+that we can apply simple trigonometry to compute the angular bearing with respect to North.    
+
+As the buggy spins, the magnetic field-vector sweeps out a cone. In the fully general case, 
+this projects onto the plane of each pair of orthogonal axes (XY,YZ,ZX) as an ellipse
+with a certain eccentricity. We will get the best heading discrimination from the plane 
+with the least eccentric ellipse, and having selected those two axes, we'll need to 
+transform readings around the ellipse so that they lie on a circle, giving a relative 
+angle that can (eventually) be offset by a fixed bias to return the true heading.
 
 ## heading.scan()
 It is obviously not feasible for this extension to know how to turn your buggy in any particular direction, so you 
@@ -54,11 +61,13 @@ heading in degrees (0 to 360)
 
 ## rpm2Speed(diameter, axle)
 A utility function to help with motor calibration. This function converts the spin-rate achieved with wheels turning 
-in contrary directions, into the equivalent linear speed when both wheels are going forwards. Calculations are based 
+in opposite directions, into the equivalent linear speed when both wheels are going forwards. Calculations are based 
 on the wheel-diameter and axle-length. 
 
-It should be noted that for a given power setting, inertial and frictional effects may mean that the actual 
-wheel-rotation speeds achieved will differ between the two situations, so motor calibration can only ever be approximate.
+It should be noted that motor calibration using this technique can only ever be approximate. 
+For a given power setting, inertial and frictional effects may mean that the actual 
+wheel-rotation speeds achieved will differ between moving forward and spinning on the spot.
+Also, for low power settings, some buggies may give an initial "kick" to get the motor going!
 
 
 

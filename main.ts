@@ -113,12 +113,16 @@ namespace heading {
     axes.push(new Axis(Dim.Y))
     axes.push(new Axis(Dim.Z))
 
-    let uDim = -1 // will hold the horizontal axis for North vector
-    let vDim = -1 // will hold the vertical axis for North vector
-
+    let uDim = -1 // will hold the horizontal axis for projecting readings
+    let vDim = -1 // will hold the vertical axis for projecting readings
+    let uOff = 0 // the offset needed to re-centre the major (uDim) axis
+    let vOff = 0 // the offset needed to re-centre the minor (vDim) axis
+    let theta = 0 // the angle to rotate readings so the major (U) axis is horizontal
+    let scale = 0 // the scaling to apply to minor (V) axis readings to balance axes
+    let toNorth = 0 // the anglular bias to be added so that North = 0
     let uFlip = 1 // set to -1 if uDim polarity is inverted
     let vFlip = 1 // set to -1 if vDim polarity is inverted
-    let plane = "??"
+    let plane = "??" // the projection plane we are using: "XY","YZ" or "ZX"
     let testing = false  // test mode flag
     let test = 0         // selector for test sample
 
@@ -226,10 +230,9 @@ namespace heading {
     As the buggy spins, the magnetic field-vector sweeps out a cone. In the fully general case, 
     this projects onto the plane of each pair of orthogonal axes (XY,YZ,ZX) as an ellipse
     with a certain eccentricity. We will get the best heading discrimination from the plane 
-    with the least eccentric ellipse, and having selected those two axes, we need to transform 
-    readings around the ellipse so that they lie on a circle, giving a relative angle that can
-    eventually be offset by a fixed bias to return the true heading.
-
+    with the least eccentric ellipse, and having selected those two axes, we'll need to 
+    transform readings around the ellipse so that they lie on a circle, giving a relative 
+    angle that can (eventually) be offset by a fixed bias to return the true heading.
     */
 
         // we need at least a second's worth of readings...
@@ -256,82 +259,108 @@ namespace heading {
             if (v < zlo) zlo = v
             if (v > zhi) zhi = v
         }
-        let xoff = (xlo + xhi) / 2
-        let yoff = (ylo + yhi) / 2
-        let zoff = (zlo + zhi) / 2
+        let xOff = (xlo + xhi) / 2
+        let yOff = (ylo + yhi) / 2
+        let zOff = (zlo + zhi) / 2
 
-        // now find the extreme radii for each axis-pair
+        // now find the extreme radii for each axis-pair 
         let xylo = 99999
         let yzlo = 99999
         let zxlo = 99999
         let xyhi = -99999
         let yzhi = -99999
         let zxhi = -99999
+        let xyt: number[] = [scanTimes[0]]
+        let yzt: number[] = [scanTimes[0]]
+        let zxt: number[] = [scanTimes[0]]
+        let period = 0
+        let x = 0
+        let y = 0
+        let z = 0
         let xsq = 0
         let ysq = 0
         let zsq = 0
+        let xya = 0
+        let yza = 0
+        let zxa = 0
+
         for (let i = 0; i <= scanTimes.length; i++) {
-            xsq = scanData[Dim.X][i] - xoff
-            ysq = scanData[Dim.Y][i] - yoff
-            zsq = scanData[Dim.Z][i] - zoff
-            xsq *= xsq
-            ysq *= ysq
-            zsq *= zsq
-            v = xsq+ysq
+            x = scanData[Dim.X][i] - xOff
+            y = scanData[Dim.Y][i] - yOff
+            z = scanData[Dim.Z][i] - zOff
+            xsq = x * x
+            ysq = y * y
+            zsq = z * z
+            v = xsq + ysq // radius-squared is sum of squares
             if (v < xylo) xylo = v
-            if (v > xyhi) xyhi = v
-            v = ysq+zsq
+            if (v > xyhi) {
+                xyhi = v
+                xya = Math.atan2(x, y)
+                // record time if new extreme radius found at least ~15 readings on from last one
+                if (scanTimes[i] - xyt[xyt.length - 1] > 300) xyt.push(scanTimes[i])
+            }
+            v = ysq + zsq
             if (v < yzlo) yzlo = v
-            if (v > yzhi) yzhi = v
-            v = zsq+xsq
+            if (v > yzhi) {
+                yzhi = v
+                yza = Math.atan2(y, z)
+            }
+
+            v = zsq + xsq
             if (v < zxlo) zlo = v
-            if (v > zxhi) zhi = v
+            if (v > zxhi) {
+                zxhi = v
+                zxa = Math.atan2(z, x)
+            }
         }
-        // 
+        // use eccentricities to select best axes to use
+        let xye = Math.sqrt(xyhi / xylo)
+        let yze = Math.sqrt(yzhi / yzlo)
+        let zxe = Math.sqrt(zxhi / zxlo)
+        if (xye < yze) { // not YZ
+            if (xye < zxe) { // not ZX either, so use XY
+                plane = "XY"
+                uDim = Dim.X
+                vDim = Dim.Y
+                uOff = xOff
+                vOff = yOff
+                theta = xya
+                scale = xye
+                period = 2 * (xyt.pop() - xyt[0]) / xyt.length
+            }
+        } else { // not XY: either YZ or ZX
+            if (yze < zxe) { // not ZX so use YZ
+                plane = "YZ"
+                uDim = Dim.Y
+                vDim = Dim.Z
+                uOff = yOff
+                vOff = zOff
+                theta = yza
+                scale = yze
+                period = 2 * (yzt.pop() - yzt[0]) / yzt.length
+            } else { // not YZ so use ZX
+                plane = "ZX"
+                uDim = Dim.Z
+                vDim = Dim.X
+                uOff = zOff
+                vOff = xOff
+                theta = zxa
+                scale = zxe
+                period = 2 * (zxt.pop() - zxt[0]) / zxt.length
+            }
+        }
     }
+   
 
-    function oldAnalysis() {}
-        // Analyse the arrays of scanned data to:
-        // a) assign major and minor magnetometer dimensions [u,v] and find North
-        // b) calculate the normalisation offsets & scaling to be applied to [u,v]
-        // c) detect the periodicity
-        // returns the (quite interesting) RPM of the original scan (or a negative error-code)
-
-        // we need at least a second's worth of readings...
-        if (scanTimes.length < 40) {
-            return -1 // "NOT ENOUGH SCAN DATA"
-        }
-
-        if (!testing) {
-            dumpData()
-        }
-        datalogger.setColumnTitles("dim", "time", "value") // prepare to log limits
-        datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
-
-        axes[0].characterise(scanTimes, scanData[Dim.X])
-        axes[1].characterise(scanTimes, scanData[Dim.Y])
-        axes[2].characterise(scanTimes, scanData[Dim.Z])
-
-
-        // To guarantee an example of a maximum and a minimum in each dimension, we
-        // need to have scanned at least one and a bit full revolutions of the buggy...
-        if ((axes[0].nLimits < 3) || (axes[1].nLimits < 3) || (axes[2].nLimits < 3)) {
-            return -2  // "NOT ENOUGH SCAN ROTATION"
-        }
-
-        // Choose the two dimensions showing the biggest amplitudes. From now on, we work
-        // with the projection of the magnetic flux vector onto the selected [U,V] plane.
-        let hi = Math.max(axes[Dim.X].amp, Math.max(axes[Dim.Y].amp, axes[Dim.Z].amp))
-        let lo = Math.min(axes[Dim.X].amp, Math.min(axes[Dim.Y].amp, axes[Dim.Z].amp))
-        uDim = axes.find(i => i.amp === hi).dim
-        vDim = axes.find(i => (i.amp != hi) && (i.amp != lo)).dim
+    
+    
 
 
         // For a clockwise scan, the maths requires the U-dim to lead the V-dim by 90 degrees
         // From the point of view of a buggy spinning clockwise from ~NW, the North vector appears 
         // to rotate anticlockwise, passing the +V axis first, and then the -U axis.
         // Check the timings of their first limits and, if necessary, swap the major/minor dimensions:
-        if (axes[uDim].time0 < axes[vDim].time0) {
+        /* if (axes[uDim].time0 < axes[vDim].time0) {
             let temp = uDim
             uDim = vDim
             vDim = temp
@@ -364,6 +393,7 @@ namespace heading {
             return 120000 / (axes[uDim].period + axes[vDim].period)
         }
     }
+    */
 
 
     /**
