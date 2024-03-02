@@ -15,7 +15,7 @@ This pxt-heading extension is designed to meet the need for an orientation-indep
 magnetometer readings. 
 
 ## Earth's Magnetic Field
-A simplified view is that the earth's magnetic field points towards the North magbnetic pole (situated incidentally 
+A simplified view is that the earth's magnetic field points towards the North magnetic pole (situated incidentally 
 in northern Canada!) in the southern hemisphere it points up out of the ground, and for the northern hemisphere 
 it points down into the ground. Near the equator it points roughly horizontally.
 
@@ -36,8 +36,7 @@ Finally we'll need to balance up the detected field-strengths (depending where y
 that we can apply simple trigonometry to compute the angular bearing with respect to North.    
 
 As the buggy spins, the magnetic field-vector sweeps out a cone. In the fully general case, 
-this projects onto the plane of each pair of orthogonal axes (XY,YZ,ZX) as an ellipse
-with a certain eccentricity. We will get the best heading discrimination from the plane 
+for each of the three orthogonal planes defined by a pair of axes (XY,YZ,ZX) this cone intersects it in an ellipse with a certain offset fro the origin and a certain eccentricity. We will get the best heading discrimination from the plane 
 with the least eccentric ellipse, and having selected those two axes, we'll need to 
 transform readings around the ellipse so that they lie on a circle, giving a relative 
 angle that can (eventually) be offset by a fixed bias to return the true heading.
