@@ -1,6 +1,6 @@
 /**
- * An extension providing a compass-heading for a buggy anywhere on the globe 
- * (except at the magnetic poles), whatever the mounting orientation of the microbit.
+ * An extension providing a compass-heading for a buggy located anywhere on the globe 
+ * (except at the magnetic poles), with any mounting orientation for the microbit.
  */
 
 //% color=#6080e0 weight=40 icon="\uf14e" block="Heading" 
@@ -107,20 +107,21 @@ namespace heading {
     const MarginalField = 100 // minimum acceptable amplitude for sum of magnetometer readings
 
     let scanTimes: number[] = [] // sequence of time-stamps for scanned readings 
-    let scanData: number[][]= [] // scanned sequence of magnetometer readings  
+    let scanData: number[][]= [] // scanned sequence of [X,Y,Z] magnetometer readings  
 
-    let axes: Axis[] = []
+    /*let axes: Axis[] = []
     axes.push(new Axis(Dim.X))
     axes.push(new Axis(Dim.Y))
     axes.push(new Axis(Dim.Z))
+    */
 
-    let uDim = -1 // will hold the horizontal axis for projecting readings
-    let vDim = -1 // will hold the vertical axis for projecting readings
-    let uOff = 0 // the offset needed to re-centre the major (uDim) axis
-    let vOff = 0 // the offset needed to re-centre the minor (vDim) axis
-    let theta = 0 // the angle to rotate readings so the major (U) axis is horizontal
-    let scale = 0 // the scaling to apply to minor (V) axis readings to balance axes
-    let toNorth = 0 // the anglular bias to be added so that North = 0
+    let uDim = -1 // the "horizontal" axis (pointing East) for transformed readings is named U
+    let vDim = -1 // the "vertical" axis (pointing North) for transformed readings is named V
+    let uOff = 0 // the offset needed to re-centre the U-axis
+    let vOff = 0 // the offset needed to re-centre the V-axis
+    let theta = 0 // the angle to rotate readings so the projected ellipse aligns with the U & V axes
+    let scale = 0 // the scaling to stretch V-axis readings from the ellipse onto a circle
+    let toNorth = 0 // the angular bias to be added (so that North = 0)
     let uFlip = 1 // set to -1 if uDim polarity is inverted
     let vFlip = 1 // set to -1 if vDim polarity is inverted
     let plane = "??" // the projection plane we are using: "XY","YZ" or "ZX"
@@ -137,17 +138,6 @@ namespace heading {
                 datalogger.createCV("y", scanData[Dim.Y][i]),
                 datalogger.createCV("z", scanData[Dim.Z][i]))
         }
-    }
-
-
-    // USER INTERFACE
-
-    // use some sample data, while debugging...
-    export function simulateScan() {
-        scanTimes = [5637, 5665, 5693, 5721, 5749, 5777, 5805, 5833, 5861, 5889, 5917, 5945, 5973, 6001, 6029, 6057, 6087, 6113, 6141, 6169, 6197, 6225, 6253, 6281, 6309, 6337, 6365, 6393, 6421, 6449, 6477, 6505, 6533, 6561, 6589, 6617, 6645, 6673, 6701, 6729, 6757, 6785, 6813, 6841, 6869, 6897, 6925, 6956, 6981, 7009, 7037, 7065, 7093, 7121, 7149, 7177, 7205, 7233, 7261, 7289, 7317, 7345, 7373, 7401, 7429, 7460, 7485, 7513, 7541, 7569, 7597, 7625, 7653, 7681, 7709, 7737, 7765, 7793, 7821, 7849, 7877, 7905, 7933, 7961, 7989, 8017, 8045, 8073, 8101, 8129, 8157, 8185, 8213, 8241, 8269, 8300, 8325, 8353, 8381, 8409, 8437, 8465, 8493, 8521, 8549, 8577, 8605, 8641, 8669, 8697, 8725, 8753, 8781, 8809, 8837, 8865, 8893, 8921, 8949, 8977, 9005, 9033, 9061, 9089, 9117, 9145, 9173, 9201, 9229, 9257, 9285, 9313, 9344, 9369, 9397, 9425, 9453, 9481, 9509, 9537, 9565, 9593, 9621]
-        scanData[Dim.X] = [36.45, 34.05, 31.95, 29.55, 26.85, 24.6, 20.1, 15.6, 9.3, 3.75, -0.45, -6.45, -13.5, -24.15, -31.5, -38.1, -44.55, -51.15, -59.1, -65.1, -71.4, -76.65, -82.05, -85.5, -87.3, -87.9, -87.3, -87.6, -85.5, -83.85, -78.3, -74.25, -70.05, -66.6, -62.85, -58.2, -53.25, -46.35, -39.3, -33, -24.75, -15.9, -5.55, 2.55, 9, 13.8, 17.85, 21.75, 25.2, 28.8, 31.65, 34.2, 36.75, 37.5, 35.55, 30.3, 26.4, 22.2, 21, 17.85, 13.35, 5.85, -1.2, -8.85, -16.8, -25.8, -33.9, -41.4, -48.9, -55.65, -62.55, -68.1, -71.85, -75.9, -79.05, -82.95, -85.8, -87.45, -86.25, -85.05, -82.05, -80.1, -77.1, -73.95, -71.7, -66.6, -61.95, -53.85, -47.25, -41.1, -33.3, -26.4, -16.95, -10.35, -4.35, 0, 4.5, 12.45, 18.9, 26.1, 30, 32.55, 34.05, 34.2, 34.95, 32.4, 31.8, 29.4, 28.5, 25.05, 18.75, 11.7, 4.8, -0.6, -7.8, -16.8, -25.05, -32.7, -38.1, -43.5, -49.35, -55.5, -62.85, -69.3, -75.6, -80.7, -83.7, -85.65, -86.25, -86.7, -87.15, -85.95, -83.1, -79.95, -75.75, -70.5, -67.8, -62.7, -60.45, -51.75, -45, -37.05, -28.2]
-        scanData[Dim.Y] = [-387.75, -389.55, -385.2, -385.95, -386.1, -384.15, -381.15, -379.8, -381, -380.1, -380.7, -380.85, -382.95, -384.45, -385.5, -383.85, -381.15, -377.55, -376.2, -375.45, -375, -374.25, -372.6, -373.35, -373.05, -373.35, -373.35, -374.7, -376.5, -378.3, -378.15, -377.7, -375.9, -375.75, -375.45, -376.35, -377.55, -376.95, -376.95, -376.5, -378.6, -379.2, -381.3, -381.45, -382.95, -382.05, -382.2, -381.15, -381.45, -383.1, -384.9, -386.7, -385.5, -384.6, -382.8, -382.2, -382.8, -384.15, -385.5, -385.35, -387.3, -385.35, -382.8, -379.65, -380.7, -382.35, -381.45, -380.7, -380.85, -380.25, -379.35, -377.7, -377.85, -376.95, -376.95, -376.05, -376.8, -375.9, -376.8, -376.8, -377.85, -378.9, -379.8, -379.5, -377.85, -375.9, -376.95, -377.7, -380.55, -378.9, -378, -378.15, -379.35, -382.05, -380.55, -380.4, -381, -383.7, -387.15, -387.15, -387, -385.05, -384.15, -384.3, -384.3, -384.6, -383.25, -384, -384.45, -385.8, -384.6, -384, -382.35, -381.6, -380.1, -380.1, -381.3, -384, -382.8, -382.35, -379.5, -379.2, -378.9, -378.9, -379.05, -378.9, -377.1, -376.65, -377.7, -378.9, -377.1, -374.1, -373.05, -374.55, -374.1, -375.75, -377.1, -378.9, -378, -377.4, -376.8, -376.65, -375.75]
-        scanData[Dim.Z] = [-145.05, -149.7, -155.25, -157.8, -159.45, -162.9, -165.9, -171.15, -173.4, -178.8, -179.4, -181.2, -181.8, -183.3, -184.35, -184.35, -182.1, -180, -175.5, -170.85, -164.7, -160.95, -156.45, -150.15, -144.6, -138.3, -132.3, -124.5, -115.95, -109.65, -99.9, -93.6, -84.3, -78.9, -75.15, -72.6, -68.25, -64.05, -63.6, -63.45, -64.35, -63.15, -64.8, -67.35, -72.45, -79.5, -84, -89.4, -95.55, -103.65, -110.55, -115.95, -122.1, -130.2, -139.05, -146.25, -151.95, -156.75, -163.05, -169.05, -171.9, -173.4, -177.3, -182.7, -184.35, -183.45, -181.05, -181.65, -178.05, -176.7, -172.95, -170.1, -165.45, -159.75, -154.35, -147, -140.1, -134.55, -127.95, -121.95, -111.75, -103.05, -97.95, -92.1, -88.35, -81.3, -75.9, -72, -67.65, -68.55, -65.55, -64.65, -63, -63.9, -67.8, -72.6, -76.65, -80.55, -85.05, -94.95, -102.9, -109.8, -116.25, -122.7, -130.05, -136.5, -143.85, -150.6, -156, -162.15, -168.3, -172.35, -175.65, -179.25, -180.6, -184.2, -183.15, -184.95, -183.15, -181.2, -178.95, -174.6, -169.65, -166.2, -162.15, -156.75, -150.75, -143.7, -138.9, -132.6, -125.4, -118.35, -108, -102.45, -94.2, -87.75, -79.35, -73.05, -71.25, -68.55, -66.3, -63.75, -63.9]
     }
 
     // EXPORTED USER INTERFACES   
@@ -413,37 +403,8 @@ namespace heading {
         return 60000 / period
  
     }
-    
-    // transform a two-axis raw magnetometer reading from the off-centre projected ellipse
-    // back onto a centred circle of headings
-    function project(uRaw: number, vRaw: number) {
-        // recentre point
-        let u = uRaw - uOff
-        let v = vRaw - vOff
-        // rotate by the major-axis angle theta (check direction!)
-        let uNew = u * Math.cos(theta) - v * Math.sin(theta)
-        let vNew = u * Math.sin(theta) + v * Math.cos(theta)
-        // scale V to match U
-        let vScaled = vNew * scale
-        // return projected angle
-        let a = Math.atan2(uNew,vScaled)
-        
-        datalogger.log(datalogger.createCV("uRaw", uRaw),
-            datalogger.createCV("vRaw",vRaw),
-            datalogger.createCV("U", u),
-            datalogger.createCV("V", v)
-            datalogger.createCV("uNew", uNew),
-            datalogger.createCV("vNew", vNew),
-            datalogger.createCV("vScaled", vScaled)) 
-            datalogger.createCV("a", a) )
-    }
-
-
-
-        
-        
-
-
+  
+/***
 
         if (axes[vDim].amp < MarginalField) {
             return -3  // "FIELD STRENGTH TOO WEAK"
@@ -452,7 +413,7 @@ namespace heading {
             return 120000 / (axes[uDim].period + axes[vDim].period)
         }
     }
-  
+***/
 
 
     /**
@@ -481,15 +442,15 @@ namespace heading {
             uRaw += input.magneticForce(uDim)
             vRaw += input.magneticForce(vDim)
         }
-        // project reading from ellipse to circle and relate to North
-        // (converting from radians to degrees)
-        let val = 57.29578 * (project(uRaw,vRaw) - toNorth)
-        // shift negative [-180...0] range to positive [180...360]
-        val = (val + 360) % 360
-        datalogger.log(datalogger.createCV("uRaw", uRaw),
-            datalogger.createCV("vRaw", vRaw),
-            datalogger.createCV("val", val))
-        return val
+        // project reading from ellipse to circle, relating it to North and converting to degrees
+        let angle = 57.29578 * (project(uRaw,vRaw) - toNorth)
+        // angle runs anticlockwise from U-axis: subtract from 90 degrees to reflect through 
+        // the diagonal and make it run clockwise from the V-axis
+        angle = 90 - angle
+        // roll negative values into the positive range [0...359]
+        angle = (angle + 360) % 360
+
+        return angle
     }
 
 
@@ -498,5 +459,44 @@ namespace heading {
     //% weight=50
     export function testMode(turnOn: boolean) {
         testing = turnOn
+    } 
+
+// UTILITY FUNCTIONS
+
+    // use some sample data, while debugging...
+    function simulateScan() {
+        scanTimes = [5637, 5665, 5693, 5721, 5749, 5777, 5805, 5833, 5861, 5889, 5917, 5945, 5973, 6001, 6029, 6057, 6087, 6113, 6141, 6169, 6197, 6225, 6253, 6281, 6309, 6337, 6365, 6393, 6421, 6449, 6477, 6505, 6533, 6561, 6589, 6617, 6645, 6673, 6701, 6729, 6757, 6785, 6813, 6841, 6869, 6897, 6925, 6956, 6981, 7009, 7037, 7065, 7093, 7121, 7149, 7177, 7205, 7233, 7261, 7289, 7317, 7345, 7373, 7401, 7429, 7460, 7485, 7513, 7541, 7569, 7597, 7625, 7653, 7681, 7709, 7737, 7765, 7793, 7821, 7849, 7877, 7905, 7933, 7961, 7989, 8017, 8045, 8073, 8101, 8129, 8157, 8185, 8213, 8241, 8269, 8300, 8325, 8353, 8381, 8409, 8437, 8465, 8493, 8521, 8549, 8577, 8605, 8641, 8669, 8697, 8725, 8753, 8781, 8809, 8837, 8865, 8893, 8921, 8949, 8977, 9005, 9033, 9061, 9089, 9117, 9145, 9173, 9201, 9229, 9257, 9285, 9313, 9344, 9369, 9397, 9425, 9453, 9481, 9509, 9537, 9565, 9593, 9621]
+        scanData[Dim.X] = [36.45, 34.05, 31.95, 29.55, 26.85, 24.6, 20.1, 15.6, 9.3, 3.75, -0.45, -6.45, -13.5, -24.15, -31.5, -38.1, -44.55, -51.15, -59.1, -65.1, -71.4, -76.65, -82.05, -85.5, -87.3, -87.9, -87.3, -87.6, -85.5, -83.85, -78.3, -74.25, -70.05, -66.6, -62.85, -58.2, -53.25, -46.35, -39.3, -33, -24.75, -15.9, -5.55, 2.55, 9, 13.8, 17.85, 21.75, 25.2, 28.8, 31.65, 34.2, 36.75, 37.5, 35.55, 30.3, 26.4, 22.2, 21, 17.85, 13.35, 5.85, -1.2, -8.85, -16.8, -25.8, -33.9, -41.4, -48.9, -55.65, -62.55, -68.1, -71.85, -75.9, -79.05, -82.95, -85.8, -87.45, -86.25, -85.05, -82.05, -80.1, -77.1, -73.95, -71.7, -66.6, -61.95, -53.85, -47.25, -41.1, -33.3, -26.4, -16.95, -10.35, -4.35, 0, 4.5, 12.45, 18.9, 26.1, 30, 32.55, 34.05, 34.2, 34.95, 32.4, 31.8, 29.4, 28.5, 25.05, 18.75, 11.7, 4.8, -0.6, -7.8, -16.8, -25.05, -32.7, -38.1, -43.5, -49.35, -55.5, -62.85, -69.3, -75.6, -80.7, -83.7, -85.65, -86.25, -86.7, -87.15, -85.95, -83.1, -79.95, -75.75, -70.5, -67.8, -62.7, -60.45, -51.75, -45, -37.05, -28.2]
+        scanData[Dim.Y] = [-387.75, -389.55, -385.2, -385.95, -386.1, -384.15, -381.15, -379.8, -381, -380.1, -380.7, -380.85, -382.95, -384.45, -385.5, -383.85, -381.15, -377.55, -376.2, -375.45, -375, -374.25, -372.6, -373.35, -373.05, -373.35, -373.35, -374.7, -376.5, -378.3, -378.15, -377.7, -375.9, -375.75, -375.45, -376.35, -377.55, -376.95, -376.95, -376.5, -378.6, -379.2, -381.3, -381.45, -382.95, -382.05, -382.2, -381.15, -381.45, -383.1, -384.9, -386.7, -385.5, -384.6, -382.8, -382.2, -382.8, -384.15, -385.5, -385.35, -387.3, -385.35, -382.8, -379.65, -380.7, -382.35, -381.45, -380.7, -380.85, -380.25, -379.35, -377.7, -377.85, -376.95, -376.95, -376.05, -376.8, -375.9, -376.8, -376.8, -377.85, -378.9, -379.8, -379.5, -377.85, -375.9, -376.95, -377.7, -380.55, -378.9, -378, -378.15, -379.35, -382.05, -380.55, -380.4, -381, -383.7, -387.15, -387.15, -387, -385.05, -384.15, -384.3, -384.3, -384.6, -383.25, -384, -384.45, -385.8, -384.6, -384, -382.35, -381.6, -380.1, -380.1, -381.3, -384, -382.8, -382.35, -379.5, -379.2, -378.9, -378.9, -379.05, -378.9, -377.1, -376.65, -377.7, -378.9, -377.1, -374.1, -373.05, -374.55, -374.1, -375.75, -377.1, -378.9, -378, -377.4, -376.8, -376.65, -375.75]
+        scanData[Dim.Z] = [-145.05, -149.7, -155.25, -157.8, -159.45, -162.9, -165.9, -171.15, -173.4, -178.8, -179.4, -181.2, -181.8, -183.3, -184.35, -184.35, -182.1, -180, -175.5, -170.85, -164.7, -160.95, -156.45, -150.15, -144.6, -138.3, -132.3, -124.5, -115.95, -109.65, -99.9, -93.6, -84.3, -78.9, -75.15, -72.6, -68.25, -64.05, -63.6, -63.45, -64.35, -63.15, -64.8, -67.35, -72.45, -79.5, -84, -89.4, -95.55, -103.65, -110.55, -115.95, -122.1, -130.2, -139.05, -146.25, -151.95, -156.75, -163.05, -169.05, -171.9, -173.4, -177.3, -182.7, -184.35, -183.45, -181.05, -181.65, -178.05, -176.7, -172.95, -170.1, -165.45, -159.75, -154.35, -147, -140.1, -134.55, -127.95, -121.95, -111.75, -103.05, -97.95, -92.1, -88.35, -81.3, -75.9, -72, -67.65, -68.55, -65.55, -64.65, -63, -63.9, -67.8, -72.6, -76.65, -80.55, -85.05, -94.95, -102.9, -109.8, -116.25, -122.7, -130.05, -136.5, -143.85, -150.6, -156, -162.15, -168.3, -172.35, -175.65, -179.25, -180.6, -184.2, -183.15, -184.95, -183.15, -181.2, -178.95, -174.6, -169.65, -166.2, -162.15, -156.75, -150.75, -143.7, -138.9, -132.6, -125.4, -118.35, -108, -102.45, -94.2, -87.75, -79.35, -73.05, -71.25, -68.55, -66.3, -63.75, -63.9]
     }
+
+
+    // Transform a two-axis raw magnetometer reading lying on the off-centre projected ellipse
+    // back onto a centred circle of headings and returns its angle (in radians) 
+    // anticlockwise from the U-axis
+    function project(uRaw: number, vRaw: number): number {
+        // shift to get a vector from the origin
+        let u = uRaw - uOff
+        let v = vRaw - vOff
+        // rotate by the major-axis angle theta (check direction!)
+        let uNew = u * Math.cos(theta) - v * Math.sin(theta)
+        let vNew = u * Math.sin(theta) + v * Math.cos(theta)
+        // scale up V to match U
+        let vScaled = vNew * scale
+        // return projected angle
+        let angle = Math.atan2(uNew, vScaled)
+
+        datalogger.log(datalogger.createCV("uRaw", uRaw),
+            datalogger.createCV("vRaw", vRaw),
+            datalogger.createCV("U", u),
+            datalogger.createCV("V", v),
+            datalogger.createCV("uNew", uNew),
+            datalogger.createCV("vNew", vNew),
+            datalogger.createCV("vScaled", vScaled),
+            datalogger.createCV("angle", angle) )
+        
+        return angle
+    }
+    
 }
