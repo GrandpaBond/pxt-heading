@@ -9,45 +9,56 @@ buggies have rotation sensors.
 
 A rather simpler method is just to use a compass! The problem is that the built-in microbit compass expects to operate
 when it is horizontal, yet most robot buggies mount it vertically. It also asks to be calibrated by tilting in every 
-possible direction, an fairly awkward operation with a buggy.
+possible direction, sometimes a rather awkward operation with a buggy...
 
-This pxt-heading extension is designed to meet the need for an orientation-independent compass, based just on the 
-magnetometer readings. It, too, needs to first calibrate the magnetometer (to discover how it sees its magnetic 
-environment), but that is achieved simply by spinning the buggy on the spot for a couple of rotations, 
+This pxt-heading extension is designed to meet the need for a location-independent and orientation-independent compass,
+based solely on the magnetometer readings. It still first needs to calibrate the magnetometer (to discover how it 
+sees its magnetic environment), but that is achieved simply by spinning the buggy on the spot for a couple of rotations, 
 and then teaching it where North is.
 
-## Earth's Magnetic Field
-A simplified view is that the earth's magnetic field points towards the North magnetic pole (situated incidentally 
-in northern Canada!) In the southern hemisphere it points up out of the ground, and for the northern hemisphere 
-it points down into the ground; near the equator it points roughly horizontally.
+(Some systems use the accelerometer to tell which way is "up", but this can only be trusted if the buggy is 
+guaranteed to be completely at rest.)
 
-So, when viewed from the perspective of our spinning buggy's magnetometer, the magnetic field-vector sweeps out a cone:
-sharply pointed in polar regions, and opened-out flat when near the equator.
+## Earth's Magnetic Field
+A simplified view is that the earth's magnetic field points from the South magnetic pole towards the North magnetic 
+pole (situated incidentally in northern Canada!) In the southern hemisphere it points up out of the ground, 
+and for the northern hemisphere it points down into the ground; near the equator it points roughly horizontally.
+
+So, when viewed from the perspective of our spinning buggy's magnetometer, the magnetic field-vector always sweeps 
+out a cone: sharply pointed in polar regions, and opened-out almost flat when near the equator.
 
 ## Magnetometer
-Although the magnetometer provides three readings (X,Y & Z), we really only need to use two to get our heading angle. 
-The challenge is to choose the best two for the job! 
+Although the magnetometer provides three readings (X,Y & Z), we really only need to use two of them to get our 
+heading angle; the challenge is to choose the best two for the job! 
 
-Depending on the specific mounting orientation of the microbit in the buggy, there are a few special places and cases, 
-where the field-vector cone is aligned with one of the three magnetometer axes, so as the magnetic field vector 
-apparently sweeps around its conical path, it traces out a neat circle on the plane of the other two axes. 
-Their readings can then be easily interpreted to give us the heading angle. 
+Depending on where you are, and the specific mounting orientation of the microbit in the buggy, there are a few 
+special places and cases, where the axis of the field-vector cone will be aligned with one of the three magnetometer 
+axes, so as it (apparently) sweeps around its conical path, it traces out a neat circle onto the plane of the 
+remaining two axes. Their readings can then be easily interpreted to accurately give us the heading angle. 
 
-However, in most places and cases this cone is tilted at an angle, and traces out an ellipse on each of the three 
-orthogonal planes defined by pairs of axes (XY,YZ & ZX). The three ellipses will in general be offset from the
-origin and show different eccentricities. We will get the best heading discrimination by choosing the plane 
-with the least eccentric (i.e most nearly circular) ellipse. 
+However, in the fully general situation, this cone is tilted at an angle, and traces out an ellipse on each of 
+the three orthogonal planes defined by pairs of axes (XY,YZ & ZX). The three ellipses will in general show 
+different eccentricities and (typically) be offset from the origin. 
 
-Having selected the best two axes, we'll need to transform readings from around the ellipse back onto a true circle
-that is centred on the origin, giving us a relative angle that can (eventually) be offset by a fixed bias to return 
+We will get the best heading discrimination by choosing the projection plane with the least eccentric 
+(i.e most nearly circular) ellipse. 
+
+Having selected these best two axes, we'll need to transform each new reading from around the ellipse back onto 
+a true circle. This can require up to three steps: 
+(a) first we will generally need to shift it, effectively moving the ellipse's centre to the origin; 
+(b) if we are unlucky and the ellipse is tilted, we may then have to rotate it to lie squarely over the axes;
+(c) finally we need to scale one value, stretching the ellipse into a perfect circle.
+The final position gives us a relative angle that can (eventually) be offset by a fixed bias to return 
 the true heading with repect to North.
 
 ## Field Distortions
 So much for the theory! In the real world there are several factors which conspire to distort the actual field as 
 measured by the magnetometer.
-1) Fixed magnets on the buggy
-2) Electro-magnetic field due to flowing currents
-3) Environmental magnetic anomalies
+1) Fixed magnets on the buggy will add (or subtract) a fixed bias from each reading
+2) Electro-magnetic field due to flowing currents (especially to the buggy's motors).
+3) Environmental magnetic anomalies, due to nearby magnets or electrical machinery 
+We can only really accounted for the first of these; other factors will llimit the accuracy and repeatability
+of reported headings.
 
 ## Calibration
 The first task is to determine which two of the three axes to use. Then we'll need to compensate for field-distortions 
