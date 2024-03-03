@@ -24,50 +24,56 @@ A simplified view is that the earth's magnetic field points from the South magne
 pole (situated incidentally in northern Canada!) In the southern hemisphere it points up out of the ground, 
 and for the northern hemisphere it points down into the ground; near the equator it points roughly horizontally.
 
-So, when viewed from the perspective of our spinning buggy's magnetometer, the magnetic field-vector always sweeps 
-out a cone: sharply pointed in polar regions, and opened-out almost flat when near the equator.
+So, when viewed from the perspective of our spinning buggy's magnetometer, the magnetic field-vector always appears
+to sweep out a cone: sharply pointed in polar regions, and opened-out almost flat when near the equator.
 
-## Magnetometer
-Although the magnetometer provides three readings (X,Y & Z), we really only need to use two of them to get our 
+## Magnetometer Calibration
+Although the magnetometer provides three readings (X,Y & Z), we will only need to use two of them to get our 
 heading angle; the challenge is to choose the best two for the job! 
 
 Depending on where you are, and the specific mounting orientation of the microbit in the buggy, there are a few 
-special places and cases, where the axis of the field-vector cone will be aligned with one of the three magnetometer 
-axes, so as it (apparently) sweeps around its conical path, it traces out a neat circle onto the plane of the 
-remaining two axes. Their readings can then be easily interpreted to accurately give us the heading angle. 
+special places and cases where the axis of the field-vector cone will be neatly aligned with one of the three 
+magnetometer axes, so as it (apparently) sweeps around its conical path, it traces out a neat circle onto the plane
+of the remaining two axes. Their readings can then be easily interpreted to accurately give us the heading angle. 
 
-However, in the fully general situation, this cone is tilted at an angle, and traces out an ellipse on each of 
-the three orthogonal planes defined by pairs of axes (XY,YZ & ZX). The three ellipses will in general show 
-different eccentricities and (typically) be offset from the origin. 
+However, in the fully general situation, especially if the microbit is mounted on a slant, this cone appears tilted 
+at an angle, and traces out an ellipse on each of the three orthogonal planes defined by pairs of axes (XY,YZ & ZX). 
+These three ellipses will in general show different eccentricities and also (typically) be offset from the origin. 
 
-We will get the best heading discrimination by choosing the projection plane with the least eccentric 
+We will obtain the best heading discrimination by choosing the projection plane showing the least eccentric 
 (i.e most nearly circular) ellipse. 
 
 Having selected these best two axes, we'll need to transform each new reading from around the ellipse back onto 
-a true circle. This can require up to three steps: 
-(a) first we will generally need to shift it, effectively moving the ellipse's centre to the origin; 
-(b) if we are unlucky and the ellipse is tilted, we may then have to rotate it to lie squarely over the axes;
-(c) finally we need to scale one value, stretching the ellipse into a perfect circle.
-The final position gives us a relative angle that can (eventually) be offset by a fixed bias to return 
-the true heading with repect to North.
+a true circle. This can require up to three steps:
+
+* first we will generally need to shift it, effectively moving the ellipse's centre to the origin; 
+
+* if we are unlucky and the ellipse is tilted, we may then have to rotate it to lie squarely over the axes;
+
+* finally we must scale one value in propotion to the eccentricity (stretching the ellipse into a perfect circle).
+
+Applying simple trigonometry to the final position on the circle gives us a relative angle that can be offset 
+by a known bias to return the true heading with repect to North.
 
 ## Field Distortions
 So much for the theory! In the real world there are several factors which conspire to distort the actual field as 
-measured by the magnetometer.
-1) Fixed magnets on the buggy will add (or subtract) a fixed bias from each reading
-2) Electro-magnetic field due to flowing currents (especially to the buggy's motors).
-3) Environmental magnetic anomalies, due to nearby magnets or electrical machinery 
-We can only really accounted for the first of these; other factors will llimit the accuracy and repeatability
+measured by the magnetometer:
+
+* Environmental magnetic anomalies, due to magnets or electrical machinery near where the buggy is being used.
+
+* Electro-magnetic fields due to flowing currents (especially to the buggy's motors).
+
+* Fixed metalwork and static motor magnets on the buggy itself close to the microbit mounting-point. These will
+    add (or subtract) a different fixed bias for each axis.
+
+* "Jitter". Even when nothing has changed, repeated readings from the magnetometer often tend to differ.
+
+We can only really account for the last two of these: Spinning the buggy lets us separate the local and environmental
+influences and so calculate the fixed biases to be applied to each axis reading. Additionally, to smooth out any jitter,
+we always use a rolling average of seven consecutive readings.
+
+Unfortunately, the other factors sre outside our control, and will inevitably limit the accuracy and repeatability
 of reported headings.
-
-## Calibration
-The first task is to determine which two of the three axes to use. Then we'll need to compensate for field-distortions 
-due to the buggy itself (i.e. fixed metalwork and motor magnets close to the microbit mounting-point).
-
-Finally we'll need to balance up the detected field-strengths (depending where you are located on the globe) so 
-that we can apply simple trigonometry to compute the angular bearing with respect to North.    
-
-
 
 ## heading.scan()
 It is obviously not feasible for this extension to know how to turn your buggy in any particular direction, so you 
@@ -83,15 +89,15 @@ As an interesting by-product, it will return the spin-rate of the buggy during t
 you compare the effects of setting different motor speeds.
 
 ## heading.degrees()
-Having performed the scan, and prepared the measuring set-up, this is the function that returns the current compass 
-heading in degrees (0 to 360)
+Having performed the scan using heading.scan(), and calibrated the measuring set-up using heading.setNorth(), 
+this is the function that returns the current compass heading in degrees (0 to 360)
 
 ## rpm2Speed(diameter, axle)
 A utility function to help with motor calibration. This function converts the spin-rate achieved with wheels turning 
 in opposite directions, into the equivalent linear speed when both wheels are going forwards. Calculations are based 
 on the wheel-diameter and axle-length. 
 
-It should be noted that motor calibration using this technique can only ever be approximate. 
+NOTE: It should be noted that motor calibration using this technique can only ever be approximate. 
 For a given power setting, inertial and frictional effects may mean that the actual 
 wheel-rotation speeds achieved will differ between moving forward and spinning on the spot.
 Also, for low power settings, some buggies may give an initial "kick" to get the motor going!
