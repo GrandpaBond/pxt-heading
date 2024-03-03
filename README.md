@@ -8,11 +8,12 @@ in path-lengths. Knowing the axle-length then lets you compute changes of direct
 buggies have rotation sensors.
 
 A rather simpler method is just to use a compass! The problem is that the built-in microbit compass expects to operate
-when it is horizontal, yet most robot buggies mount it vertically. It also asks to be calibrated by tilting in every 
-possible direction, sometimes a rather awkward operation with a buggy...
+when it is horizontal, yet most robot buggies mount it vertically. It also asks to be calibrated by tilting it in every 
+possible direction, potentially a rather awkward operation with a buggy...
 
 This pxt-heading extension is designed to meet the need for a location-independent and orientation-independent compass,
-based solely on the magnetometer readings. It still needs to first calibrate the magnetometer (to discover how it 
+based solely on the magnetometer readings. 
+The magnetometer does still need to be calibrated (to discover how it 
 sees its magnetic environment), but we achieve that by simply spinning the buggy on the spot for a couple of rotations, 
 and then teaching it where North is.
 
@@ -22,10 +23,12 @@ A simplified view is that the earth's magnetic field points from the South magne
 pole (situated incidentally in northern Canada!) In the southern hemisphere it points up out of the ground, 
 and for the northern hemisphere it points down into the ground; near the equator it points roughly horizontally.
 
-One way of visualising it in 3D is to imagine a sphere centred on the magnetometer, with a magnetic field-vector 
-through the middle intersecting it at a point on its surface. When viewed from the perspective of our spinning buggy, 
-the field-vector traces out a circle on the sphere whose diameter ranges from tiny in polar regions (where the field is
-more vertical) to the full diameter of the sphere when we are near the earth's equator (where the field is horizontal).
+The magnetometer reads the field strength separately in the X, Y & Z directions (the dimensions of a 3D box with the magnetic field vector as its diagonal). As the buggy spins,these orthogonal strengths oscillate either side of zero.
+
+
+One way of visualising the situation is to imagine a sphere centred on the magnetometer. A magnetic field-vector 
+through the middle will intersect it at a point on its surface. When viewed from the perspective of our spinning buggy, successive points will traces out a circle on the sphere whose diameter ranges from tiny (in polar regions where the field is
+more vertical) to the full diameter of the sphere (when we are near the earth's equator and the field is horizontal).
 We'll call this circle the Spin Circle.
 
 ## Magnetometer Calibration
