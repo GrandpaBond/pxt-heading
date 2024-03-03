@@ -12,36 +12,40 @@ when it is horizontal, yet most robot buggies mount it vertically. It also asks 
 possible direction, sometimes a rather awkward operation with a buggy...
 
 This pxt-heading extension is designed to meet the need for a location-independent and orientation-independent compass,
-based solely on the magnetometer readings. It still first needs to calibrate the magnetometer (to discover how it 
-sees its magnetic environment), but that is achieved simply by spinning the buggy on the spot for a couple of rotations, 
+based solely on the magnetometer readings. It still needs to first calibrate the magnetometer (to discover how it 
+sees its magnetic environment), but we achieve that by simply spinning the buggy on the spot for a couple of rotations, 
 and then teaching it where North is.
 
-(Some systems use the accelerometer to tell which way is "up", but this can only be trusted if the buggy is 
-guaranteed to be completely at rest.)
 
 ## Earth's Magnetic Field
 A simplified view is that the earth's magnetic field points from the South magnetic pole towards the North magnetic 
 pole (situated incidentally in northern Canada!) In the southern hemisphere it points up out of the ground, 
 and for the northern hemisphere it points down into the ground; near the equator it points roughly horizontally.
 
-So, when viewed from the perspective of our spinning buggy's magnetometer, the magnetic field-vector always appears
-to sweep out a cone: sharply pointed in polar regions, and opened-out almost flat when near the equator.
+One way of visualising it in 3D is to imagine a sphere centred on the magnetometer, with a magnetic field-vector 
+through the middle intersecting it at a point on its surface. When viewed from the perspective of our spinning buggy, 
+the field-vector traces out a circle on the sphere whose diameter ranges from tiny in polar regions (where the field is
+more vertical) to the full diameter of the sphere when we are near the earth's equator (where the field is horizontal).
+We'll call this circle the Spin Circle.
 
 ## Magnetometer Calibration
+
 Although the magnetometer provides three readings (X,Y & Z), we will only need to use two of them to get our 
 heading angle; the challenge is to choose the best two for the job! 
 
-Depending on where you are, and the specific mounting orientation of the microbit in the buggy, there are a few 
-special places and cases where the axis of the field-vector cone will be neatly aligned with one of the three 
-magnetometer axes, so as it (apparently) sweeps around its conical path, it traces out a neat circle onto the plane
-of the remaining two axes. Their readings can then be easily interpreted to accurately give us the heading angle. 
+Depending on the specific mounting orientation of the microbit in the buggy, we may find that the axis of the 
+Spin Circle will be neatly aligned with one of the three magnetometer axes. The readings of the remaining two 
+axes can then be easily interpreted to give us the heading angle. 
 
-However, in the fully general situation, especially if the microbit is mounted on a slant, this cone appears tilted 
-at an angle, and traces out an ellipse on each of the three orthogonal planes defined by pairs of axes (XY,YZ & ZX). 
-These three ellipses will in general show different eccentricities and also (typically) be offset from the origin. 
+However, in the fully general situation where the microbit might be mounted on a slant, the Spin Circle appears 
+tilted into an ellipse when looking down one or more axes onto the plane of the other two axes (XY,YZ & ZX)
+Each ellipse will in general show a different eccentricity and we will obtain the best heading discrimination by 
+choosing the projection plane showing the least eccentric (i.e most nearly circular) ellipse. 
 
-We will obtain the best heading discrimination by choosing the projection plane showing the least eccentric 
-(i.e most nearly circular) ellipse. 
+(Some systems just use an accelerometer to tell which way is "up", but this can only be trusted if the buggy is 
+guaranteed to be completely at rest when you measure.)
+
+and also (typically) be offset from the origin
 
 Having selected these best two axes, we'll need to transform each new reading from around the ellipse back onto 
 a true circle. This can require up to three steps:
