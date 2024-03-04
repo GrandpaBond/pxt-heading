@@ -11,100 +11,8 @@ namespace heading {
         Z = Dimension.Z
     }
 
-    // OBJECT CLASSES 
-    // a Limit is a local minimum or maximum in a scanned array of readings 
-    class Limit {
-        time: number
-        value: number
-        constructor() {
-            this.time = 0   // time-stamp when this Limit was hit
-            this.value = 0  // signed value of local maximum amplitude
-        }
-    }
-
-
-    /* an Axis holds characteristics of one magnetometer axis
-    class Axis {
-        dim: Dim // the dimension this axis is describing (X=0;Y=1;Z=2)
-        bias: number // the fixed offset to re-centre the scanned wave-form
-        amp: number  // the average amplitude of the scanned wave-form
-        limits: Limit[] // the array of local extremes detected
-        nLimits: number // the count of local extremes detected
-        time0: number   // the timestamp of the first limit in this axis
-        limit0: number  // the normalised value of the first limit in this axis
-        period: number  // the RPM of the scanned wave-form in this axis
-
-        constructor(dim: Dim) {
-            // dim should be redundant, as it always matches index as axes[] array is built
-            this.dim = dim
-            this.limits = []
-        }
-
-        // Method to characterise the scanData for each axis
-        characteriseWas(timeStamp: number[], scanData: number[]) {
-            // First we extract local maxima and minima from a sequence of scanned wave-form readings
-            // For element [d] in [...a,b,c,d,e...], we multiply the averaged slope behind it
-            // (given by [d]-[a]), with the slope ahead (given by [e]-[b]). 
-            // Whenever the sign of the slopechanges (i.e this product is negative) we record a Limit: 
-            // a duple object comprising the peak value [d], together with its time-stamp.
-            this.nLimits = 0
-            let then = timeStamp[0] - 201
-            // loop through from [d] onwards
-            for (let i = 3; i <= timeStamp.length - 3; i++) {
-                let ahead = (scanData[i + 2] - scanData[i - 1])
-                let behind = (scanData[i + 1] - scanData[i - 2])
-                // An inflection-point is where the product will be negative.
-                // (Ignore any too-close crossings, arising from excessive jitter)
-                if (((ahead * behind) <= 0)
-                    && ((timeStamp[i] - then) > 200)) {
-                    let newLimit = new Limit
-                    newLimit.value = scanData[i]
-                    newLimit.time = timeStamp[i]
-                    datalogger.log(datalogger.createCV("dim", this.dim),
-                                    datalogger.createCV("time", newLimit.time),
-                                    datalogger.createCV("value", newLimit.value))
-
-                    then = timeStamp[i]
-                    this.limits.push(newLimit)
-                    this.nLimits++
-                }
-            }
-
-            // Use the averages of paired limits to set the magnitude and offset.
-            // Needs at least three of each (resulting from a complete spin)
-            this.amp = 0
-            this.bias = 0
-            if (this.nLimits > 3) {
-                // 1st pass to get offset 
-                let sum = 0
-                let n = 0
-                // use balanced pairs (skipping first limit if length is odd) 
-                for (let i = this.nLimits % 2; i < this.nLimits; i++) {
-                    sum += this.limits[i].value
-                    n++
-                }
-                this.bias = sum / n
-
-                // 2nd pass uses offset to give amplitude  
-                sum = 0
-                for (let i = 0; i < this.nLimits; i++) {
-                    sum += Math.abs(this.limits[i].value - this.bias)
-                }
-                this.amp = sum / this.nLimits
-            }
-            // note the time & value(normlised) of the first limit
-            this.time0 = this.limits[0].time
-            this.limit0 = this.limits[0].value - this.bias
-
-            // work out the periodicity
-            let spans = this.nLimits - 1
-            this.period = 2 * (this.limits[spans].time - this.limits[0].time) / spans
-        }
-    }
-*/
-
     // GLOBALS
-    const MarginalField = 100 // minimum acceptable amplitude for sum of magnetometer readings
+    const MarginalField = 100 // minimum acceptable field-strength for magnetometer readings
 
     let scanTimes: number[] = [] // sequence of time-stamps for scanned readings 
     let scanData: number[][]= [] // scanned sequence of [X,Y,Z] magnetometer readings  
@@ -122,6 +30,7 @@ namespace heading {
     let theta = 0 // the angle to rotate readings so the projected ellipse aligns with the U & V axes
     let scale = 0 // the scaling to stretch V-axis readings from the ellipse onto a circle
     let toNorth = 0 // the angular bias to be added (so that North = 0)
+    let strength = 0 // the average magnetic field-strength observed by the magnetometer
     let uFlip = 1 // set to -1 if uDim polarity is inverted
     let vFlip = 1 // set to -1 if vDim polarity is inverted
     let plane = "??" // the projection plane we are using: "XY","YZ" or "ZX"
@@ -281,14 +190,18 @@ namespace heading {
         let xya = 0
         let yza = 0
         let zxa = 0
+        let nSamples = scanTimes.length
 
-        for (let i = 0; i <= scanTimes.length; i++) {
+        for (let i = 0; i <= nSamples; i++) {
             x = scanData[Dim.X][i] - xOff
             y = scanData[Dim.Y][i] - yOff
             z = scanData[Dim.Z][i] - zOff
             xsq = x * x
             ysq = y * y
             zsq = z * z
+            strength += xsq + ysq + zsq // accumulate square of field strengths
+
+            // projection in XY plane
             v = xsq + ysq // radius-squared is sum of squares
             if (v < xylo) xylo = v
             if (v > xyhi) {
@@ -298,6 +211,8 @@ namespace heading {
                 let last = scanTimes[xyMax[xyMax.length - 1]]
                 if (scanTimes[i] - last > 300) xyMax.push(i)
             }
+
+            // projection in YZ plane
             v = ysq + zsq
             if (v < yzlo) yzlo = v
             if (v > yzhi) {
@@ -307,6 +222,7 @@ namespace heading {
                 if (scanTimes[i] - last > 300) yzMax.push(i)
             }
 
+            // projection in ZX plane
             v = zsq + xsq
             if (v < zxlo) zlo = v
             if (v > zxhi) {
@@ -316,11 +232,12 @@ namespace heading {
                 if (scanTimes[i] - last > 300) zxMax.push(i)
             }
         }
-        
-        if (axes[vDim].amp < MarginalField) {
+        // check average field-strength
+        strength = Math.sqrt(strength / nSamples)
+        if (strength < MarginalField) {
             return -3  // "FIELD STRENGTH TOO WEAK"
         }
-        // use eccentricities to select best axes to use
+        // compare eccentricities to select best axes to use
         let xye = Math.sqrt(xyhi / xylo)
         let yze = Math.sqrt(yzhi / yzlo)
         let zxe = Math.sqrt(zxhi / zxlo)
@@ -353,15 +270,12 @@ namespace heading {
                 vOff = xOff
                 theta = zxa
                 scale = zxe
-                period = 2 * (zxMax
-    .pop() - zxMax
-    [0]) / zxMax
-    .length
+                period = 2 * (zxMax.pop() - zxMax[0]) / zxMax.length
             }
         }
 
 // We have set up the projection parameters. Now we need to relate them to North.
-// Take the average of three new readings to get a stable fix on the current heading
+// Take the average of seven new readings to get a stable fix on the current heading
         let uRaw = 0
         let vRaw = 0
         if (testing) { // choose some arbitrary reading for North (using X for U Z for V)
@@ -377,15 +291,27 @@ namespace heading {
             basic.pause(5)
             uRaw += input.magneticForce(uDim)
             vRaw += input.magneticForce(vDim)
+            basic.pause(5)
+            uRaw += input.magneticForce(uDim)
+            vRaw += input.magneticForce(vDim)
+            basic.pause(5)
+            uRaw += input.magneticForce(uDim)
+            vRaw += input.magneticForce(vDim)
+            basic.pause(5)
+            uRaw += input.magneticForce(uDim)
+            vRaw += input.magneticForce(vDim)
+            basic.pause(5)
+            uRaw += input.magneticForce(uDim)
+            vRaw += input.magneticForce(vDim)
         }
-        toNorth = project(uRaw/3, vRaw/3)
+        toNorth = project(uRaw/7, vRaw/7)
 
 
         // For a clockwise scan, the maths requires the U-dim to lead the V-dim by 90 degrees
         // From the point of view of a buggy spinning clockwise from ~NW, the North vector appears 
         // to rotate anticlockwise, passing the +V axis first, and then the -U axis.
         // Check the timings of their first limits and, if necessary, swap the major/minor dimensions:
-        /* if (axes[uDim].time0 < axes[vDim].time0) {
+/*         if (axes[uDim].time0 < axes[vDim].time0) {
             let temp = uDim
             uDim = vDim
             vDim = temp
