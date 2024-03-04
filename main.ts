@@ -233,6 +233,7 @@ namespace heading {
                 if (scanTimes[i] - last > 300) zxMax.push(i)
             }
         }
+
         // check average field-strength
         strength = Math.sqrt(strength / nSamples)
         if (strength < MarginalField) {
@@ -279,33 +280,21 @@ namespace heading {
 // Take the average of seven new readings to get a stable fix on the current heading
         let uRaw = 0
         let vRaw = 0
-        if (testing) { // choose some arbitrary reading for North (using X for U Z for V)
+        if (testing) { // choose some arbitrary reading for North (using X for U; Z for V)
             uRaw = scanData[Dim.X][40]
             vRaw = scanData[Dim.Z][40]
         } else {
-            // get a rolling sum of three readings
+            // get a new position as the sum of seven readings
             uRaw = input.magneticForce(uDim)
             vRaw = input.magneticForce(vDim)
-            basic.pause(5)
-            uRaw += input.magneticForce(uDim)
-            vRaw += input.magneticForce(vDim)
-            basic.pause(5)
-            uRaw += input.magneticForce(uDim)
-            vRaw += input.magneticForce(vDim)
-            basic.pause(5)
-            uRaw += input.magneticForce(uDim)
-            vRaw += input.magneticForce(vDim)
-            basic.pause(5)
-            uRaw += input.magneticForce(uDim)
-            vRaw += input.magneticForce(vDim)
-            basic.pause(5)
-            uRaw += input.magneticForce(uDim)
-            vRaw += input.magneticForce(vDim)
-            basic.pause(5)
-            uRaw += input.magneticForce(uDim)
-            vRaw += input.magneticForce(vDim)
+            for (let i =0; i< 6; i++) {
+                basic.pause(5)
+                uRaw += input.magneticForce(uDim)
+                vRaw += input.magneticForce(vDim)
+            }
         }
-        toNorth = project(uRaw/7, vRaw/7)
+        // record its projection angle as the bias to North
+        toNorth = project(uRaw, vRaw)
 
 
         // For a clockwise scan, the maths requires the U-dim to lead the V-dim by 90 degrees
@@ -350,29 +339,29 @@ namespace heading {
     //% inlineInputMode=inline 
     //% weight=70
     export function degrees(): number {
-        // read the magnetometer (three times) and return the current heading in degrees from North
+        // read the magnetometer (seven times) and return the current heading in degrees from North
         let uRaw = 0
         let vRaw = 0
-        if (testing) { // NOTE: a-priori knowledge U=X & V=Z !
-            uRaw = scanData[Dim.X][test]
-            vRaw = scanData[Dim.Z][test]
+        if (testing) { // NOTE: a-priori knowledge: U=X & V=Z !
+            uRaw = scanData[test][Dim.X]
+            vRaw = scanData[test][Dim.Z]
             test += 4
-            if (test > scanData[Dim.X].length - 2) test = 0 // roll round
+            if (test > scanTimes.length - 5) test = 0 // roll round before running out
         } else {
-            // get a rolling sum of three readings
+            // get the new position as the sum of seven readings
             uRaw = input.magneticForce(uDim)
             vRaw = input.magneticForce(vDim)
-            basic.pause(5)
-            uRaw += input.magneticForce(uDim)
-            vRaw += input.magneticForce(vDim)
-            basic.pause(5)
-            uRaw += input.magneticForce(uDim)
-            vRaw += input.magneticForce(vDim)
+            for (let i = 0; i < 6; i++) {
+                basic.pause(5)
+                uRaw += input.magneticForce(uDim)
+                vRaw += input.magneticForce(vDim)
+            }
         }
+
         // project reading from ellipse to circle, relating it to North and converting to degrees
-        let angle = 57.29578 * (project(uRaw,vRaw) - toNorth)
-        // angle runs anticlockwise from U-axis: subtract from 90 degrees to reflect through 
-        // the diagonal and make it run clockwise from the V-axis
+        let angle = 57.29578 * (project(uRaw, vRaw) - toNorth)
+        // angle runs anticlockwise from U-axis: subtract it from 90 degrees to reflect through 
+        // the diagonal, so making it run clockwise from the V-axis
         angle = 90 - angle
         // roll negative values into the positive range [0...359]
         angle = (angle + 360) % 360
@@ -399,9 +388,8 @@ namespace heading {
     }
 
 
-    // Transform a two-axis raw magnetometer reading lying on the off-centre projected ellipse
-    // back onto a centred circle of headings and returns its angle (in radians) 
-    // anticlockwise from the U-axis
+    // Transform a point on the off-centre projected ellipse back onto a centred circle 
+    // of headings and return its angle (in radians) anticlockwise from the U-axis
     function project(uRaw: number, vRaw: number): number {
         // shift to get a vector from the origin
         let u = uRaw - uOff

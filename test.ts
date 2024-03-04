@@ -54,6 +54,14 @@ input.onButtonPressed(Button.A, function () {
             basic.showIcon(IconNames.Yes)
             basic.pause(500)
             nextTask = Task.Measure
+            basic.showLeds(`
+                # # . # #
+                # . . . #
+                . . # . .
+                # . . . #
+                # # . # #
+                `)
+            basic.pause(500)
             basic.showArrow(ArrowNames.East)
         break
 
@@ -70,31 +78,33 @@ input.onButtonPressed(Button.A, function () {
 
 input.onButtonPressed(Button.B, function () {
     if (nextTask != Task.Measure) {
-        basic.clearScreen()
-        basic.pause(100)
-        basic.showArrow(ArrowNames.West)
-        basic.pause(100)
-        basic.clearScreen()
-        basic.pause(100)
-        basic.showArrow(ArrowNames.West)
-        basic.pause(100)
-        basic.clearScreen()
-        basic.pause(100)
-        basic.showArrow(ArrowNames.West)
-
+        for (let i = 0; i<5; i++){
+            basic.clearScreen()
+            basic.pause(100)
+            basic.showArrow(ArrowNames.West)
+        }
     } else {
         if (config == Config.Buggy){  
             basic.pause(1000)
             Kitronik_Move_Motor.spin(Kitronik_Move_Motor.SpinDirections.Right, 30)
             basic.pause(turn30) // spin to next angle
             Kitronik_Move_Motor.stop()
-        } // else manually move Jig to next test-angle
+        } // else we have manually moved Jig to next test-angle...
+        basic.pause(1000)
         let compass = heading.degrees()
         basic.clearScreen()   
         basic.pause(500)
         basic.showNumber(Math.floor(compass))
         basic.clearScreen()   
         basic.pause(200)
+        basic.showLeds(`
+                # # . # #
+                # . . . #
+                . . # . .
+                # . . . #
+                # # . # #
+                `)
+        basic.pause(500)
         basic.showArrow(ArrowNames.East)
     }
 })
@@ -127,8 +137,8 @@ input.onLogoEvent(TouchButtonEvent.Pressed, function () {
     nextTask = Task.Scan // new mode, so start with a scan
     basic.showArrow(ArrowNames.West)
 })
- // normal live operation...
-let config = Config.Buggy
+
+let config = Config.Test
 heading.testMode(false)
 let nextTask = Task.Scan
 basic.showArrow(ArrowNames.West)
