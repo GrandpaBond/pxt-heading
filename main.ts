@@ -23,10 +23,10 @@ namespace heading {
     axes.push(new Axis(Dim.Z))
     */
 
-    let uDim = -1 // the "horizontal" axis (pointing East) for transformed readings is named U
-    let vDim = -1 // the "vertical" axis (pointing North) for transformed readings is named V
-    let uOff = 0 // the offset needed to re-centre the U-axis
-    let vOff = 0 // the offset needed to re-centre the V-axis
+    let uDim = -1 // the "horizontal" axis (pointing East) for transformed readings (called U)
+    let vDim = -1 // the "vertical" axis (pointing North) for transformed readings |(called V)
+    let uOff = 0 // the offset needed to re-centre readings along the U-axis
+    let vOff = 0 // the offset needed to re-centre readings along the V-axis
     let theta = 0 // the angle to rotate readings so the projected ellipse aligns with the U & V axes
     let scale = 0 // the scaling to stretch V-axis readings from the ellipse onto a circle
     let toNorth = 0 // the angular bias to be added (so that North = 0)
@@ -53,9 +53,9 @@ namespace heading {
 
     /** 
      * Assuming the buggy is currently spinning clockwise on the spot, capture a 
-     * time-stamped sequence of magnetometer readings, from which to set up the compass.
+     * time-stamped sequence of magnetometer readings from which to set up the compass.
      * NOTE that once scanning is complete, the heading.setNorth() function must then 
-     * be called (to process the scanned data) before heading.degrees() will work.
+     * be called (to process this scanned data) before heading.degrees() will work.
      * @param ms scanning-time in millisecs (long enough for more than one full rotation) 
     */
     //% block="scan for (ms) $ms" 
@@ -65,15 +65,16 @@ namespace heading {
     //% weight=90 
 
     export function scan(ms: number) {
-        // Magnetometer readings are scanned into four internal arrays: times[], xVals[], yVals[] & zVals[],
-        // sampled every ~30 ms over the specified duration (usually at least a second)
+        //  Magnetometer readings are sampled every ~30 ms over the specified duration,
+        // (generally at least a second) and [X,Y,Z] triples are added to the scanData[][] array
+        //  Timestamps for the samples are recorded in the scanTimes[] array.
         if (testing) {
             simulateScan()
             basic.pause(ms)
             return
         }
 
-        // (To cure jitter, each reading is always a rolling sum of SEVEN consecutive readings!)
+        // (To smooth out jitter, each reading is always a rolling sum of SEVEN consecutive readings!)
         let now = input.runningTime()
         let finish = now + ms
         let sum = 0
@@ -127,10 +128,10 @@ namespace heading {
     //% weight=80 
     export function setNorth(): number {
     /* 
-    As the buggy spins, the magnetic field-vector sweeps out a cone. In the fully general case, 
-    this projects onto the plane of each pair of orthogonal axes (XY,YZ,ZX) as an ellipse
-    with a certain eccentricity. We will get the best heading discrimination from the plane 
-    with the least eccentric ellipse, and having selected those two axes, we'll need to 
+    As the buggy spins, the magnetic field-vector sweeps out a Spin-Circle on the surface of a sphere.
+    In the fully general case, this projects onto the plane of each pair of orthogonal axes (XY,YZ,ZX) 
+    as an ellipse with a certain eccentricity. We will get the best heading discrimination from the 
+    plane with the least eccentric ellipse, and having selected those two axes, we'll need to 
     transform readings around the ellipse so that they lie on a circle, giving a relative 
     angle that can (eventually) be offset by a fixed bias to return the true heading.
     */
