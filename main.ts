@@ -115,9 +115,9 @@ namespace heading {
      * 
      *      -1 : NOT ENOUGH SCAN DATA
      * 
-     *      -2 : NOT ENOUGH SCAN ROTATION
+     *      -2 : FIELD STRENGTH TOO WEAK
      * 
-     *      -3 : FIELD STRENGTH TOO WEAK
+     *      -3 : NOT ENOUGH SCAN ROTATION
      */
     //% block="set North" 
     //% inlineInputMode=inline 
@@ -136,7 +136,7 @@ namespace heading {
         if (scanTimes.length < 40) {
             return -1 // "NOT ENOUGH SCAN DATA"
         }
-        return 0
+        
         // find the raw extrema
         let xlo = 999
         let ylo = 999
@@ -144,7 +144,7 @@ namespace heading {
         let xhi = -999
         let yhi = -999
         let zhi = -999
-        // array of three arrays of axis maximae
+        // array [X,Y,Z] of three arrays of axis maximae, added as we discover them
         let peaks: number[][] = [[],[],[]]
         let xLast = 0
         let yLast = 0
@@ -156,22 +156,22 @@ namespace heading {
             if (v < xlo) xlo = v
             if (v > xhi) {
                 xhi = v
-                // record time only if new maximum found at least ~15 readings on from last one
-                if (scanTimes[i] - xLast > 300) peaks[Dim.X].push(i)
+                // record time only if new maximum found at least ~16 samples on from last one
+                if (scanTimes[i] - xLast > 400) peaks[Dim.X].push(i)
                 xLast = scanTimes[i]
             }
             v = scanData[Dim.Y][i]
             if (v < ylo) ylo = v
             if (v > yhi) {
                 yhi = v
-                if (scanTimes[i] - yLast > 300) peaks[Dim.Y].push(i)
+                if (scanTimes[i] - yLast > 400) peaks[Dim.Y].push(i)
                 yLast = scanTimes[i]
             }
             v = scanData[Dim.Z][i]
             if (v < zlo) zlo = v
             if (v > zhi) {
                 zhi = v
-                if (scanTimes[i] - zLast > 300) peaks[Dim.Z].push(i)
+                if (scanTimes[i] - zLast > 400) peaks[Dim.Z].push(i)
                 zLast = scanTimes[i]
             }
         }
@@ -180,13 +180,6 @@ namespace heading {
         let xOff = (xhi + xlo) / 2
         let yOff = (yhi + ylo) / 2
         let zOff = (zhi + zlo) / 2
-        let xAmp = (xhi - xlo) / 2
-        let yAmp = (yhi - ylo) / 2
-        let zAmp = (zhi - zlo) / 2
-
-        if ((xAmp + yAmp + zAmp) < MarginalField) {
-            return -3  // "FIELD STRENGTH TOO WEAK"
-        }
 
         // now find the extreme radii-squared for each axis-pair 
         let xylo = 99999
@@ -284,7 +277,7 @@ namespace heading {
 
         // did we spin enough to give at least a couple of peak values?
         if (peaks[uDim].length < 3) {
-            return -2 // NOT ENOUGH SCAN ROTATION
+            return -3 // NOT ENOUGH SCAN ROTATION
         }
 
         // period is average time between U-axis maximae
@@ -327,9 +320,10 @@ namespace heading {
         uFlip = -(axes[uDim].limit0 / Math.abs(axes[uDim].limit0)) // = -1 if uVal>0
         vFlip = axes[vDim].limit0 / Math.abs(axes[vDim].limit0)    // = -1 if vVal<0
 */
-        // set up datalogger
+        // set up datalogger for subsequent calls to project() from heading.degrees()
         datalogger.setColumnTitles("uRaw", "vRaw", "u", "v", "uNew", "vNew", "vScaled", "a")
         datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
+
         // return average RPM of original scan    
         return 60000 / period
  
@@ -366,10 +360,10 @@ namespace heading {
 
         // project reading from ellipse to circle, relating it to North and converting to degrees
         let angle = 57.29578 * (project(uRaw, vRaw) - toNorth)
-        // angle runs anticlockwise from U-axis: subtract it from 90 degrees to reflect through 
-        // the diagonal, so making it run clockwise from the V-axis
+        // angle currently runs anticlockwise from U-axis: subtract it from 90 degrees 
+        // to reflect through the diagonal, so making it run clockwise from the V-axis
         angle = 90 - angle
-        // roll negative values into the positive range [0...359]
+        // roll any negative values into the positive range [0...359]
         angle = (angle + 360) % 360
 
         return angle
