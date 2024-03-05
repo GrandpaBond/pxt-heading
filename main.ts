@@ -1,6 +1,6 @@
 /**
  * An extension providing a compass-heading for a buggy located anywhere on the globe 
- * (except at the magnetic poles), with any mounting orientation for the microbit.
+ * (except at the magnetic poles!), with any mounting orientation for the microbit.
  */
 
 //% color=#6080e0 weight=40 icon="\uf14e" block="Heading" 
@@ -16,15 +16,8 @@ namespace heading {
 
     let scanTimes: number[] = [] // sequence of time-stamps for scanned readings 
     let scanData: number[][]= [] // scanned sequence of [X,Y,Z] magnetometer readings  
-
-    /*let axes: Axis[] = []
-    axes.push(new Axis(Dim.X))
-    axes.push(new Axis(Dim.Y))
-    axes.push(new Axis(Dim.Z))
-    */
-
     let uDim = -1 // the "horizontal" axis (pointing East) for transformed readings (called U)
-    let vDim = -1 // the "vertical" axis (pointing North) for transformed readings |(called V)
+    let vDim = -1 // the "vertical" axis (pointing North) for transformed readings (called V)
     let uOff = 0 // the offset needed to re-centre readings along the U-axis
     let vOff = 0 // the offset needed to re-centre readings along the V-axis
     let theta = 0 // the angle to rotate readings so the projected ellipse aligns with the U & V axes
@@ -66,7 +59,7 @@ namespace heading {
 
     export function scan(ms: number) {
         //  Magnetometer readings are sampled every ~30 ms over the specified duration,
-        // (generally at least a second) and [X,Y,Z] triples are added to the scanData[][] array
+        // (generally at least a second) and [X,Y,Z] triples are added to the scanData[][] array.
         //  Timestamps for the samples are recorded in the scanTimes[] array.
         if (testing) {
             simulateScan()
@@ -97,14 +90,17 @@ namespace heading {
             xRoll.push(input.magneticForce(0))
             yRoll.push(input.magneticForce(1))
             zRoll.push(input.magneticForce(2))
+
             sum = 0
             xRoll.forEach(a => sum += a)
             xRoll.shift()
             scanData[Dim.X].push(sum)
+
             sum = 0
             yRoll.forEach(a => sum += a)
             yRoll.shift()
             scanData[Dim.Y].push(sum)
+
             sum = 0
             zRoll.forEach(a => sum += a)
             zRoll.shift()
@@ -148,18 +144,39 @@ namespace heading {
         let xhi = -999
         let yhi = -999
         let zhi = -999
+        // array of three arrays of axis maximae
+        let peaks: number[][] = [[],[],[]]
+        let xLast = 0
+        let yLast = 0
+        let zLast = 0
+
         let v = 0
         for (let i = 0; i <= scanTimes.length; i++) {
             v = scanData[Dim.X][i]
             if (v < xlo) xlo = v
-            if (v > xhi) xhi = v
+            if (v > xhi) {
+                xhi = v
+                // record time only if new maximum found at least ~15 readings on from last one
+                if (scanTimes[i] - xLast > 300) peaks[Dim.X].push(i)
+                xLast = scanTimes[i]
+            }
             v = scanData[Dim.Y][i]
             if (v < ylo) ylo = v
-            if (v > yhi) yhi = v
+            if (v > yhi) {
+                yhi = v
+                if (scanTimes[i] - yLast > 300) peaks[Dim.Y].push(i)
+                yLast = scanTimes[i]
+            }
             v = scanData[Dim.Z][i]
             if (v < zlo) zlo = v
-            if (v > zhi) zhi = v
+            if (v > zhi) {
+                zhi = v
+                if (scanTimes[i] - zLast > 300) peaks[Dim.Z].push(i)
+                zLast = scanTimes[i]
+            }
         }
+
+     
         let xOff = (xhi + xlo) / 2
         let yOff = (yhi + ylo) / 2
         let zOff = (zhi + zlo) / 2
@@ -171,17 +188,13 @@ namespace heading {
             return -3  // "FIELD STRENGTH TOO WEAK"
         }
 
-        // now find the extreme radii for each axis-pair 
+        // now find the extreme radii-squared for each axis-pair 
         let xylo = 99999
         let yzlo = 99999
         let zxlo = 99999
         let xyhi = -99999
         let yzhi = -99999
         let zxhi = -99999
-        let xyMax: number[] = [0]
-        let yzMax: number[] = [0]
-        let zxMax: number[] = [0]
-        let period = 0
         let x = 0
         let y = 0
         let z = 0
@@ -203,14 +216,11 @@ namespace heading {
             strength += xsq + ysq + zsq // accumulate square of field strengths
 
             // projection in XY plane
-            v = xsq + ysq // radius-squared is sum of squares
+            v = xsq + ysq // Pythagoras: radius-squared = sum of squares
             if (v < xylo) xylo = v
             if (v > xyhi) {
                 xyhi = v
                 xya = Math.atan2(x, y)
-                // record time if new extreme radius found at least ~15 readings on from last one
-                let last = scanTimes[xyMax[xyMax.length - 1]]
-                if (scanTimes[i] - last > 300) xyMax.push(i)
             }
 
             // projection in YZ plane
@@ -219,8 +229,6 @@ namespace heading {
             if (v > yzhi) {
                 yzhi = v
                 yza = Math.atan2(y, z) 
-                let last = scanTimes[yzMax[yzMax.length - 1]]
-                if (scanTimes[i] - last > 300) yzMax.push(i)
             }
 
             // projection in ZX plane
@@ -229,8 +237,6 @@ namespace heading {
             if (v > zxhi) {
                 zxhi = v
                 zxa = Math.atan2(z, x) 
-                let last = scanTimes[zxMax[zxMax.length - 1]]
-                if (scanTimes[i] - last > 300) zxMax.push(i)
             }
         }
 
@@ -239,10 +245,13 @@ namespace heading {
         if (strength < MarginalField) {
             return -3  // "FIELD STRENGTH TOO WEAK"
         }
-        // compare eccentricities to select best axes to use
+
+        // compute eccentricities from latest max & min radii-squared
         let xye = Math.sqrt(xyhi / xylo)
         let yze = Math.sqrt(yzhi / yzlo)
         let zxe = Math.sqrt(zxhi / zxlo)
+    
+        // compare eccentricities to select best axis-pair to use
         if (xye < yze) { // not YZ
             if (xye < zxe) { // not ZX either, so use XY
                 plane = "XY"
@@ -252,7 +261,6 @@ namespace heading {
                 vOff = yOff
                 theta = xya
                 scale = xye
-                period = 2 * (xyMax.pop() - xyMax[0]) / xyMax.length
             }
         } else { // not XY: either YZ or ZX
             if (yze < zxe) { // not ZX so use YZ
@@ -263,7 +271,6 @@ namespace heading {
                 vOff = zOff
                 theta = yza
                 scale = yze
-                period = 2 * (yzMax.pop() - yzMax[0]) / yzMax.length
             } else { // not YZ so use ZX
                 plane = "ZX"
                 uDim = Dim.Z
@@ -272,9 +279,17 @@ namespace heading {
                 vOff = xOff
                 theta = zxa
                 scale = zxe
-                period = 2 * (zxMax.pop() - zxMax[0]) / zxMax.length
             }
         }
+
+        // did we spin enough to give at least a couple of peak values?
+        if (peaks[uDim].length < 3) {
+            return -2 // NOT ENOUGH SCAN ROTATION
+        }
+
+        // period is average time between U-axis maximae
+        let period = (peaks[uDim].pop() - peaks[uDim][0]) / peaks[uDim].length 
+
 
 // We have set up the projection parameters. Now we need to relate them to North.
 // Take the average of seven new readings to get a stable fix on the current heading
@@ -320,16 +335,7 @@ namespace heading {
  
     }
   
-/***
 
-        if (axes[vDim].amp < MarginalField) {
-            return -3  // "FIELD STRENGTH TOO WEAK"
-        } else {
-        // return best average RPM of original scan    
-            return 120000 / (axes[uDim].period + axes[vDim].period)
-        }
-    }
-***/
 
 
     /**
