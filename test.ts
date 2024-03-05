@@ -48,9 +48,7 @@ input.onButtonPressed(Button.A, function () {
             basic.clearScreen()
             spinRPM = heading.setNorth()
             basic.showNumber(Math.floor(spinRPM))
-            turn30 = 60000 / (12 * spinRPM) // time needed to turn 30 degree
-            datalogger.setColumnTitles("uRaw", "vRaw", "u", "v", "val")
-            basic.pause(1000)
+            turn30 = 60000 / (12 * spinRPM) // time needed to turn 30 degrees
             basic.showIcon(IconNames.Yes)
             basic.pause(500)
             nextTask = Task.Measure
