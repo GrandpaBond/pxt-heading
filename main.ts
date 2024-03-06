@@ -46,9 +46,9 @@ namespace heading {
     //% weight=90 
 
     export function scan(ms: number) {
-        //  Magnetometer readings are sampled every ~30 ms over the specified duration,
-        // (generally at least a second) and [X,Y,Z] triples are added to the scanData[][] array.
-        //  Timestamps for the samples are recorded in the scanTimes[] array.
+        // Every ~30 ms over the specified duration (generally a couple of seconds),
+        // magnetometer readings are sampled and a new [X,Y,Z] triple added to the scanData[] array.
+        // A timestamp for each sample is also recorded in the scanTimes[] array.
         if (testing) {
             simulateScan()
             basic.pause(ms)
@@ -70,32 +70,28 @@ namespace heading {
             basic.pause(25)
         }
 
+        let x = 0
+        let y = 0
+        let z = 0
         // continue cranking out rolling sums, adding a new reading and dropping the oldest
+        // to each of the
         while (now < finish) {
             now = input.runningTime()
-            scanTimes.push(now-100) // the time of the middle readings (roughly)
+            scanTimes.push(now - 100) // the time of the middle readings (roughly)
             basic.pause(25)
             xRoll.push(input.magneticForce(0))
-            yRoll.push(input.magneticForce(1))
-            zRoll.push(input.magneticForce(2))
-
-            sum = 0
-            xRoll.forEach(a => sum += a)
-            basic.showString("a")
+            x = 0
+            xRoll.forEach(a => x += a) // collect x sum
             xRoll.shift()
-            basic.showString("b")
-            scanData[Dim.X][index].push(sum)
-            basic.showString("c")
-
-            sum = 0
-            yRoll.forEach(a => sum += a)
+            yRoll.push(input.magneticForce(1))
+            y = 0
+            yRoll.forEach(a => y += a) // collect y sum
             yRoll.shift()
-            scanData[Dim.Y].push(sum)
-
-            sum = 0
-            zRoll.forEach(a => sum += a)
+            zRoll.push(input.magneticForce(2))
+            z = 0
+            zRoll.forEach(a => z += a) // collect z sum
             zRoll.shift()
-            scanData[Dim.Z].push(sum)
+            scanData.push([x,y,z]) // add new reading
         }
     }
 
@@ -135,7 +131,8 @@ namespace heading {
         let xhi = -999
         let yhi = -999
         let zhi = -999
-        // array [X,Y,Z] of three arrays of axis maximae, added as we discover them
+        // array [X,Y,Z] of three sub-arrays of axis maximae, added as we discover them
+        //(NOTE: the sub-array lengths will often differ)
         let peaks: number[][] = [[],[],[]]
         let xLast = 0
         let yLast = 0
@@ -143,7 +140,7 @@ namespace heading {
 
         let v = 0
         for (let i = 0; i <= scanTimes.length; i++) {
-            v = scanData[Dim.X][i]
+            v = scanData[i][Dim.X]
             if (v < xlo) xlo = v
             if (v > xhi) {
                 xhi = v
@@ -151,14 +148,14 @@ namespace heading {
                 if (scanTimes[i] - xLast > 400) peaks[Dim.X].push(i)
                 xLast = scanTimes[i]
             }
-            v = scanData[Dim.Y][i]
+            v = scanData[i][Dim.Y]
             if (v < ylo) ylo = v
             if (v > yhi) {
                 yhi = v
                 if (scanTimes[i] - yLast > 400) peaks[Dim.Y].push(i)
                 yLast = scanTimes[i]
             }
-            v = scanData[Dim.Z][i]
+            v = scanData[i][Dim.Z]
             if (v < zlo) zlo = v
             if (v > zhi) {
                 zhi = v
