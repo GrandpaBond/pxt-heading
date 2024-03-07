@@ -182,12 +182,14 @@ namespace heading {
         let xsq = 0
         let ysq = 0
         let zsq = 0
+        let rsq = 0
         let xya = 0
         let yza = 0
         let zxa = 0
         let nSamples = scanTimes.length
 
         for (let j = 0; j < nSamples; j++) {
+            // extract next readings and un-bias them
             x = scanData[j][Dim.X] - xOff
             y = scanData[j][Dim.Y] - yOff
             z = scanData[j][Dim.Z] - zOff
@@ -197,27 +199,27 @@ namespace heading {
             strength += xsq + ysq + zsq // accumulate square of field strengths
 
             // projection in XY plane
-            v = xsq + ysq // Pythagoras: radius-squared = sum of squares
-            if (v < xylo) xylo = v
-            if (v > xyhi) {
-                xyhi = v
-                xya = Math.atan2(y, x)
+            rsq = xsq + ysq // Pythagoras: radius-squared = sum of squares
+            if (rsq < xylo) xylo = rsq
+            if (rsq > xyhi) {
+                xyhi = rsq
+                xya = Math.atan2(x, y)
             }
 
             // projection in YZ plane
-            v = ysq + zsq
-            if (v < yzlo) yzlo = v
-            if (v > yzhi) {
-                yzhi = v
-                yza = Math.atan2(z, y) 
+            rsq = ysq + zsq
+            if (rsq < yzlo) yzlo = rsq
+            if (rsq > yzhi) {
+                yzhi = rsq
+                yza = Math.atan2(y, z) 
             }
 
             // projection in ZX plane
-            v = zsq + xsq
-            if (v < zxlo) zxlo = v
-            if (v > zxhi) {
-                zxhi = v
-                zxa = Math.atan2(x, z) 
+            rsq = zsq + xsq
+            if (rsq < zxlo) zxlo = rsq
+            if (rsq > zxhi) {
+                zxhi = rsq
+                zxa = Math.atan2(z, x) 
             }
         }
 
@@ -232,7 +234,7 @@ namespace heading {
         let yze = Math.sqrt(yzhi / yzlo)
         let zxe = Math.sqrt(zxhi / zxlo)
     
-        // compare eccentricities to select best axis-pair to use
+        // select best axis-pair to use (with lowest eccentricity)
         if (xye < yze) { // not YZ
             if (xye < zxe) { // not ZX either, so use XY
                 plane = "XY"
@@ -243,8 +245,8 @@ namespace heading {
                 theta = xya
                 scale = xye
             }
-        } else { // not XY: either YZ or ZX
-            if (yze < zxe) { // not ZX so use YZ
+        } else { // not XY: smallest is either YZ or ZX
+            if (yze < zxe) {
                 plane = "YZ"
                 uDim = Dim.Y
                 vDim = Dim.Z
@@ -252,7 +254,7 @@ namespace heading {
                 vOff = zOff
                 theta = yza
                 scale = yze
-            } else { // not YZ so use ZX
+            } else {
                 plane = "ZX"
                 uDim = Dim.Z
                 vDim = Dim.X
@@ -269,7 +271,12 @@ namespace heading {
         }
 
         // period is average time between U-axis maximae
-        let period = (peaks[uDim].pop() - peaks[uDim][0]) / peaks[uDim].length 
+        let first = peaks[uDim][0]
+        let last = peaks[uDim].pop()
+        let gaps = peaks[uDim].length //... now we've popped the last one
+        let period = (scanTimes[last] - scanTimes[first])
+        // two peaks per rev, so split time between gaps, then double it
+        period = 2 * period / gaps
 
 
 // We have set up the projection parameters. Now we need to relate them to North.
@@ -289,15 +296,17 @@ namespace heading {
                 vRaw += input.magneticForce(vDim)
             }
         }
-        // record its projection angle as the bias to North
+
+        // record its projection angle as the (global) fixed bias to North
         toNorth = project(uRaw, vRaw)
 
 
+ /* no longer relevant, I think
         // For a clockwise scan, the maths requires the U-dim to lead the V-dim by 90 degrees
         // From the point of view of a buggy spinning clockwise from ~NW, the North vector appears 
         // to rotate anticlockwise, passing the +V axis first, and then the -U axis.
         // Check the timings of their first limits and, if necessary, swap the major/minor dimensions:
-/*         if (axes[uDim].time0 < axes[vDim].time0) {
+         if (axes[uDim].time0 < axes[vDim].time0) {
             let temp = uDim
             uDim = vDim
             vDim = temp
@@ -311,11 +320,10 @@ namespace heading {
         // set up datalogger for subsequent calls to project() from heading.degrees()
         datalogger.deleteLog()
         datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
-        datalogger.setColumnTitles("uRaw", "vRaw", "u", "v", "uNew", "vNew", "vScaled", "a")
+        datalogger.setColumnTitles("uRaw", "vRaw", "u", "v", "uNew", "vNew", "vScaled", "angle")
 
         // return average RPM of original scan    
         return 60000 / period
- 
     }
   
 
@@ -331,9 +339,9 @@ namespace heading {
         // read the magnetometer (seven times) and return the current heading in degrees from North
         let uRaw = 0
         let vRaw = 0
-        if (testing) { // NOTE: a-priori knowledge: U=X & V=Z !
-            uRaw = scanData[Dim.X][test]
-            vRaw = scanData[Dim.Z][test]
+        if (testing) { // NOTE: a-priori knowledge: U=X & V=Z for test data!
+            uRaw = scanData[test][Dim.X]
+            vRaw = scanData[test][Dim.Z]
             test += 4
             if (test > scanTimes.length - 5) test = 0 // roll round before running out
         } else {
