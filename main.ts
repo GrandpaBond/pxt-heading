@@ -12,7 +12,7 @@ namespace heading {
     }
 
     // GLOBALS
-    const MarginalField = 100 // minimum acceptable field-strength for magnetometer readings
+    const MarginalField = 30 // minimum acceptable field-strength for magnetometer readings
 
     let scanTimes: number[] = [] // sequence of time-stamps for scanned readings 
     let scanData: number[][]= [] // scanned sequence of [X,Y,Z] magnetometer readings  
@@ -187,10 +187,10 @@ namespace heading {
         let zxa = 0
         let nSamples = scanTimes.length
 
-        for (let j = 0; j <= nSamples; j++) {
-            x = scanData[Dim.X][j] - xOff
-            y = scanData[Dim.Y][j] - yOff
-            z = scanData[Dim.Z][j] - zOff
+        for (let j = 0; j < nSamples; j++) {
+            x = scanData[j][Dim.X] - xOff
+            y = scanData[j][Dim.Y] - yOff
+            z = scanData[j][Dim.Z] - zOff
             xsq = x * x
             ysq = y * y
             zsq = z * z
@@ -224,7 +224,7 @@ namespace heading {
         // check average field-strength
         strength = Math.sqrt(strength / nSamples)
         if (strength < MarginalField) {
-            return -3  // "FIELD STRENGTH TOO WEAK"
+            return -2  // "FIELD STRENGTH TOO WEAK"
         }
 
         // compute eccentricities from latest max & min radii-squared
@@ -391,9 +391,9 @@ namespace heading {
         datalogger.setColumnTitles("t", "x", "y", "z")
         for (let i = 0; i < scanTimes.length; i++) {
             datalogger.log(datalogger.createCV("t", scanTimes[i]),
-                datalogger.createCV("x", scanData[Dim.X][i]),
-                datalogger.createCV("y", scanData[Dim.Y][i]),
-                datalogger.createCV("z", scanData[Dim.Z][i]))
+                datalogger.createCV("x", scanData[i][Dim.X]),
+                datalogger.createCV("y", scanData[i][Dim.Y]),
+                datalogger.createCV("z", scanData[i][Dim.Z]))
         }
     }
 

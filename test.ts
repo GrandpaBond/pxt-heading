@@ -40,7 +40,7 @@ input.onButtonPressed(Button.A, function () {
             basic.pause(1000)
             basic.showArrow(ArrowNames.West)
             nextTask = Task.SetNorth
-        break
+            break
 
         case Task.SetNorth:
             basic.showString("N")
@@ -61,7 +61,7 @@ input.onButtonPressed(Button.A, function () {
             basic.pause(500)
             basic.showArrow(ArrowNames.East)
             nextTask = Task.Measure
-        break
+            break
 
         case Task.Measure: // Button A resets everything
             basic.showIcon(IconNames.No)
@@ -69,7 +69,7 @@ input.onButtonPressed(Button.A, function () {
             basic.clearScreen()
             basic.showArrow(ArrowNames.West)
             nextTask = Task.Scan // restart with a scan
-        break
+            break
     }
 
 })
@@ -84,7 +84,9 @@ input.onButtonPressed(Button.B, function () {
             }
             break
 
-        case Task.SetNorth: // save our scan, then use button A to setNorth
+        case Task.SetNorth: // log our scan, then use button A to setNorth
+            basic.showString("L")
+            basic.pause(1000)
             heading.dumpData()
             basic.clearScreen()
             basic.pause(100)
@@ -92,12 +94,13 @@ input.onButtonPressed(Button.B, function () {
             break
 
         case Task.Measure: // OK take a new heading measurement
-            if (config == Config.Buggy){  
+            if (config == Config.Buggy) {  
                 basic.pause(1000)
                 Kitronik_Move_Motor.spin(Kitronik_Move_Motor.SpinDirections.Right, 30)
                 basic.pause(turn30) // spin to next angle
                 Kitronik_Move_Motor.stop()
-            } // else we will have manually moved Jig to next test-angle...
+            } 
+            // else we're testing; or we will have manually moved Jig to next test-angle...
             basic.pause(1000)
             let compass = heading.degrees()
             basic.clearScreen()   
