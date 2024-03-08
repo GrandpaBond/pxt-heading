@@ -13,6 +13,8 @@ namespace heading {
 
     // GLOBALS
     const MarginalField = 30 // minimum acceptable field-strength for magnetometer readings
+    const MinPeakSeparation = 500 // sanity check to ignore close peaks due to wobbling signal
+    // (still permits maximum spin-rate of 120 RPM, or 2 rotations a second!) 
 
     let scanTimes: number[] = [] // sequence of time-stamps for scanned readings 
     let scanData: number[][]= [] // scanned sequence of [X,Y,Z] magnetometer readings  
@@ -119,25 +121,28 @@ namespace heading {
     angle that can (eventually) be offset by a fixed bias to return the true heading.
     */
 
-        // we need at least a second's worth of scanned readings...
-        if (scanTimes.length < 40) {
+        // we need at least 2 second's worth of scanned readings...
+        if (scanTimes.length < 80) {
             return -1 // "NOT ENOUGH SCAN DATA"
         }
         
-        // find the raw extrema and note when they happened by detecting change of sign of slope.
-        // As data are already rolling sums of 7 values, we subtract 4 behind from 4 ahead to get slope 
+        // Find the raw extrema, and note when they happened by detecting change of sign of slope.
+        // Data are already rolling sums of 7 values, so subtract 4 behind from 4 ahead to get slope 
+        // Record in peaks[][] the index of each inflection point, to work out rotation rate later
+        // (but ignore repeated inflections if they are too close in time)    
         let xlo = 999
         let ylo = 999
         let zlo = 999
         let xhi = -999
         let yhi = -999
         let zhi = -999
-        // array [X,Y,Z] of three sub-arrays of axis maximae, added as we discover them
-        //(NOTE: the sub-array lengths will often differ)
-        let peaks: number[][] = [[0],[0],[0]]
-        let dx = scanData[8][Dim.X] - scanData[0][Dim.X]
-        let dy = scanData[8][Dim.Y] - scanData[0][Dim.Y]
-        let dz = scanData[8][Dim.Z] - scanData[0][Dim.Z]
+        // peaks is an array [X,Y,Z] of three sub-arrays of axis maximae, added as we discover them
+        //(NOTE: the sub-array lengths will often differ between dimensions)
+        let peaks: number[][] = [[],[],[]]
+        // get the slopes for the fourth sample
+        let dx = scanData[7][Dim.X] - scanData[0][Dim.X]
+        let dy = scanData[7][Dim.Y] - scanData[0][Dim.Y]
+        let dz = scanData[7][Dim.Z] - scanData[0][Dim.Z]
         let xLast = scanTimes[0]
         let yLast = scanTimes[0]
         let zLast = scanTimes[0]
@@ -145,43 +150,52 @@ namespace heading {
         let dyWas = 0
         let dzWas = 0
         let v = 0
-
-        for (let i = 4; i < scanTimes.length - 4; i++) {
-            v = scanData[i][Dim.X]
-            if (v < xlo) xlo = v
-            if (v > xhi) xhi = v
-            v = scanData[i][Dim.Y]
-            if (v < ylo) ylo = v
-            if (v > yhi) yhi = v
-
-            v = scanData[i][Dim.Z]
-            if (v < zlo) zlo = v
-            if (v > zhi) zhi = v
-            
-        // use recorded times of inflection points to work out rotation rate later
+        // loop over central samples, (skipping 4-sample "wings" at each end)
+        for (let i = 4; i < scanTimes.length - 5; i++) {
             dxWas = dx
             dx = scanData[i + 4][Dim.X] - scanData[i - 4][Dim.X]
-            if ((dx * dxWas) < 0) { // inflection point found
-            // but record its time only if new maximum found at least ~16 samples on from last one
-                if (scanTimes[i] - xLast > 400) peaks[Dim.X].push(i)
-                xLast = scanTimes[i]
+            v = scanData[i][Dim.X]
+            if ((dx * dxWas) < 0) // scanData[i] is a local max or min for X
+            {
+                if (dxWas > 0) {
+                    xhi = v // reached local maximum
+                    if (scanTimes[i] - xLast > MinPeakSeparation) {
+                        peaks[Dim.X].push(i)
+                        xLast = scanTimes[i]
+                    }
+                } else xlo = v // reached local minimum
             }
+
             dyWas = dy
             dy = scanData[i + 4][Dim.Y] - scanData[i - 4][Dim.Y]
-            if ((dy * dyWas) < 0) { 
-                if (scanTimes[i] - yLast > 400) peaks[Dim.Y].push(i)
-                yLast = scanTimes[i]
-            } 
+            v = scanData[i][Dim.Y]
+            if ((dy * dyWas) < 0) // scanData[i] is a local max or min for Y
+            {
+                if (dyWas > 0) {
+                    yhi = v // reached local maximum
+                    if (scanTimes[i] - yLast > MinPeakSeparation) {
+                        peaks[Dim.Y].push(i)
+                        yLast = scanTimes[i]
+                    }
+                } else ylo = v // reached local minimum
+            }
+
             dzWas = dz
             dz = scanData[i + 4][Dim.Z] - scanData[i - 4][Dim.Z]
-            if ((dz * dzWas) < 0)
+            v = scanData[i][Dim.Z]
+            if ((dz * dzWas) < 0) // scanData[i] is a local max or min for Z
             {
-                if (scanTimes[i] - zLast > 400) peaks[Dim.Z].push(i)
-                zLast = scanTimes[i]
+                if (dzWas > 0) {
+                    zhi = v // reached local maximum
+                    if (scanTimes[i] - zLast > MinPeakSeparation) {
+                        peaks[Dim.Z].push(i)
+                        zLast = scanTimes[i]
+                    }
+                } else zlo = v // reached local minimum
             }
         }
 
-     
+     // just use the latest extremes to set the normalisation offsets
         let xOff = (xhi + xlo) / 2
         let yOff = (yhi + ylo) / 2
         let zOff = (zhi + zlo) / 2
@@ -206,7 +220,7 @@ namespace heading {
         let nSamples = scanTimes.length
 
         for (let j = 0; j < nSamples; j++) {
-            // extract next readings and un-bias them
+            // extract next readings and normalise them
             x = scanData[j][Dim.X] - xOff
             y = scanData[j][Dim.Y] - yOff
             z = scanData[j][Dim.Z] - zOff
@@ -216,11 +230,11 @@ namespace heading {
             strength += xsq + ysq + zsq // accumulate square of field strengths
 
             // projection in XY plane
-            rsq = xsq + ysq // Pythagoras: radius-squared = sum of squares
-            if (rsq < xylo) xylo = rsq
+            rsq = xsq + ysq // Pythagoras: radius-squared = sum-of-squares
+            if (rsq < xylo) xylo = rsq // shortest so far...
             if (rsq > xyhi) {
-                xyhi = rsq
-                xya = Math.atan2(x, y)
+                xyhi = rsq // longest so far...
+                xya = Math.atan2(x, y) // angle (anticlockwise from X axis)
             }
 
             // projection in YZ plane
@@ -228,7 +242,7 @@ namespace heading {
             if (rsq < yzlo) yzlo = rsq
             if (rsq > yzhi) {
                 yzhi = rsq
-                yza = Math.atan2(y, z) 
+                yza = Math.atan2(y, z) // angle (anticlockwise from Y axis)
             }
 
             // projection in ZX plane
@@ -236,7 +250,7 @@ namespace heading {
             if (rsq < zxlo) zxlo = rsq
             if (rsq > zxhi) {
                 zxhi = rsq
-                zxa = Math.atan2(z, x) 
+                zxa = Math.atan2(z, x)  // angle (anticlockwise from Z axis)
             }
         }
 
@@ -247,7 +261,7 @@ namespace heading {
         }
 
         // compute eccentricities from latest max & min radii-squared
-        // (defending against divide-by-zero errors)
+        // (defending against divide-by-zero errors if Spin-circle was exactly edge-on)
         let xye = Math.sqrt(xyhi / (xylo + 0.0001))
         let yze = Math.sqrt(yzhi / (yzlo + 0.0001))
         let zxe = Math.sqrt(zxhi / (zxlo + 0.0001))
@@ -284,20 +298,19 @@ namespace heading {
         }
 
         // did we spin enough to give at least a couple of peak values?
-        if (peaks[uDim].length < 3) {
+        if (peaks[uDim].length < 2) {
             return -3 // NOT ENOUGH SCAN ROTATION
         }
 
         // period is average time between U-axis maximae
         let first = peaks[uDim][0]
         let last = peaks[uDim].pop()
-        let gaps = peaks[uDim].length //... now we've popped the last one
-        let period = (scanTimes[last] - scanTimes[first])
-        // two peaks per rev, so split time between gaps, then double it
-        period = 2 * period / gaps
+        let gaps = peaks[uDim].length //... now that we've popped the last one
+        // split time between gaps
+        let period = (scanTimes[last] - scanTimes[first]) / gaps
 
 
-// We have set up the projection parameters. Now we need to relate them to North.
+// We have successfully set up the projection parameters. Now we need to relate them to North.
 // Take the average of seven new readings to get a stable fix on the current heading
         let uRaw = 0
         let vRaw = 0
@@ -319,7 +332,7 @@ namespace heading {
         toNorth = project(uRaw, vRaw)
 
 
- /* no longer relevant, I think
+ /* no longer relevant (I think) but check sometime --delete later
         // For a clockwise scan, the maths requires the U-dim to lead the V-dim by 90 degrees
         // From the point of view of a buggy spinning clockwise from ~NW, the North vector appears 
         // to rotate anticlockwise, passing the +V axis first, and then the -U axis.
