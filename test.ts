@@ -48,19 +48,27 @@ input.onButtonPressed(Button.A, function () {
             basic.clearScreen()
             spinRPM = heading.setNorth()
             basic.showNumber(Math.floor(spinRPM))
-            turn30 = 60000 / (12 * spinRPM) // time needed to turn 30 degrees
-            basic.showIcon(IconNames.Yes)
-            basic.pause(500)
-            basic.showLeds(`
-                # # . # #
-                # . . . #
-                . . # . .
-                # . . . #
-                # # . # #
-                `)
-            basic.pause(500)
-            basic.showArrow(ArrowNames.East)
-            nextTask = Task.Measure
+            if (spinRPM < 0) {
+                basic.showIcon(IconNames.Skull) // scan analysis failed 
+                basic.pause(1000)
+                basic.clearScreen()
+                basic.showArrow(ArrowNames.West)
+                nextTask = Task.Scan // restart with a fresh scan
+            } else {
+                turn30 = 60000 / (12 * spinRPM) // time needed to turn 30 degrees
+                basic.showIcon(IconNames.Yes)
+                basic.pause(500)
+                basic.showLeds(`
+                    # # . # #
+                    # . . . #
+                    . . # . .
+                    # . . . #
+                    # # . # #
+                    `)
+                basic.pause(500)
+                basic.showArrow(ArrowNames.East)
+                nextTask = Task.Measure
+            }
             break
 
         case Task.Measure: // Button A resets everything

@@ -195,7 +195,7 @@ namespace heading {
             }
         }
 
-     // just use the latest extremes to set the normalisation offsets
+        // use just the latest extremes to set the normalisation offsets
         let xOff = (xhi + xlo) / 2
         let yOff = (yhi + ylo) / 2
         let zOff = (zhi + zlo) / 2
@@ -227,7 +227,7 @@ namespace heading {
             xsq = x * x
             ysq = y * y
             zsq = z * z
-            strength += xsq + ysq + zsq // accumulate square of field strengths
+            strength += xsq + ysq + zsq // accumulate square of field strengths (a global)
 
             // projection in XY plane
             rsq = xsq + ysq // Pythagoras: radius-squared = sum-of-squares
@@ -261,7 +261,7 @@ namespace heading {
         }
 
         // compute eccentricities from latest max & min radii-squared
-        // (defending against divide-by-zero errors if Spin-circle was exactly edge-on)
+        // (defending against divide-by-zero errors where Spin-circle projects exactly edge-on)
         let xye = Math.sqrt(xyhi / (xylo + 0.0001))
         let yze = Math.sqrt(yzhi / (yzlo + 0.0001))
         let zxe = Math.sqrt(zxhi / (zxlo + 0.0001))
@@ -328,11 +328,11 @@ namespace heading {
             }
         }
 
-        // record its projection angle as the (global) fixed bias to North
+        // record its projection angle on the Spin-Circle as the (global) fixed bias to North
         toNorth = project(uRaw, vRaw)
 
 
- /* no longer relevant (I think) but check sometime --delete later
+ /* no longer relevant (I think) but check sometime: (delete later)
         // For a clockwise scan, the maths requires the U-dim to lead the V-dim by 90 degrees
         // From the point of view of a buggy spinning clockwise from ~NW, the North vector appears 
         // to rotate anticlockwise, passing the +V axis first, and then the -U axis.
@@ -370,9 +370,9 @@ namespace heading {
         // read the magnetometer (seven times) and return the current heading in degrees from North
         let uRaw = 0
         let vRaw = 0
-        if (testing) { // NOTE: a-priori knowledge: U=X & V=Z for test data!
-            uRaw = scanData[test][Dim.X]
-            vRaw = scanData[test][Dim.Z]
+        if (testing) { // NOTE: a-priori knowledge: U=Z & V=X for test data!
+            uRaw = scanData[test][Dim.Z]
+            vRaw = scanData[test][Dim.X]
             test += 4
             if (test > scanTimes.length - 5) test = 0 // roll round before running out
         } else {
