@@ -194,7 +194,7 @@ namespace heading {
                 } else zlo = v // reached local minimum
             }
         }
-
+basic.showString("a")
         // use just the latest extremes to set the normalisation offsets
         let xOff = (xhi + xlo) / 2
         let yOff = (yhi + ylo) / 2
@@ -254,6 +254,8 @@ namespace heading {
             }
         }
 
+        basic.showString("b")
+
         // check average field-strength
         strength = Math.sqrt(strength / nSamples)
         if (strength < MarginalField) {
@@ -309,6 +311,7 @@ namespace heading {
         // split time between gaps
         let period = (scanTimes[last] - scanTimes[first]) / gaps
 
+        basic.showString("c")
 
 // We have successfully set up the projection parameters. Now we need to relate them to North.
 // Take the average of seven new readings to get a stable fix on the current heading
