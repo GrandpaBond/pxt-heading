@@ -28,7 +28,7 @@ namespace heading {
     let strength = 0 // the average magnetic field-strength observed by the magnetometer
     let uFlip = 1 // set to -1 if uDim polarity is inverted
     let vFlip = 1 // set to -1 if vDim polarity is inverted
-    let plane = "??" // the projection plane we are using: "XY","YZ" or "ZX"
+    let plane: string = "**" // the projection plane we are using: "XY","YZ" or "ZX"
     let testing = false  // test mode flag
     let test = 0         // selector for test sample
 
@@ -194,7 +194,7 @@ namespace heading {
                 } else zlo = v // reached local minimum
             }
         }
-basic.showString("a")
+
         // use just the latest extremes to set the normalisation offsets
         let xOff = (xhi + xlo) / 2
         let yOff = (yhi + ylo) / 2
@@ -234,7 +234,7 @@ basic.showString("a")
             if (rsq < xylo) xylo = rsq // shortest so far...
             if (rsq > xyhi) {
                 xyhi = rsq // longest so far...
-                xya = Math.atan2(x, y) // angle (anticlockwise from X axis)
+                xya = Math.atan2(y, x) // angle (anticlockwise from X axis)
             }
 
             // projection in YZ plane
@@ -242,7 +242,7 @@ basic.showString("a")
             if (rsq < yzlo) yzlo = rsq
             if (rsq > yzhi) {
                 yzhi = rsq
-                yza = Math.atan2(y, z) // angle (anticlockwise from Y axis)
+                yza = Math.atan2(z, y) // angle (anticlockwise from Y axis)
             }
 
             // projection in ZX plane
@@ -250,11 +250,10 @@ basic.showString("a")
             if (rsq < zxlo) zxlo = rsq
             if (rsq > zxhi) {
                 zxhi = rsq
-                zxa = Math.atan2(z, x)  // angle (anticlockwise from Z axis)
+                zxa = Math.atan2(x, z)  // angle (anticlockwise from Z axis)
             }
         }
 
-        basic.showString("b")
 
         // check average field-strength
         strength = Math.sqrt(strength / nSamples)
@@ -267,6 +266,9 @@ basic.showString("a")
         let xye = Math.sqrt(xyhi / (xylo + 0.0001))
         let yze = Math.sqrt(yzhi / (yzlo + 0.0001))
         let zxe = Math.sqrt(zxhi / (zxlo + 0.0001))
+
+
+       // basic.showString("xye:"+xye+"   yze:"+yze+"   zxe:"+zxe )
     
         // select best axis-pair to use (the one with lowest eccentricity)
         if (xye < yze) { // not YZ
@@ -298,6 +300,12 @@ basic.showString("a")
                 scale = zxe
             }
         }
+        /*
+        basic.clearScreen()
+        basic.pause(100)
+        basic.showString(plane)
+        basic.pause(300)
+        */
 
         // did we spin enough to give at least a couple of peak values?
         if (peaks[uDim].length < 2) {
@@ -311,7 +319,6 @@ basic.showString("a")
         // split time between gaps
         let period = (scanTimes[last] - scanTimes[first]) / gaps
 
-        basic.showString("c")
 
 // We have successfully set up the projection parameters. Now we need to relate them to North.
 // Take the average of seven new readings to get a stable fix on the current heading
@@ -351,8 +358,18 @@ basic.showString("a")
         uFlip = -(axes[uDim].limit0 / Math.abs(axes[uDim].limit0)) // = -1 if uVal>0
         vFlip = axes[vDim].limit0 / Math.abs(axes[vDim].limit0)    // = -1 if vVal<0
 */
+        datalogger.log(datalogger.createCV("plane", uRaw),
+            datalogger.createCV("uDim", uDim),
+            datalogger.createCV("vDim", vDim),
+            datalogger.createCV("uOff", uOff),
+            datalogger.createCV("vOff", vOff),
+            datalogger.createCV("theta",theta),
+            datalogger.createCV("scale",scale),
+            datalogger.createCV("period", period),
+            datalogger.createCV("toNorth", toNorth),
+            datalogger.createCV("strength",strength))
+
         // set up datalogger for subsequent calls to project() from heading.degrees()
-        datalogger.deleteLog()
         datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
         datalogger.setColumnTitles("uRaw", "vRaw", "u", "v", "uNew", "vNew", "vScaled", "angle")
 
@@ -441,6 +458,7 @@ basic.showString("a")
 
     // Transform a point on the off-centre projected ellipse back onto a centred circle of headings 
     // and return its angle (in radians) anticlockwise from the horizontal U-axis
+    // Uses global projection parameters: {uDim, vDim, uOff, vOff, theta, scale}
     function project(uRaw: number, vRaw: number): number {
         // shift to start the vector at the origin
         let u = uRaw - uOff
@@ -450,8 +468,8 @@ basic.showString("a")
         let vNew = u * Math.sin(theta) + v * Math.cos(theta)
         // scale up V to match U
         let vScaled = vNew * scale
-        // return projected angle
-        let angle = Math.atan2(vScaled, uNew)
+        // return projected angle (undoing the rotation we applied)
+        let angle = Math.atan2(vScaled, uNew) - theta
 
         datalogger.log(datalogger.createCV("uRaw", uRaw),
             datalogger.createCV("vRaw", vRaw),
