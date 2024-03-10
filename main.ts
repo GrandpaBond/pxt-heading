@@ -31,6 +31,8 @@ namespace heading {
     let plane: string = "**" // the projection plane we are using: "XY","YZ" or "ZX"
     let testing = false  // test mode flag
     let test = 0         // selector for test sample
+    // spacing of samples from scanData to test with (~ #samples covering an octant)
+    let turn45 = 0 
 
     // EXPORTED USER INTERFACES   
 
@@ -129,19 +131,19 @@ namespace heading {
         if (scanTimes.length < 80) {
             return -1 // "NOT ENOUGH SCAN DATA"
         }
-        
+        // Each dimension tracks a sinusoidal wave of values (generally not centred on zero)
         // Find the raw extrema, and note when they happened by detecting change of sign of slope.
-        // Data are already rolling sums of 7 values, so subtract 4 behind from 4 ahead to get slope 
-        // Record in peaks[][] the index of each inflection point, to work out rotation rate later
-        // (but ignore repeated inflections if they occur too close in time)    
+        // Data are already rolling sums of 7 values, so subtract 4 behind from 4 ahead to get slope.
+        // Record in peaks[][] the index of each wave crest, so we can work out rotation rate later
+        // (but ignore repeated crests if they occur too close in time)    
         let xlo = 999
         let ylo = 999
         let zlo = 999
         let xhi = -999
         let yhi = -999
         let zhi = -999
-        // peaks is an array [X,Y,Z] of three sub-arrays of axis maximae, added as we discover them
-        //(NOTE: the sub-array lengths will often differ between dimensions)
+        // peaks is an array of three sub-arrays, one for each axis [X,Y,Z], noting the sample-indices
+        // of each detected crest, added as we discover them.
         let peaks: number[][] = [[],[],[]]
         // get the slopes for the fourth sample
         let dx = scanData[7][Dim.X] - scanData[0][Dim.X]
@@ -162,12 +164,12 @@ namespace heading {
             if ((dx * dxWas) < 0) // scanData[i] is a local max or min for X
             {
                 if (dxWas > 0) {
-                    xhi = v // reached local maximum
+                    xhi = v // reached local maximum (crest of wave)
                     if (scanTimes[i] - xLast > MinPeakSeparation) {
                         peaks[Dim.X].push(i)
                         xLast = scanTimes[i]
                     }
-                } else xlo = v // reached local minimum
+                } else xlo = v // reached local minimum (trough of wave)
             }
 
             dyWas = dy
@@ -176,12 +178,12 @@ namespace heading {
             if ((dy * dyWas) < 0) // scanData[i] is a local max or min for Y
             {
                 if (dyWas > 0) {
-                    yhi = v // reached local maximum
+                    yhi = v 
                     if (scanTimes[i] - yLast > MinPeakSeparation) {
                         peaks[Dim.Y].push(i)
                         yLast = scanTimes[i]
                     }
-                } else ylo = v // reached local minimum
+                } else ylo = v
             }
 
             dzWas = dz
@@ -190,16 +192,16 @@ namespace heading {
             if ((dz * dzWas) < 0) // scanData[i] is a local max or min for Z
             {
                 if (dzWas > 0) {
-                    zhi = v // reached local maximum
+                    zhi = v
                     if (scanTimes[i] - zLast > MinPeakSeparation) {
                         peaks[Dim.Z].push(i)
                         zLast = scanTimes[i]
                     }
-                } else zlo = v // reached local minimum
+                } else zlo = v
             }
         }
 
-        // use just the latest extremes to set the normalisation offsets
+        // use the mean of the latest extremes as normalisation offsets
         let xOff = (xhi + xlo) / 2
         let yOff = (yhi + ylo) / 2
         let zOff = (zhi + zlo) / 2
@@ -323,14 +325,18 @@ namespace heading {
         // split time between gaps
         let period = (scanTimes[last] - scanTimes[first]) / gaps
 
+        /******************* for testing  *************/
+        turn45 = Math.floor((last-first) / (8 * gaps)) // ~ #samples covering an octant
+
+
 
 // We have successfully set up the projection parameters. Now we need to relate them to North.
 // Take the average of seven new readings to get a stable fix on the current heading
         let uRaw = 0
         let vRaw = 0
-        if (testing) { // choose some arbitrary reading for North (using X for U; Z for V)
-            uRaw = scanData[40][Dim.X]
-            vRaw = scanData[40][Dim.Z]
+        if (testing) { //arbitrarily choose 10th reading for North (using X for U; Y for V)
+            uRaw = scanData[10][Dim.X]
+            vRaw = scanData[10][Dim.Y]
         } else {
             // get a new position as the sum of seven readings
             uRaw = input.magneticForce(uDim)
@@ -394,11 +400,12 @@ namespace heading {
         // read the magnetometer (seven times) and return the current heading in degrees from North
         let uRaw = 0
         let vRaw = 0
-        if (testing) { // NOTE: a-priori knowledge: U=Z & V=X for test data!
-            uRaw = scanData[test][Dim.Z]
-            vRaw = scanData[test][Dim.X]
-            test += 4
-            if (test > scanTimes.length - 5) test = 0 // roll round before running out
+        if (testing) { // NOTE: a-priori knowledge: U=X & V=Y for current test data!
+            let index = 10 + (test * turn45) // (we chose tenth sample for North)
+            uRaw = scanData[index][Dim.X]
+            vRaw = scanData[index][Dim.Y]
+            test ++
+            if (test > 7) test = 0 // roll round points of the compass
         } else {
             // get the new position as the sum of seven readings
             uRaw = input.magneticForce(uDim)
