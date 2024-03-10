@@ -313,8 +313,8 @@ namespace heading {
         basic.pause(300)
         */
 
-        // did we spin enough to give at least a couple of peak values?
-        if (peaks[uDim].length < 2) {
+        // did we spin enough to give at least a three peak values?
+        if (peaks[uDim].length < 3) {
             return -3 // NOT ENOUGH SCAN ROTATION
         }
 
@@ -334,9 +334,9 @@ namespace heading {
 // Take the average of seven new readings to get a stable fix on the current heading
         let uRaw = 0
         let vRaw = 0
-        if (testing) { //arbitrarily choose 10th reading for North (using X for U; Y for V)
-            uRaw = scanData[10][Dim.X]
-            vRaw = scanData[10][Dim.Y]
+        if (testing) { //arbitrarily choose 10th reading for North
+            uRaw = scanData[10][uDim]
+            vRaw = scanData[10][vDim]
         } else {
             // get a new position as the sum of seven readings
             uRaw = input.magneticForce(uDim)
@@ -400,10 +400,10 @@ namespace heading {
         // read the magnetometer (seven times) and return the current heading in degrees from North
         let uRaw = 0
         let vRaw = 0
-        if (testing) { // NOTE: a-priori knowledge: U=X & V=Y for current test data!
+        if (testing) {
             let index = 10 + (test * turn45) // (we chose tenth sample for North)
-            uRaw = scanData[index][Dim.X]
-            vRaw = scanData[index][Dim.Y]
+            uRaw = scanData[index][uDim]
+            vRaw = scanData[index][vDim]
             test ++
             if (test > 7) test = 0 // roll round points of the compass
         } else {
@@ -417,11 +417,13 @@ namespace heading {
             }
         }
 
-        // project reading from ellipse to circle, relating it to North and converting to degrees
-        let angle = 57.29578 * (project(uRaw, vRaw) - toNorth)
+        // project reading from ellipse to circle,
+        let onCircle = project(uRaw, vRaw)
+        // relate it to North and convert to degrees
+        let angle = 57.29578 * (onCircle - toNorth)
         // angle currently runs anticlockwise from U-axis: subtract it from 90 degrees 
         // to reflect through the diagonal, so making it run clockwise from the V-axis
-        angle = 90 - angle
+        // ? angle = 90 - angle
         // roll any negative values into the positive range [0...359]
         angle = (angle + 360) % 360
 
