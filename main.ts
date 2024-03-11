@@ -29,6 +29,7 @@ namespace heading {
     let uFlip = 1 // set to -1 if uDim polarity is inverted
     let vFlip = 1 // set to -1 if vDim polarity is inverted
     let plane: string = "**" // the projection plane we are using: "XY","YZ" or "ZX"
+    let logging = false  // logging mode flag
     let testing = false  // test mode flag
     let test = 0         // selector for test sample
     // spacing of samples from scanData to test with (~ #samples covering an octant)
@@ -56,46 +57,59 @@ namespace heading {
         if (testing) {
             simulateScan()
             basic.pause(ms)
-            return
-        }
+        } else {
 
-        // (To smooth out jitter, each reading is always a rolling sum of SEVEN consecutive readings!)
-        let now = input.runningTime()
-        let finish = now + ms
-        let index = 0
-        let xRoll: number[] = []
-        let yRoll: number[] = []
-        let zRoll: number[] = []
-        // take the first six readings...
-        for (let k = 0; k < 6; k++) {
-            xRoll.push(input.magneticForce(0))
-            yRoll.push(input.magneticForce(1))
-            zRoll.push(input.magneticForce(2))
-            basic.pause(25)
-        }
+            // (To smooth out jitter, each reading is always a rolling sum of SEVEN consecutive readings!)
+            let now = input.runningTime()
+            let finish = now + ms
+            let index = 0
+            let xRoll: number[] = []
+            let yRoll: number[] = []
+            let zRoll: number[] = []
+            // take the first six readings...
+            for (let k = 0; k < 6; k++) {
+                xRoll.push(input.magneticForce(0))
+                yRoll.push(input.magneticForce(1))
+                zRoll.push(input.magneticForce(2))
+                basic.pause(25)
+            }
 
-        let x = 0
-        let y = 0
-        let z = 0
-        // continue cranking out rolling sums, adding a new reading and dropping the oldest
-        // to each of the
-        while (now < finish) {
-            now = input.runningTime()
-            scanTimes.push(now - 100) // the time of the middle readings (roughly)
-            basic.pause(25)
-            xRoll.push(input.magneticForce(0))
-            x = 0
-            xRoll.forEach(a => x += a) // collect x sum
-            xRoll.shift()
-            yRoll.push(input.magneticForce(1))
-            y = 0
-            yRoll.forEach(a => y += a) // collect y sum
-            yRoll.shift()
-            zRoll.push(input.magneticForce(2))
-            z = 0
-            zRoll.forEach(a => z += a) // collect z sum
-            zRoll.shift()
-            scanData.push([x,y,z]) // add new reading
+            let x = 0
+            let y = 0
+            let z = 0
+            // continue cranking out rolling sums, adding a new reading and dropping the oldest
+            // to each of the
+            while (now < finish) {
+                now = input.runningTime()
+                scanTimes.push(now - 100) // the time of the middle readings (roughly)
+                basic.pause(25)
+                xRoll.push(input.magneticForce(0))
+                x = 0
+                xRoll.forEach(a => x += a) // collect x sum
+                xRoll.shift()
+                yRoll.push(input.magneticForce(1))
+                y = 0
+                yRoll.forEach(a => y += a) // collect y sum
+                yRoll.shift()
+                zRoll.push(input.magneticForce(2))
+                z = 0
+                zRoll.forEach(a => z += a) // collect z sum
+                zRoll.shift()
+                scanData.push([x,y,z]) // add new reading
+            }
+        }
+        
+        if (logging) {
+            datalogger.deleteLog()
+            datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
+            for (let i = 0; i < scanTimes.length; i++) {
+                datalogger.log(
+                    datalogger.createCV("index", i),
+                    datalogger.createCV("t", scanTimes[i]),
+                    datalogger.createCV("xRaw", scanData[i][Dim.X]),
+                    datalogger.createCV("yRaw", scanData[i][Dim.Y]),
+                    datalogger.createCV("zRaw", scanData[i][Dim.Z]))
+            }
         }
     }
 
@@ -131,10 +145,10 @@ namespace heading {
         if (scanTimes.length < 80) {
             return -1 // "NOT ENOUGH SCAN DATA"
         }
-        // Each dimension tracks a sinusoidal wave of values (generally not centred on zero)
-        // Find the raw extrema, and note when they happened by detecting change of sign of slope.
+        // Each dimension tracks a sinusoidal wave of values (generally not centred on zero).
+        // To assess the range and offset, find the raw extremes by detecting change of sign of slope.
         // Data are already rolling sums of 7 values, so subtract 4 behind from 4 ahead to get slope.
-        // Record in peaks[][] the index of each wave crest, so we can work out rotation rate later
+        // Record in peaks[][] the index of each wave crest, so we can work out rotation rate later,
         // (but ignore repeated crests if they occur too close in time)    
         let xlo = 999
         let ylo = 999
@@ -163,6 +177,11 @@ namespace heading {
             v = scanData[i][Dim.X]
             if ((dx * dxWas) < 0) // scanData[i] is a local max or min for X
             {
+                if (logging) {
+                    datalogger.log(
+                        datalogger.createCV("index", i), 
+                        datalogger.createCV("x", v))
+                }
                 if (dxWas > 0) {
                     xhi = v // reached local maximum (crest of wave)
                     if (scanTimes[i] - xLast > MinPeakSeparation) {
@@ -177,6 +196,11 @@ namespace heading {
             v = scanData[i][Dim.Y]
             if ((dy * dyWas) < 0) // scanData[i] is a local max or min for Y
             {
+                if (logging) {
+                    datalogger.log(
+                        datalogger.createCV("index", i), 
+                        datalogger.createCV("y", v))
+                }
                 if (dyWas > 0) {
                     yhi = v 
                     if (scanTimes[i] - yLast > MinPeakSeparation) {
@@ -191,6 +215,11 @@ namespace heading {
             v = scanData[i][Dim.Z]
             if ((dz * dzWas) < 0) // scanData[i] is a local max or min for Z
             {
+                if (logging) {
+                    datalogger.log(
+                        datalogger.createCV("index", i), 
+                        datalogger.createCV("z", v))
+                }
                 if (dzWas > 0) {
                     zhi = v
                     if (scanTimes[i] - zLast > MinPeakSeparation) {
@@ -243,6 +272,14 @@ namespace heading {
             if (rsq > xyhi) {
                 xyhi = rsq // longest so far...
                 xya = Math.atan2(y, x) // angle (anticlockwise from X axis)
+                if (logging) {
+                    datalogger.log(
+                        datalogger.createCV("index", j),
+                        datalogger.createCV("x", x),
+                        datalogger.createCV("y", y),
+                        datalogger.createCV("xya", xya),
+                        datalogger.createCV("xyhi", rsq))
+                }
             }
 
             // projection in YZ plane
@@ -251,6 +288,14 @@ namespace heading {
             if (rsq > yzhi) {
                 yzhi = rsq
                 yza = Math.atan2(z, y) // angle (anticlockwise from Y axis)
+                if (logging) {
+                    datalogger.log(
+                        datalogger.createCV("index", j),
+                        datalogger.createCV("y", y),
+                        datalogger.createCV("z", z),
+                        datalogger.createCV("yza", xya),
+                        datalogger.createCV("yzhi", rsq))
+                }
             }
 
             // projection in ZX plane
@@ -259,6 +304,14 @@ namespace heading {
             if (rsq > zxhi) {
                 zxhi = rsq
                 zxa = Math.atan2(x, z)  // angle (anticlockwise from Z axis)
+                if (logging) {
+                    datalogger.log(
+                        datalogger.createCV("index", j),
+                        datalogger.createCV("z", z),
+                        datalogger.createCV("x", x),
+                        datalogger.createCV("zxa", xya),
+                        datalogger.createCV("zxhi", rsq))
+                }
             }
         }
 
@@ -368,21 +421,23 @@ namespace heading {
         uFlip = -(axes[uDim].limit0 / Math.abs(axes[uDim].limit0)) // = -1 if uVal>0
         vFlip = axes[vDim].limit0 / Math.abs(axes[vDim].limit0)    // = -1 if vVal<0
 */
-        datalogger.log(datalogger.createCV("plane", uRaw),
-            datalogger.createCV("uDim", uDim),
-            datalogger.createCV("vDim", vDim),
-            datalogger.createCV("uOff", uOff),
-            datalogger.createCV("vOff", vOff),
-            datalogger.createCV("theta",theta),
-            datalogger.createCV("scale",scale),
-            datalogger.createCV("period", period),
-            datalogger.createCV("toNorth", toNorth),
-            datalogger.createCV("strength",strength))
+        if (logging) {
+            datalogger.log(
+                datalogger.createCV("uDim", uDim),
+                datalogger.createCV("vDim", vDim),
+                datalogger.createCV("uOff", uOff),
+                datalogger.createCV("vOff", vOff),
+                datalogger.createCV("theta",theta),
+                datalogger.createCV("scale",scale),
+                datalogger.createCV("period", period),
+                datalogger.createCV("toNorth", toNorth),
+                datalogger.createCV("strength",strength))
+        }
 
-        // set up datalogger for subsequent calls to project() from heading.degrees()
+        /* set up datalogger for subsequent calls to project() from heading.degrees()
         datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
         datalogger.setColumnTitles("uRaw", "vRaw", "u", "v", "uNew", "vNew", "vScaled", "angle")
-
+        */
         // return average RPM of original scan    
         return 60000 / period
     }
@@ -423,7 +478,7 @@ namespace heading {
         let angle = 57.29578 * (onCircle - toNorth)
         // angle currently runs anticlockwise from U-axis: subtract it from 90 degrees 
         // to reflect through the diagonal, so making it run clockwise from the V-axis
-        // ? angle = 90 - angle
+        angle = 90 - angle
         // roll any negative values into the positive range [0...359]
         angle = (angle + 360) % 360
 
@@ -431,12 +486,19 @@ namespace heading {
     }
 
 
-    //% block="switch test mode" 
+    //% block="set test mode: $turnOn"
     //% inlineInputMode=inline 
     //% weight=50
-    export function testMode(turnOn: boolean) {
+    export function setTestMode(turnOn: boolean) {
         testing = turnOn
-    } 
+    }
+
+    //% block="set logging mode: $turnOn" 
+    //% inlineInputMode=inline 
+    //% weight=40
+    export function setLogMode(turnOn: boolean) {
+        logging = turnOn
+    }
 
 // UTILITY FUNCTIONS
 
@@ -457,17 +519,7 @@ namespace heading {
         }
     }
 
-    export function dumpData() {
-        datalogger.deleteLog()
-        datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
-        datalogger.setColumnTitles("t", "x", "y", "z")
-        for (let i = 0; i < scanTimes.length; i++) {
-            datalogger.log(datalogger.createCV("t", scanTimes[i]),
-                datalogger.createCV("x", scanData[i][Dim.X]),
-                datalogger.createCV("y", scanData[i][Dim.Y]),
-                datalogger.createCV("z", scanData[i][Dim.Z]))
-        }
-    }
+  
 
 
     // Transform a point on the off-centre projected ellipse back onto a centred circle of headings 
@@ -484,15 +536,16 @@ namespace heading {
         let vScaled = vNew * scale
         // return projected angle (undoing the rotation we applied)
         let angle = Math.atan2(vScaled, uNew) - theta
-
-        datalogger.log(datalogger.createCV("uRaw", uRaw),
-            datalogger.createCV("vRaw", vRaw),
-            datalogger.createCV("u", u),
-            datalogger.createCV("v", v),
-            datalogger.createCV("uNew", uNew),
-            datalogger.createCV("vNew", vNew),
-            datalogger.createCV("vScaled", vScaled),
-            datalogger.createCV("angle", angle) )
+        if (logging) {
+            datalogger.log(datalogger.createCV("uRaw", uRaw),
+                datalogger.createCV("vRaw", vRaw),
+                datalogger.createCV("u", u),
+                datalogger.createCV("v", v),
+                datalogger.createCV("uNew", uNew),
+                datalogger.createCV("vNew", vNew),
+                datalogger.createCV("vScaled", vScaled),
+                datalogger.createCV("angle", angle) )
+        }
         
         return angle
     }

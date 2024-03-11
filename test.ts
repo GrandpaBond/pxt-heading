@@ -18,17 +18,17 @@ input.onButtonPressed(Button.A, function () {
             basic.pause(1000)
             switch (config) {
             case Config.Buggy:
-                heading.testMode(false) 
+                heading.setTestMode(false)
                 Kitronik_Move_Motor.spin(Kitronik_Move_Motor.SpinDirections.Right, 30)
                 heading.scan(4000)
                 Kitronik_Move_Motor.stop()
                 break
             case Config.Test:
-                heading.testMode(true)
+                heading.setTestMode(true)
                 heading.scan(1000)
                 break  
             case Config.Jig:
-                heading.testMode(false)
+                heading.setTestMode(false)
                 basic.showString("?") // manually rotate jig (SMOOOOTHLY!)
                 heading.scan(15000)
                 music.setVolume(255)
@@ -84,21 +84,13 @@ input.onButtonPressed(Button.A, function () {
 
 input.onButtonPressed(Button.B, function () {
     switch (nextTask) {
+        case Task.SetNorth: 
         case Task.Scan: // use button A to do a scan first
             for (let i = 0; i < 5; i++) {
                 basic.clearScreen()
                 basic.pause(100)
                 basic.showArrow(ArrowNames.West)
             }
-            break
-
-        case Task.SetNorth: // log our scan, then use button A to setNorth
-            basic.showString("L")
-            basic.pause(1000)
-            heading.dumpData()
-            basic.clearScreen()
-            basic.pause(100)
-            basic.showArrow(ArrowNames.West)
             break
 
         case Task.Measure: // OK take a new heading measurement
@@ -139,17 +131,17 @@ input.onLogoEvent(TouchButtonEvent.Pressed, function () {
         case Config.Buggy:
             config = Config.Test
             basic.showString("T") // use sample data while debugging...
-            heading.testMode(true) 
+            heading.setTestMode(true) 
             break
         case Config.Test:
             config = Config.Jig
             basic.showString("J") // no buggy, but use live magnetometer
-            heading.testMode(false) 
+            heading.setTestMode(false) 
             break
         case Config.Jig:
             config = Config.Buggy
             basic.showString("B")  // normal live operation
-            heading.testMode(false)
+            heading.setTestMode(false)
             break
     }
     basic.pause(1000)
@@ -159,14 +151,17 @@ input.onLogoEvent(TouchButtonEvent.Pressed, function () {
     basic.showArrow(ArrowNames.West)
 })
 
-
+/*
 music.setVolume(255)
 music.tonePlayable(2000, 500)
 music.tonePlayable(1500, 500)
 music.tonePlayable(1200, 500)
 music.tonePlayable(1000, 1500)
+*/
+
 let config = Config.Test
-heading.testMode(true)
+heading.setLogMode(true)
+heading.setTestMode(true)
 let nextTask = Task.Scan
 basic.showArrow(ArrowNames.West)
 let spinRPM = 0
