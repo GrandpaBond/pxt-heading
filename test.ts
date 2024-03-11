@@ -17,24 +17,24 @@ input.onButtonPressed(Button.A, function () {
             basic.showString("S")
             basic.pause(1000)
             switch (config) {
-            case Config.Buggy:
-                heading.setTestMode(false)
-                Kitronik_Move_Motor.spin(Kitronik_Move_Motor.SpinDirections.Right, 30)
-                heading.scan(4000)
-                Kitronik_Move_Motor.stop()
-                break
-            case Config.Test:
-                heading.setTestMode(true)
-                heading.scan(1000)
-                break  
-            case Config.Jig:
-                heading.setTestMode(false)
-                basic.showString("?") // manually rotate jig (SMOOOOTHLY!)
-                heading.scan(15000)
-                music.setVolume(255)
-                music.tonePlayable(2000, 500)
-                basic.pause(1000)
-                break
+                case Config.Buggy:
+                    heading.setTestMode(false)
+                    Kitronik_Move_Motor.spin(Kitronik_Move_Motor.SpinDirections.Right, 30)
+                    heading.scan(4000)
+                    Kitronik_Move_Motor.stop()
+                    break
+                case Config.Test:
+                    heading.setTestMode(true)
+                    heading.scan(1000)
+                    break
+                case Config.Jig:
+                    heading.setTestMode(false)
+                    basic.showString("?") // manually rotate jig (SMOOOOTHLY!)
+                    heading.scan(15000)
+                    music.setVolume(255)
+                    music.tonePlayable(2000, 500)
+                    basic.pause(1000)
+                    break
             }
             basic.showIcon(IconNames.Yes)
             basic.pause(1000)
@@ -159,8 +159,10 @@ music.tonePlayable(1200, 500)
 music.tonePlayable(1000, 1500)
 */
 
-let config = Config.Test
 heading.setLogMode(true)
+heading.setLogMode(true)
+heading.setLogMode(true)
+let config = Config.Test
 heading.setTestMode(true)
 let nextTask = Task.Scan
 basic.showArrow(ArrowNames.West)

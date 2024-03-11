@@ -383,8 +383,8 @@ namespace heading {
 
 
 
-// We have successfully set up the projection parameters. Now we need to relate them to North.
-// Take the average of seven new readings to get a stable fix on the current heading
+        // We have successfully set up the projection parameters. Now we need to relate them to North.
+        // Take the average of seven new readings to get a stable fix on the current heading
         let uRaw = 0
         let vRaw = 0
         if (testing) { //arbitrarily choose 10th reading for North
@@ -405,7 +405,7 @@ namespace heading {
         toNorth = project(uRaw, vRaw)
 
 
- /* no longer relevant (I think) but testing will prove... (delete later)
+        /* no longer relevant (I think) but testing will prove... (delete later)
         // For a clockwise scan, the maths requires the U-dim to lead the V-dim by 90 degrees
         // From the point of view of a buggy spinning clockwise from ~NW, the North vector appears 
         // to rotate anticlockwise, passing the +V axis first, and then the -U axis.
@@ -420,7 +420,7 @@ namespace heading {
         // is mounted backwards: we expect the first uVal<0 and the first vVal>0
         uFlip = -(axes[uDim].limit0 / Math.abs(axes[uDim].limit0)) // = -1 if uVal>0
         vFlip = axes[vDim].limit0 / Math.abs(axes[vDim].limit0)    // = -1 if vVal<0
-*/
+        */
         if (logging) {
             datalogger.log(
                 datalogger.createCV("uDim", uDim),
@@ -493,11 +493,11 @@ namespace heading {
         testing = turnOn
     }
 
-    //% block="set logging mode: $turnOn" 
+    //% block="set logging mode: $loggingOn"
     //% inlineInputMode=inline 
     //% weight=40
-    export function setLogMode(turnOn: boolean) {
-        logging = turnOn
+    export function setLogMode(loggingOn: boolean) {
+        logging = loggingOn
     }
 
 // UTILITY FUNCTIONS
