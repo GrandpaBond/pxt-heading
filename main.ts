@@ -141,8 +141,8 @@ namespace heading {
     by a fixed bias to return the true heading with respect to North.
     */
 
-        // we need at least 2 second's worth of scanned readings...
-        if (scanTimes.length < 80) {
+        // we need at least ~3 second's worth of scanned readings...
+        if (scanTimes.length < 100) {
             return -1 // "NOT ENOUGH SCAN DATA"
         }
         // Each dimension tracks a sinusoidal wave of values (generally not centred on zero).
@@ -175,7 +175,8 @@ namespace heading {
             dxWas = dx
             dx = scanData[i + 4][Dim.X] - scanData[i - 4][Dim.X]
             v = scanData[i][Dim.X]
-            if ((dx * dxWas) < 0) // scanData[i] is a local max or min for X
+            if ((dx == 0)
+                ||(dx * dxWas) < 0)) // scanData[i] is a local max or min for X
             {
                 if (logging) {
                     datalogger.log(
@@ -194,7 +195,8 @@ namespace heading {
             dyWas = dy
             dy = scanData[i + 4][Dim.Y] - scanData[i - 4][Dim.Y]
             v = scanData[i][Dim.Y]
-            if ((dy * dyWas) < 0) // scanData[i] is a local max or min for Y
+            if ((dy == 0)
+                ||((dy * dyWas) < 0)) // scanData[i] is a local max or min for Y
             {
                 if (logging) {
                     datalogger.log(
@@ -213,7 +215,8 @@ namespace heading {
             dzWas = dz
             dz = scanData[i + 4][Dim.Z] - scanData[i - 4][Dim.Z]
             v = scanData[i][Dim.Z]
-            if ((dz * dzWas) < 0) // scanData[i] is a local max or min for Z
+            if ((dz == 0)
+                ||((dz * dzWas)) < 0) // scanData[i] is a local max or min for Z
             {
                 if (logging) {
                     datalogger.log(
