@@ -22,6 +22,7 @@ namespace heading {
     let scanData: number[][]= [] // scanned sequence of [X,Y,Z] magnetometer readings  
     let uDim = -1 // the "horizontal" axis (pointing East) for transformed readings (called U)
     let vDim = -1 // the "vertical" axis (pointing North) for transformed readings (called V)
+    let wDim = -1 // the third, unused, dimension (used to assess rotation-speed)
     let uOff = 0 // the offset needed to re-centre readings along the U-axis
     let vOff = 0 // the offset needed to re-centre readings along the V-axis
     let theta = 0 // the angle to rotate readings so the projected ellipse aligns with the U & V axes
@@ -135,11 +136,11 @@ namespace heading {
 
     As the buggy spins, the magnetic field-vector sweeps out a Spin-Circle on the surface of a sphere.
     In the fully general case, this projects onto the plane of each pair of orthogonal axes (XY,YZ,ZX) 
-    as an ellipse with a certain eccentricity (and maybe a tilt). We will get the best heading 
-    discrimination from the "roundest", most "square-on" view (i.e. the least eccentric ellipse).
+    as an Ellipse with a certain eccentricity (and maybe a tilt). We will get the best heading 
+    discrimination from the "roundest", most "square-on" view (i.e. the least eccentric Ellipse).
     
-    Taking readings from just those two axes, we'll need to transform points lying around the ellipse 
-    (by first rotating about the origin, and then scaling vertically to "un-squash" the ellipse), so that 
+    Taking readings from just those two axes, we'll need to transform points lying around the Ellipse 
+    (by first rotating about the origin, and then scaling vertically to "un-squash" the Ellipse), so that 
     they lie back on the unprojected Spin-Circle, giving a relative angle that can (eventually) be offset 
     by a fixed bias to return the true heading with respect to North.
     */
@@ -150,63 +151,66 @@ namespace heading {
             return -1 // "NOT ENOUGH SCAN DATA"
         }
         // Each dimension tracks a sinusoidal wave of values (generally not centred on zero).
-        // First pass finds ranges for each axis 
+        // The first pass finds the ranges for each axis 
         let xlo = 999
         let ylo = 999
         let zlo = 999
         let xhi = -999
         let yhi = -999
         let zhi = -999
-        // To assess the range and offset, find the raw extremes by detecting change of sign of slope.
+        // To assess the range and offset, find the raw extremes.
         for (let i = 0; i < nSamples; i++) {
             xhi = Math.max(xhi, scanData[i][Dim.X])
             yhi = Math.max(yhi, scanData[i][Dim.Y])
-            zhi = Math.max(zhi, scanData[i][Dim.Y])
+            zhi = Math.max(zhi, scanData[i][Dim.Z])
             xlo = Math.min(xlo, scanData[i][Dim.X])
             ylo = Math.min(ylo, scanData[i][Dim.Y])
             zlo = Math.min(zlo, scanData[i][Dim.X])
         }
 
-        // use the mean of the extremes as normalisation offsets
+        // Use the mean of these extremes as normalisation offsets
         let xOff = (xhi + xlo) / 2
         let yOff = (yhi + ylo) / 2
         let zOff = (zhi + zlo) / 2
 
-        // From their squares, find the shortest and longest radii for each axis-pair.
-        // For the latter, note the angle it makes (anti-clockwise from the horizontal)
+        // Now assess eccentricity by looking for the shortest and longest radii for each Ellipse.
+        // (An initial upper limit to radius is quarter of the perimeter of its bounding-box)
         let xHalf = (xhi - xlo) / 2
         let yHalf = (yhi - ylo) / 2
         let zHalf = (zhi - zlo) / 2
-
-        // use the semi-diagonal of each bounding-boxes as upper limit to radius
-        let xylo = (xHalf * xHalf) + (yHalf*yHalf)
-        let yzlo = (yhi + ylo) / 2
-        let zxlo = (zhi + zlo) / 2
+        let xylo = xHalf + yHalf
+        let yzlo = yHalf + zHalf
+        let zxlo = zHalf + xHalf
         let xyhi = 0
         let yzhi = 0
         let zxhi = 0
+
         let x = 0
         let y = 0
         let z = 0
+        // By Pythagoras: radius-squared = sum of squares of coordinates
         let xsq = 0
         let ysq = 0
         let zsq = 0
         let rsq = 0
+        // Record the angle a major radius makes (anti-clockwise from the horizontal)
         let xya = 0
         let yza = 0
         let zxa = 0
-        let xyRise = false
-        let yzRise = false
-        let zxRise = false
+
+        let xyRsq = 0
+        let yzRsq = 0
+        let zxRsq = 0
     
         if (logging) {
             // prepare for analysis
             datalogger.setColumnTitles("index", "x", "y", "z", "xyhi", "yzhi", "zxhi"," xya", "yza","zxa")
         }
 
-        // use inertial smoothing and time-windowing to avoid multiples due to oscillatory data
+
+
         for (let j = 0; j < nSamples; j++) {
-            // extract next readings and normalise them
+            // extract and normalise the next sample readings
             x = scanData[j][Dim.X] - xOff
             y = scanData[j][Dim.Y] - yOff
             z = scanData[j][Dim.Z] - zOff
@@ -216,14 +220,14 @@ namespace heading {
             zsq = z * z
             strength += xsq + ysq + zsq // accumulate square of field strengths (a global)
 
-            // projection in XY plane
-            rsq = xsq + ysq // Pythagoras: radius-squared = sum-of-squares
-
-
-
-            if (rsq < xylo) xylo = rsq // shortest so far...
-            if (rsq > xyhi) {
-                xyhi = rsq // longest so far...
+            // projection in XY plane...
+            rsq = xsq + ysq
+            // in tracking the radius, we use inertial smoothing and time-windowing to try and
+            // avoid multiple detections due to smaller fluctuations in readings
+            xyRsq = rsq - Inertia*(rsq-xyRsq)
+            if (xyRsq < xylo) xylo = xyRsq // shortest so far...
+            if (xyRsq > xyhi) {
+                xyhi = xyRsq // longest so far...
                 xya = Math.atan2(y, x) // angle (anticlockwise from X axis)
                 if (logging) {
                     datalogger.log(
@@ -231,15 +235,16 @@ namespace heading {
                         datalogger.createCV("x", x),
                         datalogger.createCV("y", y),
                         datalogger.createCV("xya", xya),
-                        datalogger.createCV("xyhi", rsq))
+                        datalogger.createCV("xyhi", xyRsq))
                 }
             }
 
             // projection in YZ plane
             rsq = ysq + zsq
-            if (rsq < yzlo) yzlo = rsq
-            if (rsq > yzhi) {
-                yzhi = rsq
+            yzRsq = rsq - Inertia * (rsq - yzRsq)
+            if (yzRsq < yzlo) yzlo = yzRsq
+            if (yzRsq > yzhi) {
+                yzhi = yzRsq
                 yza = Math.atan2(z, y) // angle (anticlockwise from Y axis)
                 if (logging) {
                     datalogger.log(
@@ -247,15 +252,16 @@ namespace heading {
                         datalogger.createCV("y", y),
                         datalogger.createCV("z", z),
                         datalogger.createCV("yza", xya),
-                        datalogger.createCV("yzhi", rsq))
+                        datalogger.createCV("yzhi", yzRsq))
                 }
             }
 
             // projection in ZX plane
             rsq = zsq + xsq
-            if (rsq < zxlo) zxlo = rsq
+            zxRsq = rsq - Inertia * (rsq - zxRsq)
+            if (rsq < zxlo) zxlo = zxRsq
             if (rsq > zxhi) {
-                zxhi = rsq
+                zxhi = zxRsq
                 zxa = Math.atan2(x, z)  // angle (anticlockwise from Z axis)
                 if (logging) {
                     datalogger.log(
@@ -263,11 +269,10 @@ namespace heading {
                         datalogger.createCV("z", z),
                         datalogger.createCV("x", x),
                         datalogger.createCV("zxa", xya),
-                        datalogger.createCV("zxhi", rsq))
+                        datalogger.createCV("zxhi", zxRsq))
                 }
             }
         }
-
 
         // check average field-strength
         strength = Math.sqrt(strength / nSamples)
@@ -283,11 +288,13 @@ namespace heading {
 
         // Select the "roundest" axis-pair to use (the one with lowest eccentricity) and adopt 
         // its normalisation offsets, tilt angle and eccentricity. Call the new axes U & V.
+        // (Note the unused axis as wDim)
         if (xye < yze) { // not YZ
             if (xye < zxe) { // not ZX either: definitely use XY
                 plane = "XY"
                 uDim = Dim.X
                 vDim = Dim.Y
+                wDim = Dim.Z
                 uOff = xOff
                 vOff = yOff
                 theta = xya
@@ -300,12 +307,14 @@ namespace heading {
                 vDim = Dim.Z
                 uOff = yOff
                 vOff = zOff
+                wDim = Dim.X
                 theta = yza
                 scale = yze
             } else {
                 plane = "ZX"
                 uDim = Dim.Z
                 vDim = Dim.X
+                wDim = Dim.Y
                 uOff = zOff
                 vOff = xOff
                 theta = zxa
@@ -318,7 +327,9 @@ namespace heading {
         basic.showString(plane)
         basic.pause(300)
         */
-
+        // wDim contributed to the two most eccentric Ellipse projections, so is best
+        // for assessing periodicity.
+        
         // did we spin enough to give at least a three peak values?
         if (peaks[uDim].length < 3) {
             return -3 // NOT ENOUGH SCAN ROTATION
