@@ -174,10 +174,14 @@ namespace heading {
 
         // From their squares, find the shortest and longest radii for each axis-pair.
         // For the latter, note the angle it makes (anti-clockwise from the horizontal)
+        let xHalf = (xhi - xlo) / 2
+        let yHalf = (yhi - ylo) / 2
+        let zHalf = (zhi - zlo) / 2
 
-        let xylo = 0
-        let yzlo = 0
-        let zxlo = 0
+        // use the semi-diagonal of each bounding-boxes as upper limit to radius
+        let xylo = (xHalf * xHalf) + (yHalf*yHalf)
+        let yzlo = (yhi + ylo) / 2
+        let zxlo = (zhi + zlo) / 2
         let xyhi = 0
         let yzhi = 0
         let zxhi = 0
