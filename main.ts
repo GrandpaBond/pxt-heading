@@ -15,6 +15,8 @@ namespace heading {
     const MarginalField = 30 // minimum acceptable field-strength for magnetometer readings
     const MinPeakSeparation = 500 // sanity check to ignore close peaks due to wobbling signal
     // (still permits maximum spin-rate of 120 RPM, or 2 rotations a second!) 
+    const Inertia = 0.95 // ratio of old to new radius readings (for inertial smoothing)
+    const Window = 200 // minimum ms separation of radius extrema (~ quarter rotation time)
 
     let scanTimes: number[] = [] // sequence of time-stamps for scanned readings 
     let scanData: number[][]= [] // scanned sequence of [X,Y,Z] magnetometer readings  
@@ -29,7 +31,7 @@ namespace heading {
     let uFlip = 1 // set to -1 if uDim polarity is inverted
     let vFlip = 1 // set to -1 if vDim polarity is inverted
     let plane: string = "**" // the projection plane we are using: "XY","YZ" or "ZX"
-    let logging = false  // logging mode flag
+    let logging = true  // logging mode flag
     let testing = false  // test mode flag
     let test = 0         // selector for test sample
     // spacing of samples from scanData to test with (~ #samples covering an octant)
@@ -102,13 +104,14 @@ namespace heading {
         if (logging) {
             datalogger.deleteLog()
             datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
+            datalogger.setColumnTitles("index","t","x","y","z")
             for (let i = 0; i < scanTimes.length; i++) {
                 datalogger.log(
                     datalogger.createCV("index", i),
                     datalogger.createCV("t", scanTimes[i]),
-                    datalogger.createCV("xRaw", scanData[i][Dim.X]),
-                    datalogger.createCV("yRaw", scanData[i][Dim.Y]),
-                    datalogger.createCV("zRaw", scanData[i][Dim.Z]))
+                    datalogger.createCV("x", scanData[i][Dim.X]),
+                    datalogger.createCV("y", scanData[i][Dim.Y]),
+                    datalogger.createCV("z", scanData[i][Dim.Z]))
             }
         }
     }
@@ -142,98 +145,29 @@ namespace heading {
     */
 
         // we need at least ~3 second's worth of scanned readings...
-        if (scanTimes.length < 100) {
+        let nSamples = scanTimes.length
+        if (nSamples < 100) {
             return -1 // "NOT ENOUGH SCAN DATA"
         }
         // Each dimension tracks a sinusoidal wave of values (generally not centred on zero).
-        // To assess the range and offset, find the raw extremes by detecting change of sign of slope.
-        // Data are already rolling sums of 7 values, so subtract 4 behind from 4 ahead to get slope.
-        // Record in peaks[][] the index of each wave crest, so we can work out rotation rate later,
-        // (but ignore repeated crests if they occur too close in time)    
+        // First pass finds ranges for each axis 
         let xlo = 999
         let ylo = 999
         let zlo = 999
         let xhi = -999
         let yhi = -999
         let zhi = -999
-        // peaks is an array of three sub-arrays, one for each axis [X,Y,Z], noting the sample-indices
-        // of each detected crest, added as we discover them.
-        let peaks: number[][] = [[],[],[]]
-        // get the slopes for the fourth sample
-        let dx = scanData[7][Dim.X] - scanData[0][Dim.X]
-        let dy = scanData[7][Dim.Y] - scanData[0][Dim.Y]
-        let dz = scanData[7][Dim.Z] - scanData[0][Dim.Z]
-        let xLast = scanTimes[0]
-        let yLast = scanTimes[0]
-        let zLast = scanTimes[0]
-        let dxWas = 0
-        let dyWas = 0
-        let dzWas = 0
-        let v = 0
-        // loop over central samples, (skipping 4-sample "wings" at each end)
-        for (let i = 4; i < scanTimes.length - 5; i++) {
-            dxWas = dx
-            dx = scanData[i + 4][Dim.X] - scanData[i - 4][Dim.X]
-            v = scanData[i][Dim.X]
-            if ((dx == 0)
-                ||(dx * dxWas) < 0)) // scanData[i] is a local max or min for X
-            {
-                if (logging) {
-                    datalogger.log(
-                        datalogger.createCV("index", i), 
-                        datalogger.createCV("x", v))
-                }
-                if (dxWas > 0) {
-                    xhi = v // reached local maximum (crest of wave)
-                    if (scanTimes[i] - xLast > MinPeakSeparation) {
-                        peaks[Dim.X].push(i)
-                        xLast = scanTimes[i]
-                    }
-                } else xlo = v // reached local minimum (trough of wave)
-            }
-
-            dyWas = dy
-            dy = scanData[i + 4][Dim.Y] - scanData[i - 4][Dim.Y]
-            v = scanData[i][Dim.Y]
-            if ((dy == 0)
-                ||((dy * dyWas) < 0)) // scanData[i] is a local max or min for Y
-            {
-                if (logging) {
-                    datalogger.log(
-                        datalogger.createCV("index", i), 
-                        datalogger.createCV("y", v))
-                }
-                if (dyWas > 0) {
-                    yhi = v 
-                    if (scanTimes[i] - yLast > MinPeakSeparation) {
-                        peaks[Dim.Y].push(i)
-                        yLast = scanTimes[i]
-                    }
-                } else ylo = v
-            }
-
-            dzWas = dz
-            dz = scanData[i + 4][Dim.Z] - scanData[i - 4][Dim.Z]
-            v = scanData[i][Dim.Z]
-            if ((dz == 0)
-                ||((dz * dzWas)) < 0) // scanData[i] is a local max or min for Z
-            {
-                if (logging) {
-                    datalogger.log(
-                        datalogger.createCV("index", i), 
-                        datalogger.createCV("z", v))
-                }
-                if (dzWas > 0) {
-                    zhi = v
-                    if (scanTimes[i] - zLast > MinPeakSeparation) {
-                        peaks[Dim.Z].push(i)
-                        zLast = scanTimes[i]
-                    }
-                } else zlo = v
-            }
+        // To assess the range and offset, find the raw extremes by detecting change of sign of slope.
+        for (let i = 0; i < nSamples; i++) {
+            xhi = Math.max(xhi, scanData[i][Dim.X])
+            yhi = Math.max(yhi, scanData[i][Dim.Y])
+            zhi = Math.max(zhi, scanData[i][Dim.Y])
+            xlo = Math.min(xlo, scanData[i][Dim.X])
+            ylo = Math.min(ylo, scanData[i][Dim.Y])
+            zlo = Math.min(zlo, scanData[i][Dim.X])
         }
 
-        // use the mean of the latest extremes as normalisation offsets
+        // use the mean of the extremes as normalisation offsets
         let xOff = (xhi + xlo) / 2
         let yOff = (yhi + ylo) / 2
         let zOff = (zhi + zlo) / 2
@@ -241,12 +175,12 @@ namespace heading {
         // From their squares, find the shortest and longest radii for each axis-pair.
         // For the latter, note the angle it makes (anti-clockwise from the horizontal)
 
-        let xylo = 99999
-        let yzlo = 99999
-        let zxlo = 99999
-        let xyhi = -99999
-        let yzhi = -99999
-        let zxhi = -99999
+        let xylo = 0
+        let yzlo = 0
+        let zxlo = 0
+        let xyhi = 0
+        let yzhi = 0
+        let zxhi = 0
         let x = 0
         let y = 0
         let z = 0
@@ -257,13 +191,22 @@ namespace heading {
         let xya = 0
         let yza = 0
         let zxa = 0
-        let nSamples = scanTimes.length
+        let xyRise = false
+        let yzRise = false
+        let zxRise = false
+    
+        if (logging) {
+            // prepare for analysis
+            datalogger.setColumnTitles("index", "x", "y", "z", "xyhi", "yzhi", "zxhi"," xya", "yza","zxa")
+        }
 
+        // use inertial smoothing and time-windowing to avoid multiples due to oscillatory data
         for (let j = 0; j < nSamples; j++) {
             // extract next readings and normalise them
             x = scanData[j][Dim.X] - xOff
             y = scanData[j][Dim.Y] - yOff
             z = scanData[j][Dim.Z] - zOff
+
             xsq = x * x
             ysq = y * y
             zsq = z * z
@@ -271,6 +214,9 @@ namespace heading {
 
             // projection in XY plane
             rsq = xsq + ysq // Pythagoras: radius-squared = sum-of-squares
+
+
+
             if (rsq < xylo) xylo = rsq // shortest so far...
             if (rsq > xyhi) {
                 xyhi = rsq // longest so far...
@@ -425,6 +371,9 @@ namespace heading {
         vFlip = axes[vDim].limit0 / Math.abs(axes[vDim].limit0)    // = -1 if vVal<0
         */
         if (logging) {
+            datalogger.setColumnTitles("uDim", "vDim", "uOff", "vOff",
+              "theta", "scale", "period", "toNorth", "strength")
+
             datalogger.log(
                 datalogger.createCV("uDim", uDim),
                 datalogger.createCV("vDim", vDim),
@@ -437,10 +386,7 @@ namespace heading {
                 datalogger.createCV("strength",strength))
         }
 
-        /* set up datalogger for subsequent calls to project() from heading.degrees()
-        datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
-        datalogger.setColumnTitles("uRaw", "vRaw", "u", "v", "uNew", "vNew", "vScaled", "angle")
-        */
+
         // return average RPM of original scan    
         return 60000 / period
     }
@@ -503,6 +449,12 @@ namespace heading {
         logging = loggingOn
     }
 
+    export function isLogging(): boolean {
+        return logging
+    }
+
+
+
 // UTILITY FUNCTIONS
 
     // use some sample data, while debugging...
@@ -540,6 +492,8 @@ namespace heading {
         // return projected angle (undoing the rotation we applied)
         let angle = Math.atan2(vScaled, uNew) - theta
         if (logging) {
+
+            datalogger.setColumnTitles("uRaw", "vRaw", "u", "v", "uNew", "vNew", "vScaled", "angle")
             datalogger.log(datalogger.createCV("uRaw", uRaw),
                 datalogger.createCV("vRaw", vRaw),
                 datalogger.createCV("u", u),

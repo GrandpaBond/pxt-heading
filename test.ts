@@ -12,6 +12,7 @@ enum Task {
 
 
 input.onButtonPressed(Button.A, function () {
+    checkLogging()
     switch (nextTask) {
         case Task.Scan:
             basic.showString("S")
@@ -83,6 +84,7 @@ input.onButtonPressed(Button.A, function () {
 })
 
 input.onButtonPressed(Button.B, function () {
+    checkLogging()
     switch (nextTask) {
         case Task.SetNorth: 
         case Task.Scan: // use button A to do a scan first
@@ -151,6 +153,15 @@ input.onLogoEvent(TouchButtonEvent.Pressed, function () {
     basic.showArrow(ArrowNames.West)
 })
 
+function checkLogging() {
+    basic.showString("L")
+    if (heading.isLogging()) {
+        basic.showIcon(IconNames.Yes)
+    } else {
+        basic.showIcon(IconNames.No)
+    }
+}
+
 /*
 music.setVolume(255)
 music.tonePlayable(2000, 500)
@@ -160,10 +171,10 @@ music.tonePlayable(1000, 1500)
 */
 
 heading.setLogMode(true)
-heading.setLogMode(true)
-heading.setLogMode(true)
+checkLogging()
 let config = Config.Test
 heading.setTestMode(true)
+checkLogging()
 let nextTask = Task.Scan
 basic.showArrow(ArrowNames.West)
 let spinRPM = 0
