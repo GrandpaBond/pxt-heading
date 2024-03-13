@@ -197,20 +197,27 @@ namespace heading {
         let xya = 0
         let yza = 0
         let zxa = 0
-
+        // smoothed radii
         let xyRsq = 0
         let yzRsq = 0
         let zxRsq = 0
-    
+
+        // peaks is an array of three sub-arrays for recording peak-radius timestamps, added as we discover them
+        //(NOTE: the sub-array lengths will often differ between dimensions)
+        let peaks: number[][] = [[], [], []]
+        let xyLast = 0
+        let yzLast = 0
+        let zxLast = 0
+        let stamp = 0
+
         if (logging) {
             // prepare for analysis
             datalogger.setColumnTitles("index", "x", "y", "z", "xyhi", "yzhi", "zxhi"," xya", "yza","zxa")
         }
 
-
-
         for (let j = 0; j < nSamples; j++) {
             // extract and normalise the next sample readings
+            stamp = scanTimes[j]
             x = scanData[j][Dim.X] - xOff
             y = scanData[j][Dim.Y] - yOff
             z = scanData[j][Dim.Z] - zOff
@@ -222,54 +229,68 @@ namespace heading {
 
             // projection in XY plane...
             rsq = xsq + ysq
-            // in tracking the radius, we use inertial smoothing and time-windowing to try and
-            // avoid multiple detections due to smaller fluctuations in readings
-            xyRsq = rsq - Inertia*(rsq-xyRsq)
-            if (xyRsq < xylo) xylo = xyRsq // shortest so far...
+            // in tracking the radius, we use inertial smoothing to try and avoid 
+            // multiple detections due to minor fluctuations in readings
+            xyRsq = rsq - Inertia * (rsq - xyRsq)
+            xylo = Math.min(xylo, xyRsq) // shortest so far...
             if (xyRsq > xyhi) {
                 xyhi = xyRsq // longest so far...
                 xya = Math.atan2(y, x) // angle (anticlockwise from X axis)
+                // need to clock new peak?
+                if (stamp - xyLast > MinPeakSeparation)
+                {
+                    peaks[0].push(j)
+                    xyLast = stamp
+                }
                 if (logging) {
                     datalogger.log(
                         datalogger.createCV("index", j),
                         datalogger.createCV("x", x),
                         datalogger.createCV("y", y),
                         datalogger.createCV("xya", xya),
-                        datalogger.createCV("xyhi", xyRsq))
+                        datalogger.createCV("xyhi", xyhi))
                 }
             }
 
-            // projection in YZ plane
+            // projection in YZ plane...
             rsq = ysq + zsq
             yzRsq = rsq - Inertia * (rsq - yzRsq)
-            if (yzRsq < yzlo) yzlo = yzRsq
+            yzlo = Math.min(yzlo, yzRsq)
             if (yzRsq > yzhi) {
                 yzhi = yzRsq
                 yza = Math.atan2(z, y) // angle (anticlockwise from Y axis)
+                if (stamp - yzLast > MinPeakSeparation) { // need to clock new peak
+                    peaks[1].push(stamp)
+                    xyLast = stamp
+                }
                 if (logging) {
                     datalogger.log(
                         datalogger.createCV("index", j),
                         datalogger.createCV("y", y),
                         datalogger.createCV("z", z),
                         datalogger.createCV("yza", xya),
-                        datalogger.createCV("yzhi", yzRsq))
+                        datalogger.createCV("yzhi", yzhi))
                 }
             }
 
-            // projection in ZX plane
+            // projection in ZX plane...
             rsq = zsq + xsq
             zxRsq = rsq - Inertia * (rsq - zxRsq)
-            if (rsq < zxlo) zxlo = zxRsq
+            zxlo = Math.min(zxlo, zxRsq)
             if (rsq > zxhi) {
                 zxhi = zxRsq
                 zxa = Math.atan2(x, z)  // angle (anticlockwise from Z axis)
+                if (stamp - zxLast > MinPeakSeparation) { // need to clock new peak
+                    peaks[2].push(stamp)
+                    zxLast = stamp
+                }
                 if (logging) {
                     datalogger.log(
                         datalogger.createCV("index", j),
                         datalogger.createCV("z", z),
                         datalogger.createCV("x", x),
                         datalogger.createCV("zxa", xya),
-                        datalogger.createCV("zxhi", zxRsq))
+                        datalogger.createCV("zxhi", yzhi))
                 }
             }
         }
@@ -280,7 +301,7 @@ namespace heading {
             return -2  // "FIELD STRENGTH TOO WEAK"
         }
 
-        // compute eccentricities of longest to shortest radii from their squares
+        // compute eccentricity (the ratio of longest to shortest radii) from their squares
         // (defending against divide-by-zero errors if Spin-circle projected exactly edge-on)
         let xye = Math.sqrt(xyhi / (xylo + 0.0001))
         let yze = Math.sqrt(yzhi / (yzlo + 0.0001))
@@ -288,13 +309,11 @@ namespace heading {
 
         // Select the "roundest" axis-pair to use (the one with lowest eccentricity) and adopt 
         // its normalisation offsets, tilt angle and eccentricity. Call the new axes U & V.
-        // (Note the unused axis as wDim)
         if (xye < yze) { // not YZ
             if (xye < zxe) { // not ZX either: definitely use XY
                 plane = "XY"
                 uDim = Dim.X
                 vDim = Dim.Y
-                wDim = Dim.Z
                 uOff = xOff
                 vOff = yOff
                 theta = xya
@@ -307,14 +326,12 @@ namespace heading {
                 vDim = Dim.Z
                 uOff = yOff
                 vOff = zOff
-                wDim = Dim.X
                 theta = yza
                 scale = yze
             } else {
                 plane = "ZX"
                 uDim = Dim.Z
                 vDim = Dim.X
-                wDim = Dim.Y
                 uOff = zOff
                 vOff = xOff
                 theta = zxa
@@ -327,9 +344,9 @@ namespace heading {
         basic.showString(plane)
         basic.pause(300)
         */
-        // wDim contributed to the two most eccentric Ellipse projections, so is best
-        // for assessing periodicity.
-        
+
+        // periodicity analysis from peaks....
+
         // did we spin enough to give at least a three peak values?
         if (peaks[uDim].length < 3) {
             return -3 // NOT ENOUGH SCAN ROTATION
