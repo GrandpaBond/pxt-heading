@@ -239,7 +239,7 @@ namespace heading {
                 // need to clock new peak?
                 if (stamp - xyLast > MinPeakSeparation)
                 {
-                    peaks[0].push(j)
+                    peaks[0].push(stamp)
                     xyLast = stamp
                 }
                 if (logging) {
@@ -261,7 +261,7 @@ namespace heading {
                 yza = Math.atan2(z, y) // angle (anticlockwise from Y axis)
                 if (stamp - yzLast > MinPeakSeparation) { // need to clock new peak
                     peaks[1].push(stamp)
-                    xyLast = stamp
+                    yzLast = stamp
                 }
                 if (logging) {
                     datalogger.log(
