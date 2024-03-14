@@ -204,9 +204,9 @@ namespace heading {
         let zxPeaks: number[] = []
 
         // initialase timestamps of most recent peaks detected
-        let xyLast = 0
-        let yzLast = 0
-        let zxLast = 0
+        let xyLast = scanTimes[0]
+        let yzLast = scanTimes[0]
+        let zxLast = scanTimes[0]
 
         if (logging) {
             // prepare for analysis
@@ -231,7 +231,7 @@ namespace heading {
             let rsq = xsq + ysq
             // in tracking the radius, we use inertial smoothing to try and avoid 
             // multiple detections due to minor fluctuations in readings
-            xyRsq = rsq - Inertia * (rsq - xyRsq)
+            xyRsq = rsq - Inertia * (rsq - xyRsq) // === Inertia*xyRsq + (1-Inertia)*rsq
             xylo = Math.min(xylo, xyRsq) // shortest so far...
             if (xyRsq > xyhi) {
                 xyhi = xyRsq // longest so far...
@@ -241,14 +241,14 @@ namespace heading {
                 {
                     xyPeaks.push(j)
                     xyLast = stamp
-                }
-                if (logging) {
-                    datalogger.log(
-                        datalogger.createCV("index", j),
-                        datalogger.createCV("x", x),
-                        datalogger.createCV("y", y),
-                        datalogger.createCV("xya", xya),
-                        datalogger.createCV("xyhi", xyhi))
+                    if (logging) {
+                        datalogger.log(
+                            datalogger.createCV("index", j),
+                            datalogger.createCV("x", x),
+                            datalogger.createCV("y", y),
+                            datalogger.createCV("xya", xya),
+                            datalogger.createCV("xyhi", xyhi))
+                    }
                 }
             }
 
@@ -262,14 +262,14 @@ namespace heading {
                 if (stamp - yzLast > MinPeakSeparation) { // need to clock new peak
                     yzPeaks.push(j)
                     yzLast = stamp
-                }
-                if (logging) {
-                    datalogger.log(
-                        datalogger.createCV("index", j),
-                        datalogger.createCV("y", y),
-                        datalogger.createCV("z", z),
-                        datalogger.createCV("yza", xya),
-                        datalogger.createCV("yzhi", yzhi))
+                    if (logging) {
+                        datalogger.log(
+                            datalogger.createCV("index", j),
+                            datalogger.createCV("y", y),
+                            datalogger.createCV("z", z),
+                            datalogger.createCV("yza", yza),
+                            datalogger.createCV("yzhi", yzhi))
+                    }
                 }
             }
 
@@ -283,14 +283,14 @@ namespace heading {
                 if (stamp - zxLast > MinPeakSeparation) { // need to clock new peak
                     zxPeaks.push(j)
                     zxLast = stamp
-                }
-                if (logging) {
-                    datalogger.log(
-                        datalogger.createCV("index", j),
-                        datalogger.createCV("z", z),
-                        datalogger.createCV("x", x),
-                        datalogger.createCV("zxa", xya),
-                        datalogger.createCV("zxhi", zxhi))
+                    if (logging) {
+                        datalogger.log(
+                            datalogger.createCV("index", j),
+                            datalogger.createCV("z", z),
+                            datalogger.createCV("x", x),
+                            datalogger.createCV("zxa", zxa),
+                            datalogger.createCV("zxhi", zxhi))
+                    }
                 }
             }
         }
@@ -494,17 +494,17 @@ namespace heading {
         }
     }
 
-    // periodicity analysis from peaks....
+    // Perform periodicity analysis from two sets of peaks....
     function setPeriod(peaks1: number[], peaks2: number[]): number {
-        // did we spin enough to give at least a three peak values?
-        if ((peaks1.length < 3) && (peaks2.length < 3))  {
+        // did we spin enough to give at least three peak values in both sets?
+        if ((peaks1.length < 3) || (peaks2.length < 3))  {
             return -3 // NOT ENOUGH SCAN ROTATION
         }
-        // Ellipse has two peaks, so period is twice the average time between maximae
+        // An Ellipse has two peaks, so period is twice the average time between maximae
         let first = peaks1[0]
         let last = peaks1.pop()
-        let gaps = peaks1.length //... now that we've popped the last one
-        // splitting time between gaps
+        let gaps = peaks1.length //...having popped the last one
+        // split time between gaps
         let period1 = (scanTimes[last] - scanTimes[first]) / gaps
 
         first = peaks2[0]
@@ -512,17 +512,17 @@ namespace heading {
         gaps = peaks2.length
         let period2 = (scanTimes[last] - scanTimes[first]) / gaps
 
-        period = period1 + period2
+        period = period1 + period2 // effectively averaging the two results
 
-        /******************* for testing purposes *************/
-        turn45 = Math.floor((last - first) / (8 * gaps)) // ~ #samples covering an octant
-        /*******************/
+        /************** global just for testing purposes *************/
+        turn45 = Math.floor((last - first) / (4 * gaps)) // ~ #samples covering an octant
+        /*************************************************************/
 
         return period
     }
 
 
-    // Transform a point on the off-centre projected ellipse back onto a centred circle of headings 
+    // Transform a point on the off-centre projected Ellipse back onto the centred Spin-Circle 
     // and return its angle (in radians) anticlockwise from the horizontal U-axis
     // Uses global projection parameters: {uDim, vDim, uOff, vOff, theta, scale}
     function project(uRaw: number, vRaw: number): number {
@@ -534,7 +534,7 @@ namespace heading {
         let vNew = u * Math.sin(theta) + v * Math.cos(theta)
         // scale up V to match U
         let vScaled = vNew * scale
-        // return projected angle (undoing the rotation we applied)
+        // return projected angle (undoing the rotation we just applied)
         let angle = Math.atan2(vScaled, uNew) - theta
         if (logging) {
 
