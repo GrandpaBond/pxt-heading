@@ -29,14 +29,15 @@ namespace heading {
     let scale = 0 // the scaling to stretch V-axis readings from the ellipse onto a circle
     let toNorth = 0 // the angular bias to be added (so that North = 0)
     let strength = 0 // the average magnetic field-strength observed by the magnetometer
-    let uFlip = 1 // set to -1 if uDim polarity is inverted
-    let vFlip = 1 // set to -1 if vDim polarity is inverted
+    let period = 0 // average rotation time derived from scanData[]
+    // spacing of samples from scanData to test with (~ #samples covering an octant)
+    let turn45 = 0 
+    //let uFlip = 1 // set to -1 if uDim polarity is inverted
+    //let vFlip = 1 // set to -1 if vDim polarity is inverted
     let plane: string = "**" // the projection plane we are using: "XY","YZ" or "ZX"
     let logging = true  // logging mode flag
     let testing = false  // test mode flag
-    let test = 0         // selector for test sample
-    // spacing of samples from scanData to test with (~ #samples covering an octant)
-    let turn45 = 0 
+    let test = 0 // selector for test sample
 
     // EXPORTED USER INTERFACES   
 
@@ -178,6 +179,8 @@ namespace heading {
         let xHalf = (xhi - xlo) / 2
         let yHalf = (yhi - ylo) / 2
         let zHalf = (zhi - zlo) / 2
+
+        // initialise extremes
         let xylo = xHalf + yHalf
         let yzlo = yHalf + zHalf
         let zxlo = zHalf + xHalf
@@ -185,30 +188,25 @@ namespace heading {
         let yzhi = 0
         let zxhi = 0
 
-        let x = 0
-        let y = 0
-        let z = 0
-        // By Pythagoras: radius-squared = sum of squares of coordinates
-        let xsq = 0
-        let ysq = 0
-        let zsq = 0
-        let rsq = 0
         // Record the angle a major radius makes (anti-clockwise from the horizontal)
         let xya = 0
         let yza = 0
         let zxa = 0
-        // smoothed radii
+
+        // initialise smoothed radii-squared
         let xyRsq = 0
         let yzRsq = 0
         let zxRsq = 0
 
-        // peaks is an array of three sub-arrays for recording peak-radius timestamps, added as we discover them
-        //(NOTE: the sub-array lengths will often differ between dimensions)
-        let peaks: number[][] = [[], [], []]
+        // arrays for recording peak-radius sample-indices, added as we discover them
+        let xyPeaks: number[] = []
+        let yzPeaks: number[] = []
+        let zxPeaks: number[] = []
+
+        // initialase timestamps of most recent peaks detected
         let xyLast = 0
         let yzLast = 0
         let zxLast = 0
-        let stamp = 0
 
         if (logging) {
             // prepare for analysis
@@ -217,18 +215,20 @@ namespace heading {
 
         for (let j = 0; j < nSamples; j++) {
             // extract and normalise the next sample readings
-            stamp = scanTimes[j]
-            x = scanData[j][Dim.X] - xOff
-            y = scanData[j][Dim.Y] - yOff
-            z = scanData[j][Dim.Z] - zOff
+            let stamp = scanTimes[j]
+            let x = scanData[j][Dim.X] - xOff
+            let y = scanData[j][Dim.Y] - yOff
+            let z = scanData[j][Dim.Z] - zOff
+            // By Pythagoras: radius-squared = sum of squares of coordinates
+            let xsq = x * x
+            let ysq = y * y
+            let zsq = z * z
 
-            xsq = x * x
-            ysq = y * y
-            zsq = z * z
-            strength += xsq + ysq + zsq // accumulate square of field strengths (a global)
+            // accumulate square of field-strength (a global)
+            strength += xsq + ysq + zsq 
 
             // projection in XY plane...
-            rsq = xsq + ysq
+            let rsq = xsq + ysq
             // in tracking the radius, we use inertial smoothing to try and avoid 
             // multiple detections due to minor fluctuations in readings
             xyRsq = rsq - Inertia * (rsq - xyRsq)
@@ -239,7 +239,7 @@ namespace heading {
                 // need to clock new peak?
                 if (stamp - xyLast > MinPeakSeparation)
                 {
-                    peaks[0].push(stamp)
+                    xyPeaks.push(j)
                     xyLast = stamp
                 }
                 if (logging) {
@@ -260,7 +260,7 @@ namespace heading {
                 yzhi = yzRsq
                 yza = Math.atan2(z, y) // angle (anticlockwise from Y axis)
                 if (stamp - yzLast > MinPeakSeparation) { // need to clock new peak
-                    peaks[1].push(stamp)
+                    yzPeaks.push(j)
                     yzLast = stamp
                 }
                 if (logging) {
@@ -281,7 +281,7 @@ namespace heading {
                 zxhi = zxRsq
                 zxa = Math.atan2(x, z)  // angle (anticlockwise from Z axis)
                 if (stamp - zxLast > MinPeakSeparation) { // need to clock new peak
-                    peaks[2].push(stamp)
+                    zxPeaks.push(j)
                     zxLast = stamp
                 }
                 if (logging) {
@@ -290,7 +290,7 @@ namespace heading {
                         datalogger.createCV("z", z),
                         datalogger.createCV("x", x),
                         datalogger.createCV("zxa", xya),
-                        datalogger.createCV("zxhi", yzhi))
+                        datalogger.createCV("zxhi", zxhi))
                 }
             }
         }
@@ -301,7 +301,7 @@ namespace heading {
             return -2  // "FIELD STRENGTH TOO WEAK"
         }
 
-        // compute eccentricity (the ratio of longest to shortest radii) from their squares
+        // compute eccentricities (the ratio of longest to shortest radii) from their squares
         // (defending against divide-by-zero errors if Spin-circle projected exactly edge-on)
         let xye = Math.sqrt(xyhi / (xylo + 0.0001))
         let yze = Math.sqrt(yzhi / (yzlo + 0.0001))
@@ -318,6 +318,8 @@ namespace heading {
                 vOff = yOff
                 theta = xya
                 scale = xye
+                // the other (more eccentric) Ellipses are more reliable for deriving period
+                period = setPeriod(yzPeaks,zxPeaks)
             }
         } else { // not XY: roundest is either YZ or ZX
             if (yze < zxe) {
@@ -328,6 +330,7 @@ namespace heading {
                 vOff = zOff
                 theta = yza
                 scale = yze
+                period = setPeriod(zxPeaks, xyPeaks)
             } else {
                 plane = "ZX"
                 uDim = Dim.Z
@@ -336,34 +339,19 @@ namespace heading {
                 vOff = xOff
                 theta = zxa
                 scale = zxe
+                period = setPeriod(xyPeaks, yzPeaks)
             }
         }
-        /*
+        /**/
         basic.clearScreen()
         basic.pause(100)
         basic.showString(plane)
         basic.pause(300)
-        */
 
-        // periodicity analysis from peaks....
-
-        // did we spin enough to give at least a three peak values?
-        if (peaks[uDim].length < 3) {
-            return -3 // NOT ENOUGH SCAN ROTATION
-        }
-
-        // period is average time between U-axis maximae
-        let first = peaks[uDim][0]
-        let last = peaks[uDim].pop()
-        let gaps = peaks[uDim].length //... now that we've popped the last one
-        // split time between gaps
-        let period = (scanTimes[last] - scanTimes[first]) / gaps
-
-        /******************* for testing  *************/
-        turn45 = Math.floor((last-first) / (8 * gaps)) // ~ #samples covering an octant
-
-
-
+        // check that period was correctly found...
+        if (period < 0) return period 
+        
+    
         // We have successfully set up the projection parameters. Now we need to relate them to North.
         // Take the average of seven new readings to get a stable fix on the current heading
         let uRaw = 0
@@ -506,7 +494,32 @@ namespace heading {
         }
     }
 
-  
+    // periodicity analysis from peaks....
+    function setPeriod(peaks1: number[], peaks2: number[]): number {
+        // did we spin enough to give at least a three peak values?
+        if ((peaks1.length < 3) && (peaks2.length < 3))  {
+            return -3 // NOT ENOUGH SCAN ROTATION
+        }
+        // Ellipse has two peaks, so period is twice the average time between maximae
+        let first = peaks1[0]
+        let last = peaks1.pop()
+        let gaps = peaks1.length //... now that we've popped the last one
+        // splitting time between gaps
+        let period1 = (scanTimes[last] - scanTimes[first]) / gaps
+
+        first = peaks2[0]
+        last = peaks2.pop()
+        gaps = peaks2.length
+        let period2 = (scanTimes[last] - scanTimes[first]) / gaps
+
+        period = period1 + period2
+
+        /******************* for testing purposes *************/
+        turn45 = Math.floor((last - first) / (8 * gaps)) // ~ #samples covering an octant
+        /*******************/
+
+        return period
+    }
 
 
     // Transform a point on the off-centre projected ellipse back onto a centred circle of headings 
