@@ -166,7 +166,7 @@ namespace heading {
             zhi = Math.max(zhi, scanData[i][Dim.Z])
             xlo = Math.min(xlo, scanData[i][Dim.X])
             ylo = Math.min(ylo, scanData[i][Dim.Y])
-            zlo = Math.min(zlo, scanData[i][Dim.X])
+            zlo = Math.min(zlo, scanData[i][Dim.Z])
         }
 
         // Use the mean of these extremes as normalisation offsets
@@ -202,6 +202,11 @@ namespace heading {
         let yzRsq = 0
         let zxRsq = 0
 
+        // keep track of last value for peak detection
+        let xyOld = 0
+        let yzOld = 0
+        let zxOld = 0
+
         // arrays for recording peak-radius sample-indices, added as we discover them
         let xyPeaks: number[] = []
         let yzPeaks: number[] = []
@@ -232,17 +237,16 @@ namespace heading {
             strength += xsq + ysq + zsq 
 
             // projection in XY plane...
+            xyOld = xyRsq // remember last-but-one
             let rsq = xsq + ysq
             // in tracking the radius, we use inertial smoothing to reduce 
             // multiple detections due to minor fluctuations in readings
-            xyRsq = rsq - Inertia * (rsq - xyRsq) // === xyRsq*Inertia + rsq*(1-Inertia)
-            xylo = Math.min(xylo, xyRsq) // shortest so far...
+            let smooth = rsq - Inertia * (rsq - xyRsq) // === xyRsq*Inertia + rsq*(1-Inertia)
             if (xyRsq > xyhi) {
                 xyhi = xyRsq // longest so far...
                 xya = Math.atan2(y, x) // angle (anticlockwise from X axis)
                 // need to clock new peak?
-                if ((stamp - xyLast) > MinPeakSeparation)
-                {
+                if ((xyOld < xyRsq) && (xyRsq > smooth)) {
                     xyPeaks.push(j)
                     xyLast = stamp
                     if (logging) {
@@ -255,8 +259,11 @@ namespace heading {
                     }
                 }
             }
+            xyRsq = smooth
+            xylo = Math.min(xylo, xyRsq) // shortest so far...
 
             // projection in YZ plane...
+            yzOld = xyRsq
             rsq = ysq + zsq
             yzRsq = rsq - Inertia * (rsq - yzRsq)
             yzlo = Math.min(yzlo, yzRsq)
