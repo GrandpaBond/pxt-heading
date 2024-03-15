@@ -202,7 +202,7 @@ namespace heading {
         let yzRsq = 0
         let zxRsq = 0
 
-        // keep track of last value for peak detection
+        // keep track of previous value for peak detection
         let xyOld = 0
         let yzOld = 0
         let zxOld = 0
@@ -236,8 +236,7 @@ namespace heading {
             // accumulate square of field-strength (a global)
             strength += xsq + ysq + zsq 
 
-            // projection in XY plane...
-            xyOld = xyRsq // remember last-but-one
+            // projection in XY plane... last-but-one
             let rsq = xsq + ysq
             // in tracking the radius, we use inertial smoothing to reduce 
             // multiple detections due to minor fluctuations in readings
@@ -259,6 +258,7 @@ namespace heading {
                     }
                 }
             }
+            xyOld = xyRsq
             xyRsq = smooth
             xylo = Math.min(xylo, xyRsq) // shortest so far...
 
