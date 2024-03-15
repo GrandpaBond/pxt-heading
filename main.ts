@@ -13,7 +13,6 @@ namespace heading {
 
     // GLOBALS
     const MarginalField = 30 // minimum acceptable field-strength for magnetometer readings
-    const MinPeakSeparation = 500 // sanity check to ignore close peaks due to wobbling signal
     // (still permits maximum spin-rate of 120 RPM, or 2 rotations a second!) 
     const Inertia = 0.95 // ratio of old to new radius readings (for inertial smoothing)
     const Window = 200 // minimum ms separation of radius extrema (~ quarter rotation time)
@@ -203,9 +202,9 @@ namespace heading {
         let zxRsq = 0
 
         // keep track of previous value for peak detection
-        let xyOld = 0
-        let yzOld = 0
-        let zxOld = 0
+        let xyRsqWas = 0
+        let yzRsqWas = 0
+        let zxRsqWas = 0
 
         // arrays for recording peak-radius sample-indices, added as we discover them
         let xyPeaks: number[] = []
@@ -224,7 +223,6 @@ namespace heading {
 
         for (let j = 0; j < nSamples; j++) {
             // extract and normalise the next sample readings
-            let stamp = scanTimes[j]
             let x = scanData[j][Dim.X] - xOff
             let y = scanData[j][Dim.Y] - yOff
             let z = scanData[j][Dim.Z] - zOff
@@ -236,76 +234,71 @@ namespace heading {
             // accumulate square of field-strength (a global)
             strength += xsq + ysq + zsq 
 
-            // projection in XY plane... last-but-one
+            // projection in XY plane...
             let rsq = xsq + ysq
-            // in tracking the radius, we use inertial smoothing to reduce 
-            // multiple detections due to minor fluctuations in readings
+            // in tracking the radius, we use inertial smoothing to reduce multiple peak-detections
+            // due to minor fluctuations in readings
             let smooth = rsq - Inertia * (rsq - xyRsq) // === xyRsq*Inertia + rsq*(1-Inertia)
-            if (xyRsq > xyhi) {
-                xyhi = xyRsq // longest so far...
+            xyhi = Math.max(xyhi, smooth) // longest so far...
+            xylo = Math.min(xylo, smooth) // shortest so far...
+            // need to clock new peak?
+            if ((xyRsqWas < xyRsq) && (xyRsq > smooth)) {
+                xyPeaks.push(j) // (technically, previous sample was the peak, but we're near enough)
                 xya = Math.atan2(y, x) // angle (anticlockwise from X axis)
-                // need to clock new peak?
-                if ((xyOld < xyRsq) && (xyRsq > smooth)) {
-                    xyPeaks.push(j)
-                    xyLast = stamp
-                    if (logging) {
-                        datalogger.log(
-                            datalogger.createCV("index", j),
-                            datalogger.createCV("x", x),
-                            datalogger.createCV("y", y),
-                            datalogger.createCV("xya", xya),
-                            datalogger.createCV("xyhi", xyhi))
-                    }
+                if (logging) {
+                    datalogger.log(
+                        datalogger.createCV("index", j),
+                        datalogger.createCV("x", x),
+                        datalogger.createCV("y", y),
+                        datalogger.createCV("xya", xya),
+                        datalogger.createCV("xyhi", xyhi))
                 }
             }
-            xyOld = xyRsq
+            xyRsqWas = xyRsq
             xyRsq = smooth
-            xylo = Math.min(xylo, xyRsq) // shortest so far...
+
 
             // projection in YZ plane...
-            yzOld = xyRsq
             rsq = ysq + zsq
-            yzRsq = rsq - Inertia * (rsq - yzRsq)
-            yzlo = Math.min(yzlo, yzRsq)
-            if (yzRsq > yzhi) {
-                yzhi = yzRsq
-                yza = Math.atan2(z, y) // angle (anticlockwise from Y axis)
-                if ((stamp - yzLast) > MinPeakSeparation) { // need to clock new peak
-                    yzPeaks.push(j)
-                    yzLast = stamp
-                    if (logging) {
-                        datalogger.log(
-                            datalogger.createCV("index", j),
-                            datalogger.createCV("y", y),
-                            datalogger.createCV("z", z),
-                            datalogger.createCV("yza", yza),
-                            datalogger.createCV("yzhi", yzhi))
-                    }
+            smooth = rsq - Inertia * (rsq - yzRsq)
+            yzhi = Math.max(yzhi, smooth)
+            yzlo = Math.min(yzlo, smooth)
+            if ((yzRsqWas < yzRsq) && (yzRsq > smooth)) {
+                yzPeaks.push(j)
+                yza = Math.atan2(z, y)
+                if (logging) {
+                    datalogger.log(
+                        datalogger.createCV("index", j),
+                        datalogger.createCV("y", y),
+                        datalogger.createCV("z", z),
+                        datalogger.createCV("yza", yza),
+                        datalogger.createCV("yzhi", yzhi))
                 }
             }
+            yzRsqWas = yzRsq
+            yzRsq = smooth
 
             // projection in ZX plane...
             rsq = zsq + xsq
-            zxRsq = rsq - Inertia * (rsq - zxRsq)
-            zxlo = Math.min(zxlo, zxRsq)
-            if (zxRsq > zxhi) {
-                zxhi = zxRsq
-                zxa = Math.atan2(x, z)  // angle (anticlockwise from Z axis)
-                if ((stamp - zxLast) > MinPeakSeparation) { // need to clock new peak
-                    zxPeaks.push(j)
-                    zxLast = stamp
-                    if (logging) {
-                        datalogger.log(
-                            datalogger.createCV("index", j),
-                            datalogger.createCV("z", z),
-                            datalogger.createCV("x", x),
-                            datalogger.createCV("zxa", zxa),
-                            datalogger.createCV("zxhi", zxhi))
-                    }
+            smooth = rsq - Inertia * (rsq - zxRsq)
+            zxhi = Math.max(zxhi, smooth)
+            zxlo = Math.min(zxlo, smooth)
+            if ((zxRsqWas < zxRsq) && (zxRsq > smooth)) {
+                zxPeaks.push(j)
+                zxa = Math.atan2(y, x)
+                if (logging) {
+                    datalogger.log(
+                        datalogger.createCV("index", j),
+                        datalogger.createCV("z", z),
+                        datalogger.createCV("x", x),
+                        datalogger.createCV("zxa", zxa),
+                        datalogger.createCV("zxhi", zxhi))
                 }
             }
+            zxRsqWas = zxRsq
+            zxRsq = smooth
         }
-        // get actual radii
+        // get actual extreme radii
         xylo = Math.sqrt(xylo)
         yzlo = Math.sqrt(yzlo)
         zxlo = Math.sqrt(zxlo)
@@ -547,13 +540,13 @@ namespace heading {
         // shift to start the vector at the origin
         let u = uRaw - uOff
         let v = vRaw - vOff
-        // rotate by the major-axis angle theta (check direction!)
+        // rotate by the inverse of the major-axis angle theta
         let uNew = u * Math.cos(theta) - v * Math.sin(theta)
         let vNew = u * Math.sin(theta) + v * Math.cos(theta)
         // scale up V to match U
         let vScaled = vNew * scale
         // return projected angle (undoing the rotation we just applied)
-        let angle = Math.atan2(vScaled, uNew) - theta
+        let angle = Math.atan2(vScaled, uNew) + theta
         if (logging) {
 
             datalogger.setColumnTitles("uRaw", "vRaw", "u", "v", "uNew", "vNew", "vScaled", "angle")
