@@ -11,6 +11,28 @@ namespace heading {
         Z = Dimension.Z
     }
 
+    // CLASSES
+
+    class plane {
+        uDim: number, // horizontal axis
+        vDim: number, // vertical axis
+        uOff: number, // horizontal offset
+        vOff: number, // vertical offset
+        hiRsq: number, // max radius-squared 
+        loRsq: number, // min radius-squared
+        hiRsqWas: number, // previous max
+        loRsqWas: number, // previous min
+        peaks: number[], // array of maxima indices
+        theta: number, // angle from U axis of latest peak
+        scale: number, // latest max/min eccentricity 
+
+        function advance(usq: number,vsq:number) {
+
+        }
+
+
+    }
+
     // GLOBALS
     const MarginalField = 30 // minimum acceptable field-strength for magnetometer readings
     // (still permits maximum spin-rate of 120 RPM, or 2 rotations a second!) 
