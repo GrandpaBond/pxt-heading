@@ -11,6 +11,12 @@ namespace heading {
         Z = Dimension.Z
     }
 
+    enum View { // axis pair
+        XY,
+        YZ,
+        ZX
+    }
+
     // CLASSES
 
     class plane {
@@ -18,6 +24,7 @@ namespace heading {
         vDim: number, // vertical axis
         uOff: number, // horizontal offset
         vOff: number, // vertical offset
+        rSquared: number, // smoothed radius-squared
         hiRsq: number, // max radius-squared 
         loRsq: number, // min radius-squared
         hiRsqWas: number, // previous max
@@ -26,11 +33,23 @@ namespace heading {
         theta: number, // angle from U axis of latest peak
         scale: number, // latest max/min eccentricity 
 
-        function advance(usq: number,vsq:number) {
-
+        constructor(dim0: number, dim1: number, off0: number, off1: number) {
+            this.uDim = dim0
+            this.vDim = dim0
+            this.uOff = off0
+            this.vOff = off1           
         }
 
 
+
+        // initialise 
+        function firstRadius(usq: number,vsq:number) {
+            
+        }
+
+        function nextRadius(usq: number,vsq:number) {
+
+        }
     }
 
     // GLOBALS
