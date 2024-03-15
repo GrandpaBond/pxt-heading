@@ -22,7 +22,7 @@ namespace heading {
     let scanData: number[][]= [] // scanned sequence of [X,Y,Z] magnetometer readings  
     let uDim = -1 // the "horizontal" axis (pointing East) for transformed readings (called U)
     let vDim = -1 // the "vertical" axis (pointing North) for transformed readings (called V)
-    let wDim = -1 // the third, unused, dimension (used to assess rotation-speed)
+    //let wDim = -1 // the third, unused, dimension (used to assess rotation-speed)
     let uOff = 0 // the offset needed to re-centre readings along the U-axis
     let vOff = 0 // the offset needed to re-centre readings along the V-axis
     let theta = 0 // the angle to rotate readings so the projected ellipse aligns with the U & V axes
@@ -175,25 +175,29 @@ namespace heading {
         let zOff = (zhi + zlo) / 2
 
         // Now assess eccentricity by looking for the shortest and longest radii for each Ellipse.
+        let xyhi = 0
+        let yzhi = 0
+        let zxhi = 0
         // (An initial upper limit to radius is quarter of the perimeter of its bounding-box)
         let xHalf = (xhi - xlo) / 2
         let yHalf = (yhi - ylo) / 2
         let zHalf = (zhi - zlo) / 2
-
-        // initialise extremes
         let xylo = xHalf + yHalf
         let yzlo = yHalf + zHalf
         let zxlo = zHalf + xHalf
-        let xyhi = 0
-        let yzhi = 0
-        let zxhi = 0
 
-        // Record the angle a major radius makes (anti-clockwise from the horizontal)
+        // square these upper bounds, which will subsequently shrink to the minimum
+        xylo *= xylo
+        yzlo *= yzlo
+        zxlo *= zxlo
+        
+        // Record the angle each major radius makes (anti-clockwise from the horizontal)
         let xya = 0
         let yza = 0
         let zxa = 0
 
-        // initialise smoothed radii-squared
+        // initialise global field-strength & the smoothed radii-squared
+        strength = 0
         let xyRsq = 0
         let yzRsq = 0
         let zxRsq = 0
@@ -229,15 +233,15 @@ namespace heading {
 
             // projection in XY plane...
             let rsq = xsq + ysq
-            // in tracking the radius, we use inertial smoothing to try and avoid 
+            // in tracking the radius, we use inertial smoothing to reduce 
             // multiple detections due to minor fluctuations in readings
-            xyRsq = rsq - Inertia * (rsq - xyRsq) // === Inertia*xyRsq + (1-Inertia)*rsq
+            xyRsq = rsq - Inertia * (rsq - xyRsq) // === xyRsq*Inertia + rsq*(1-Inertia)
             xylo = Math.min(xylo, xyRsq) // shortest so far...
             if (xyRsq > xyhi) {
                 xyhi = xyRsq // longest so far...
                 xya = Math.atan2(y, x) // angle (anticlockwise from X axis)
                 // need to clock new peak?
-                if (stamp - xyLast > MinPeakSeparation)
+                if ((stamp - xyLast) > MinPeakSeparation)
                 {
                     xyPeaks.push(j)
                     xyLast = stamp
@@ -259,7 +263,7 @@ namespace heading {
             if (yzRsq > yzhi) {
                 yzhi = yzRsq
                 yza = Math.atan2(z, y) // angle (anticlockwise from Y axis)
-                if (stamp - yzLast > MinPeakSeparation) { // need to clock new peak
+                if ((stamp - yzLast) > MinPeakSeparation) { // need to clock new peak
                     yzPeaks.push(j)
                     yzLast = stamp
                     if (logging) {
@@ -277,10 +281,10 @@ namespace heading {
             rsq = zsq + xsq
             zxRsq = rsq - Inertia * (rsq - zxRsq)
             zxlo = Math.min(zxlo, zxRsq)
-            if (rsq > zxhi) {
+            if (zxRsq > zxhi) {
                 zxhi = zxRsq
                 zxa = Math.atan2(x, z)  // angle (anticlockwise from Z axis)
-                if (stamp - zxLast > MinPeakSeparation) { // need to clock new peak
+                if ((stamp - zxLast) > MinPeakSeparation) { // need to clock new peak
                     zxPeaks.push(j)
                     zxLast = stamp
                     if (logging) {
@@ -294,6 +298,13 @@ namespace heading {
                 }
             }
         }
+        // get actual radii
+        xylo = Math.sqrt(xylo)
+        yzlo = Math.sqrt(yzlo)
+        zxlo = Math.sqrt(zxlo)
+        xyhi = Math.sqrt(xyhi)
+        yzhi = Math.sqrt(yzhi)
+        zxhi = Math.sqrt(zxhi)
 
         // check average field-strength
         strength = Math.sqrt(strength / nSamples)
@@ -302,10 +313,10 @@ namespace heading {
         }
 
         // compute eccentricities (the ratio of longest to shortest radii) from their squares
-        // (defending against divide-by-zero errors if Spin-circle projected exactly edge-on)
-        let xye = Math.sqrt(xyhi / (xylo + 0.0001))
-        let yze = Math.sqrt(yzhi / (yzlo + 0.0001))
-        let zxe = Math.sqrt(zxhi / (zxlo + 0.0001))
+        // (defending against divide-by-zero errors if Spin-circle had projected exactly edge-on)
+        let xye = xyhi / (xylo + 1)
+        let yze = yzhi / (yzlo + 1)
+        let zxe = zxhi / (zxlo + 1)
 
         // Select the "roundest" axis-pair to use (the one with lowest eccentricity) and adopt 
         // its normalisation offsets, tilt angle and eccentricity. Call the new axes U & V.
