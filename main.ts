@@ -103,6 +103,37 @@ namespace heading {
             this.turn45 = Math.floor((last - first) / (4 * gaps)) // ~ #samples covering an octant
             /******************************************************/
         }
+
+
+        // Transform a point on the off-centre projected Ellipse back onto the centred Spin-Circle 
+        // and return its angle (in radians) anticlockwise from the horizontal U-axis
+        // Uses global projection parameters: {uDim, vDim, uOff, vOff, theta, scale}
+        project(uRaw: number, vRaw: number): number {
+            // shift to start the vector at the origin
+            let u = uRaw - uOff
+            let v = vRaw - vOff
+            // rotate by the inverse of the major-axis angle theta
+            let uNew = u * this.cosTheta - v * this.sinTheta
+            let vNew = u * this.sinTheta + v * this.cosTheta
+            // scale up V to match U
+            let vScaled = vNew * this.scale
+            // return projected angle (undoing the rotation we just applied)
+            let angle = Math.atan2(vScaled, uNew) + theta
+            if (logging) {
+
+                datalogger.setColumnTitles("uRaw", "vRaw", "u", "v", "uNew", "vNew", "vScaled", "angle")
+                datalogger.log(datalogger.createCV("uRaw", uRaw),
+                    datalogger.createCV("vRaw", vRaw),
+                    datalogger.createCV("u", u),
+                    datalogger.createCV("v", v),
+                    datalogger.createCV("uNew", uNew),
+                    datalogger.createCV("vNew", vNew),
+                    datalogger.createCV("vScaled", vScaled),
+                    datalogger.createCV("angle", angle))
+            }
+
+            return angle
+        }
         
     }
 
