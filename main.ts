@@ -35,7 +35,7 @@ namespace heading {
         cosTheta: number;
         sinTheta: number;
         scale: number; // stretch in V needed to make ellipse circular 
-        period: number; // this view's assessment of the rotation time
+        semiPeriod: number; // this view's assessment of half of the rotation time
         turn45: number; // this view's assessment of samples per octant (for testing)
 
         constructor(plane: string, dim0: number, dim1: number, off0: number, off1: number) {
@@ -98,7 +98,7 @@ namespace heading {
             let first = this.peaks[0]
             let gaps = this.peaks.length //...having popped the [last] one
             // split time between gaps
-            this.period = 2* (scanTimes[last] - scanTimes[first]) / gaps
+            this.semiPeriod = (scanTimes[last] - scanTimes[first]) / gaps
             /************** just for testing purposes *************/
             this.turn45 = Math.floor((last - first) / (4 * gaps)) // ~ #samples covering an octant
             /******************************************************/
@@ -287,8 +287,6 @@ namespace heading {
         views[View.YZ].firstRadius(y0 * y0, z0 * z0)
         views[View.ZX].firstRadius(z0 * z0, x0 * x0)
 
-
-
         if (logging) {
             // prepare for logging peaks
             datalogger.setColumnTitles("view", "index", "loRsq", "hiRsq")
@@ -302,15 +300,17 @@ namespace heading {
             views[View.YZ].nextRadius(i, yRaw, zRaw) // projection in YZ plane
             views[View.ZX].nextRadius(i, zRaw, xRaw) // projection in ZX plane
 
+            // square of overall 3-D field strength is sum of squares in each view
             strength += views[View.XY].hiRsq
             strength += views[View.YZ].hiRsq
             strength += views[View.ZX].hiRsq
         }
+        // process the detected Ellipse axes
         views[View.XY].analyse()
         views[View.YZ].analyse()
         views[View.ZX].analyse()
 
-        // check average field-strength
+        // check average overall field-strength
         strength = Math.sqrt(strength / nSamples)
         if (strength < MarginalField) {
             return -2  // "FIELD STRENGTH TOO WEAK"
@@ -318,9 +318,7 @@ namespace heading {
 
         // compute eccentricities (the ratio of longest to shortest radii) from their squares
         // (defending against divide-by-zero errors if Spin-circle had projected exactly edge-on)
-        let xye = xyhi / (xylo + 1)
-        let yze = yzhi / (yzlo + 1)
-        let zxe = zxhi / (zxlo + 1)
+
         if (logging) {
             // prepare for analysis
             datalogger.setColumnTitles("xylo", "yzlo", "zxlo", "xyhi", "yzhi", "zxhi", "xye", "yze", "zxe")
@@ -336,39 +334,22 @@ namespace heading {
                 datalogger.createCV("zxe", zxe))
         }
 
-        // Select the "roundest" axis-pair to use (the one with lowest eccentricity) and adopt 
-        // its normalisation offsets, tilt angle and eccentricity. Call the new axes U & V.
-        if (xye < yze) { // not YZ
-            if (xye < zxe) { // not ZX either: definitely use XY
-                plane = "XY"
-                uDim = Dim.X
-                vDim = Dim.Y
-                uOff = xOff
-                vOff = yOff
-                theta = xya
-                scale = xye
-                // the other (more eccentric) Ellipses are more reliable for deriving period
-                period = setPeriod(yzPeaks,zxPeaks)
+        // Choose the "roundest" Ellipse(the one with lowest eccentricity)
+        let view = -1
+        if (views[View.XY].scale < views[View.YZ].scale) { // not YZ
+            if (views[View.XY].scale < views[View.ZX].scale) { // not ZX either: definitely use XY
+                view = View.XY
+                // the other (more eccentric) Ellipses will be more reliable for deriving period
+                period = views[View.YZ].semiPeriod + views[View.ZX].semiPeriod
             }
         } else { // not XY: roundest is either YZ or ZX
-            if (yze < zxe) {
-                plane = "YZ"
-                uDim = Dim.Y
-                vDim = Dim.Z
-                uOff = yOff
-                vOff = zOff
-                theta = yza
-                scale = yze
-                period = setPeriod(zxPeaks, xyPeaks)
+            if (views[View.YZ].scale < views[View.ZX].scale) {
+                view = View.YZ
+                period = views[View.XY].semiPeriod + views[View.ZX].semiPeriod
             } else {
-                plane = "ZX"
-                uDim = Dim.Z
-                vDim = Dim.X
-                uOff = zOff
-                vOff = xOff
-                theta = zxa
-                scale = zxe
-                period = setPeriod(xyPeaks, yzPeaks)
+                view = View.ZX
+                period = views[View.XY].semiPeriod + views[View.YZ].semiPeriod
+
             }
         }
         /**/
