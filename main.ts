@@ -118,7 +118,7 @@ namespace heading {
             // scale up V to match U
             let vScaled = vNew * this.scale
             // return projected angle (undoing the rotation we just applied)
-            let angle = Math.atan2(vScaled, uNew) + theta
+            let angle = Math.atan2(vScaled, uNew) + this.theta
             if (logging) {
 
                 datalogger.setColumnTitles("uRaw", "vRaw", "u", "v", "uNew", "vNew", "vScaled", "angle")
