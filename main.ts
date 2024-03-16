@@ -19,37 +19,105 @@ namespace heading {
 
     // CLASSES
 
-    class plane {
-        uDim: number, // horizontal axis
-        vDim: number, // vertical axis
-        uOff: number, // horizontal offset
-        vOff: number, // vertical offset
-        rSquared: number, // smoothed radius-squared
-        hiRsq: number, // max radius-squared 
-        loRsq: number, // min radius-squared
-        hiRsqWas: number, // previous max
-        loRsqWas: number, // previous min
-        peaks: number[], // array of maxima indices
-        theta: number, // angle from U axis of latest peak
-        scale: number, // latest max/min eccentricity 
+    class Ellipse {
+        plane: string; // name (for debug)
+        uDim: number; // horizontal axis
+        vDim: number; // vertical axis
+        uOff: number; // horizontal offset
+        vOff: number; // vertical offset
+        rSq: number; // smoothed radius-squared
+        rSqWas: number; // previous smoothed radius-squared
+        hiRsq: number; // max radius-squared 
+        loRsq: number; // min radius-squared
+        peaks: number[]; // array of maxima indices
+        // rotation params for aligning major axis horizontally...
+        theta: number; // angle (in radians) of major axis clockwise from U-axis 
+        cosTheta: number;
+        sinTheta: number;
+        scale: number; // stretch in V needed to make ellipse circular 
+        period: number; // this view's assessment of the rotation time
+        turn45: number; // this view's assessment of samples per octant (for testing)
 
-        constructor(dim0: number, dim1: number, off0: number, off1: number) {
+        constructor(plane: string, dim0: number, dim1: number, off0: number, off1: number) {
             this.uDim = dim0
-            this.vDim = dim0
+            this.vDim = dim1
             this.uOff = off0
             this.vOff = off1           
         }
 
+        radius(uRaw: number, vRaw: number):number {
+            let u = uRaw - this.uOff
+            let v = vRaw - this.vOff
+            return (u * u) + (v * v)
+        }
 
 
-        // initialise 
-        function firstRadius(usq: number,vsq:number) {
+        // initialise smoothing history
+        firstRadius(uRaw: number, vRaw:number) {
+            this.rSq = this.radius(uRaw,vRaw)
+            this.rSqWas = this.rSq
+            this.hiRsq = this.rSq
+            this.loRsq = this.rSq
+        }
+
+        nextRadius(index: number, uRaw: number, vRaw: number) {
+            let rSq = this.radius(uRaw, vRaw)
+            // in tracking the radius, we use inertial smoothing to reduce multiple peak-detections
+            // due to minor fluctuations in readings
+            let smooth = rSq - Inertia * (rSq - this.rSq) // === rSquared*Inertia + rsq*(1-Inertia)
+            this.hiRsq = Math.max(this.hiRsq, smooth) // longest so far...
+            this.loRsq = Math.min(this.loRsq, smooth) // shortest so far...
+            // need to clock new peak if slope changes from rising to falling
+            if ((this.rSqWas < this.rSq) && (this.rSq > smooth)) {
+                this.peaks.push(index) // (technically, previous sample was the peak, but we're near enough)
+                //this.tilt = Math.atan2(u, v) // remember latest angle (anticlockwise from X axis)
+                if (logging) {
+                    datalogger.log(
+                        datalogger.createCV("view", this.plane),
+                        datalogger.createCV("index", index),
+                        datalogger.createCV("loRsq", this.loRsq),
+                        datalogger.createCV("hiRsq", this.hiRsq))
+                }
+            }
+            this.rSqWas = this.rSq
+            this.rSq = smooth
+        }
+
+        // analyse peaks to set transform rotation and scale, and measure period
+        analyse() {
+            let hiR = Math.sqrt(this.hiRsq)
+            let loR = Math.sqrt(this.loRsq)
+            this.scale = hiR / loR // = the eccentricity of this view's Ellipse
+            let peak = this.peaks.shift() // index of latest hiRsq sample
+            let u = scanData[peak][this.uDim] - this.uOff
+            let v = scanData[peak][this.vDim] - this.vOff
+            this.theta = Math.atan2(u, v)
+            this.cosTheta = u / hiR
+            this.sinTheta = v / hiR
             
-        }
 
-        function nextRadius(usq: number,vsq:number) {
+            // An Ellipse has two peaks, so period is twice the average time between maximae
+
+            let last = peaks1.pop()
+            let gaps = peaks1.length //...having popped the last one
+            // split time between gaps
+            let period1 = (scanTimes[last] - scanTimes[first]) / gaps
+
+            first = peaks2[0]
+            last = peaks2.pop()
+            gaps = peaks2.length
+            let period2 = (scanTimes[last] - scanTimes[first]) / gaps
+
+            period = period1 + period2 // effectively averaging the two results
+
+            /************** global just for testing purposes *************/
+            turn45 = Math.floor((last - first) / (4 * gaps)) // ~ #samples covering an octant
+            /*************************************************************/
+
+
 
         }
+        
     }
 
     // GLOBALS
@@ -59,7 +127,8 @@ namespace heading {
     const Window = 200 // minimum ms separation of radius extrema (~ quarter rotation time)
 
     let scanTimes: number[] = [] // sequence of time-stamps for scanned readings 
-    let scanData: number[][]= [] // scanned sequence of [X,Y,Z] magnetometer readings  
+    let scanData: number[][]= [] // scanned sequence of [X,Y,Z] magnetometer readings
+    let views: Ellipse[] = [] // the three possible views of the Spin-Circle
     let uDim = -1 // the "horizontal" axis (pointing East) for transformed readings (called U)
     let vDim = -1 // the "vertical" axis (pointing North) for transformed readings (called V)
     //let wDim = -1 // the third, unused, dimension (used to assess rotation-speed)
@@ -215,130 +284,41 @@ namespace heading {
         let zOff = (zhi + zlo) / 2
 
         // Now assess eccentricity by looking for the shortest and longest radii for each Ellipse.
-        let xyhi = 0
-        let yzhi = 0
-        let zxhi = 0
-        // (An initial upper limit to radius is quarter of the perimeter of its bounding-box)
-        let xHalf = (xhi - xlo) / 2
-        let yHalf = (yhi - ylo) / 2
-        let zHalf = (zhi - zlo) / 2
-        let xylo = xHalf + yHalf
-        let yzlo = yHalf + zHalf
-        let zxlo = zHalf + xHalf
+        views.push(new Ellipse("XY", Dim.X, Dim.Y, xOff, yOff))
+        views.push(new Ellipse("YZ", Dim.Y, Dim.Z, yOff, zOff))
+        views.push(new Ellipse("ZX", Dim.Z, Dim.X, zOff, xOff))
 
-        // square these upper bounds, which will subsequently shrink to the minimum
-        xylo *= xylo
-        yzlo *= yzlo
-        zxlo *= zxlo
-        
-        // Record the angle each major radius makes (anti-clockwise from the horizontal)
-        let xya = 0
-        let yza = 0
-        let zxa = 0
 
-        // initialise global field-strength & the smoothed radii-squared
+        // initialise global field-strength accumulator squared
         strength = 0
-        let xyRsq = 0
-        let yzRsq = 0
-        let zxRsq = 0
+        
+        // initialise the smoothed radii and their limits to their first (unsmoothed) values
+        let x0 = scanData[0][Dim.X] - xOff
+        let y0 = scanData[0][Dim.Y] - yOff
+        let z0 = scanData[0][Dim.Z] - zOff
 
-        // keep track of previous value for peak detection
-        let xyRsqWas = 0
-        let yzRsqWas = 0
-        let zxRsqWas = 0
+        views[View.XY].firstRadius(x0 * x0, y0 * y0)
+        views[View.YZ].firstRadius(y0 * y0, z0 * z0)
+        views[View.ZX].firstRadius(z0 * z0, x0 * x0)
 
-        // arrays for recording peak-radius sample-indices, added as we discover them
-        let xyPeaks: number[] = []
-        let yzPeaks: number[] = []
-        let zxPeaks: number[] = []
 
-        // initialase timestamps of most recent peaks detected
-        let xyLast = scanTimes[0]
-        let yzLast = scanTimes[0]
-        let zxLast = scanTimes[0]
 
         if (logging) {
-            // prepare for analysis
-            datalogger.setColumnTitles("index", "x", "y", "z", "xyhi", "yzhi", "zxhi"," xya", "yza","zxa")
+            // prepare for logging peaks
+            datalogger.setColumnTitles("view", "index", "loRsq", "hiRsq")
         }
 
-        for (let j = 0; j < nSamples; j++) {
-            // extract and normalise the next sample readings
-            let x = scanData[j][Dim.X] - xOff
-            let y = scanData[j][Dim.Y] - yOff
-            let z = scanData[j][Dim.Z] - zOff
-            // By Pythagoras: radius-squared = sum of squares of coordinates
-            let xsq = x * x
-            let ysq = y * y
-            let zsq = z * z
+        for (let i = 1; i < nSamples; i++) {
+            let xRaw = scanData[j][Dim.X]
+            let yRaw = scanData[j][Dim.Y]
+            let zRaw = scanData[j][Dim.Z]
+            views[View.XY].nextRadius(i, xRaw, yRaw) // projection in XY plane
+            views[View.YZ].nextRadius(i, yRaw, zRaw) // projection in YZ plane
+            views[View.ZX].nextRadius(i, zRaw, xRaw) // projection in ZX plane
 
-            // accumulate square of field-strength (a global)
-            strength += xsq + ysq + zsq 
-
-            // projection in XY plane...
-            let rsq = xsq + ysq
-            // in tracking the radius, we use inertial smoothing to reduce multiple peak-detections
-            // due to minor fluctuations in readings
-            let smooth = rsq - Inertia * (rsq - xyRsq) // === xyRsq*Inertia + rsq*(1-Inertia)
-            xyhi = Math.max(xyhi, smooth) // longest so far...
-            xylo = Math.min(xylo, smooth) // shortest so far...
-            // need to clock new peak?
-            if ((xyRsqWas < xyRsq) && (xyRsq > smooth)) {
-                xyPeaks.push(j) // (technically, previous sample was the peak, but we're near enough)
-                xya = Math.atan2(y, x) // angle (anticlockwise from X axis)
-                if (logging) {
-                    datalogger.log(
-                        datalogger.createCV("index", j),
-                        datalogger.createCV("x", x),
-                        datalogger.createCV("y", y),
-                        datalogger.createCV("xya", xya),
-                        datalogger.createCV("xyhi", xyhi))
-                }
-            }
-            xyRsqWas = xyRsq
-            xyRsq = smooth
-
-
-            // projection in YZ plane...
-            rsq = ysq + zsq
-            smooth = rsq - Inertia * (rsq - yzRsq)
-            yzhi = Math.max(yzhi, smooth)
-            yzlo = Math.min(yzlo, smooth)
-            if ((yzRsqWas < yzRsq) && (yzRsq > smooth)) {
-                yzPeaks.push(j)
-                yza = Math.atan2(z, y)
-                if (logging) {
-                    datalogger.log(
-                        datalogger.createCV("index", j),
-                        datalogger.createCV("y", y),
-                        datalogger.createCV("z", z),
-                        datalogger.createCV("yza", yza),
-                        datalogger.createCV("yzhi", yzhi))
-                }
-            }
-            yzRsqWas = yzRsq
-            yzRsq = smooth
-
-            // projection in ZX plane...
-            rsq = zsq + xsq
-            smooth = rsq - Inertia * (rsq - zxRsq)
-            zxhi = Math.max(zxhi, smooth)
-            zxlo = Math.min(zxlo, smooth)
-            if ((zxRsqWas < zxRsq) && (zxRsq > smooth)) {
-                zxPeaks.push(j)
-                zxa = Math.atan2(y, x)
-                if (logging) {
-                    datalogger.log(
-                        datalogger.createCV("index", j),
-                        datalogger.createCV("z", z),
-                        datalogger.createCV("x", x),
-                        datalogger.createCV("zxa", zxa),
-                        datalogger.createCV("zxhi", zxhi))
-                }
-            }
-            zxRsqWas = zxRsq
-            zxRsq = smooth
         }
+        views[View.XY].findAxis()
+
         // get actual extreme radii
         xylo = Math.sqrt(xylo)
         yzlo = Math.sqrt(yzlo)
@@ -358,6 +338,20 @@ namespace heading {
         let xye = xyhi / (xylo + 1)
         let yze = yzhi / (yzlo + 1)
         let zxe = zxhi / (zxlo + 1)
+        if (logging) {
+            // prepare for analysis
+            datalogger.setColumnTitles("xylo", "yzlo", "zxlo", "xyhi", "yzhi", "zxhi", "xye", "yze", "zxe")
+            datalogger.log(
+                datalogger.createCV("xylo", xylo),
+                datalogger.createCV("yzlo", yzlo),
+                datalogger.createCV("zxlo", zxlo),
+                datalogger.createCV("xyhi", xyhi),
+                datalogger.createCV("yzhi", yzhi),
+                datalogger.createCV("zxhi", zxhi),
+                datalogger.createCV("xye", xye),
+                datalogger.createCV("yze", yze),
+                datalogger.createCV("zxe", zxe))
+        }
 
         // Select the "roundest" axis-pair to use (the one with lowest eccentricity) and adopt 
         // its normalisation offsets, tilt angle and eccentricity. Call the new axes U & V.
