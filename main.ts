@@ -88,34 +88,20 @@ namespace heading {
             let hiR = Math.sqrt(this.hiRsq)
             let loR = Math.sqrt(this.loRsq)
             this.scale = hiR / loR // = the eccentricity of this view's Ellipse
-            let peak = this.peaks.shift() // index of latest hiRsq sample
-            let u = scanData[peak][this.uDim] - this.uOff
-            let v = scanData[peak][this.vDim] - this.vOff
+            let last = this.peaks.pop() // index of latest hiRsq sample
+            let u = scanData[last][this.uDim] - this.uOff
+            let v = scanData[last][this.vDim] - this.vOff
             this.theta = Math.atan2(u, v)
             this.cosTheta = u / hiR
             this.sinTheta = v / hiR
-            
-
             // An Ellipse has two peaks, so period is twice the average time between maximae
-
-            let last = peaks1.pop()
-            let gaps = peaks1.length //...having popped the last one
+            let first = this.peaks[0]
+            let gaps = this.peaks.length //...having popped the [last] one
             // split time between gaps
-            let period1 = (scanTimes[last] - scanTimes[first]) / gaps
-
-            first = peaks2[0]
-            last = peaks2.pop()
-            gaps = peaks2.length
-            let period2 = (scanTimes[last] - scanTimes[first]) / gaps
-
-            period = period1 + period2 // effectively averaging the two results
-
-            /************** global just for testing purposes *************/
-            turn45 = Math.floor((last - first) / (4 * gaps)) // ~ #samples covering an octant
-            /*************************************************************/
-
-
-
+            this.period = 2* (scanTimes[last] - scanTimes[first]) / gaps
+            /************** just for testing purposes *************/
+            this.turn45 = Math.floor((last - first) / (4 * gaps)) // ~ #samples covering an octant
+            /******************************************************/
         }
         
     }
@@ -316,16 +302,13 @@ namespace heading {
             views[View.YZ].nextRadius(i, yRaw, zRaw) // projection in YZ plane
             views[View.ZX].nextRadius(i, zRaw, xRaw) // projection in ZX plane
 
+            strength += views[View.XY].hiRsq
+            strength += views[View.YZ].hiRsq
+            strength += views[View.ZX].hiRsq
         }
-        views[View.XY].findAxis()
-
-        // get actual extreme radii
-        xylo = Math.sqrt(xylo)
-        yzlo = Math.sqrt(yzlo)
-        zxlo = Math.sqrt(zxlo)
-        xyhi = Math.sqrt(xyhi)
-        yzhi = Math.sqrt(yzhi)
-        zxhi = Math.sqrt(zxhi)
+        views[View.XY].analyse()
+        views[View.YZ].analyse()
+        views[View.ZX].analyse()
 
         // check average field-strength
         strength = Math.sqrt(strength / nSamples)
