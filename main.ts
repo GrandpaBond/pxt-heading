@@ -11,7 +11,7 @@ namespace heading {
         Z = Dimension.Z
     }
 
-    enum View { // axis pair
+    enum View { // axis pair forming a projection plane
         XY,
         YZ,
         ZX
@@ -25,16 +25,16 @@ namespace heading {
         vDim: number; // vertical axis
         uOff: number; // horizontal offset
         vOff: number; // vertical offset
-        rSq: number; // smoothed radius-squared
+        rSq: number;  // smoothed radius-squared
         rSqWas: number; // previous smoothed radius-squared
         hiRsq: number; // max radius-squared 
         loRsq: number; // min radius-squared
-        peaks: number[]; // array of maxima indices
-        // rotation params for aligning major axis horizontally...
-        theta: number; // angle (in radians) of major axis clockwise from U-axis 
+        peaks: number[]; // array of indices of maxima
+        // rotation params for aligning Ellipse major axis horizontally:
+        theta: number; // angle (in radians) anticlockwise from U-axis to major axis 
         cosTheta: number;
         sinTheta: number;
-        scale: number; // stretch in V needed to make ellipse circular 
+        scale: number; // stretch in V needed to make Ellipse circular again 
         semiPeriod: number; // this view's assessment of half of the rotation time
         turn45: number; // this view's assessment of samples per octant (for testing)
 
@@ -47,7 +47,8 @@ namespace heading {
             this.peaks = []       
         }
 
-        radius(uRaw: number, vRaw: number):number {
+        // "The square on the hypotenuse..."
+        pythagoras(uRaw: number, vRaw: number):number {
             let u = uRaw - this.uOff
             let v = vRaw - this.vOff
             let r = (u * u) + (v * v)
@@ -57,7 +58,7 @@ namespace heading {
 
         // initialise smoothing history
         firstRadiusSq(uRaw: number, vRaw:number) {
-            this.rSq = this.radius(uRaw,vRaw)
+            this.rSq = this.pythagoras(uRaw,vRaw)
             this.rSqWas = this.rSq
             this.hiRsq = this.rSq
             this.loRsq = this.rSq
@@ -67,13 +68,13 @@ namespace heading {
             // in tracking the radius, we use inertial smoothing to reduce multiple peak-detections
             // due to minor fluctuations in readings
             //let smooth = this.rSq - Inertia * (this.radius(uRaw, vRaw) - this.rSq)
-            let smooth = (this.rSq * Inertia) + (this.radius(uRaw, vRaw) * (1 - Inertia))
+            let smooth = (this.rSq * Inertia) + (this.pythagoras(uRaw, vRaw) * (1 - Inertia))
             this.hiRsq = Math.max(this.hiRsq, smooth) // longest so far...
             this.loRsq = Math.min(this.loRsq, smooth) // shortest so far...
             // need to clock new peak if slope changes from rising to falling
             if ((this.rSqWas < this.rSq) && (this.rSq > smooth)) {
                 this.peaks.push(index) // (technically, previous sample was the peak, but we're near enough)
-                //this.tilt = Math.atan2(u, v) // remember latest angle (anticlockwise from X axis)
+                //this.tilt = Math.atan2(u, v) // LATER... remember latest angle (anticlockwise from X axis)
                 if (logging) {
                     datalogger.log(
                         datalogger.createCV("view", this.plane),
@@ -91,16 +92,18 @@ namespace heading {
             let hiR = Math.sqrt(this.hiRsq)
             let loR = Math.sqrt(this.loRsq)
             this.scale = hiR / loR // = the eccentricity of this view's Ellipse
+            // find rotation angle of latst peak
             let last = this.peaks.pop() // index of latest hiRsq sample
             let u = scanData[last][this.uDim] - this.uOff
             let v = scanData[last][this.vDim] - this.vOff
             this.theta = Math.atan2(u, v)
+            // might as well remember these...
             this.cosTheta = u / hiR
             this.sinTheta = v / hiR
-            // An Ellipse has two peaks, so period is twice the average time between maximae
+            // Ellipse's major-axis peaks are 180 degrees apart...
             let first = this.peaks[0]
-            let gaps = this.peaks.length //...having popped the [last] one
-            // split time between gaps
+            let gaps = this.peaks.length //(having popped the [last] one)
+            // ...so average time between peaks is just half a rotation
             this.semiPeriod = (scanTimes[last] - scanTimes[first]) / gaps
             /************** just for testing purposes *************/
             this.turn45 = Math.floor((last - first) / (4 * gaps)) // ~ #samples covering an octant
@@ -110,12 +113,11 @@ namespace heading {
 
         // Transform a point on the off-centre projected Ellipse back onto the centred Spin-Circle 
         // and return its angle (in radians) anticlockwise from the horizontal U-axis
-        // Uses global projection parameters: {uDim, vDim, uOff, vOff, theta, scale}
         project(uRaw: number, vRaw: number): number {
-            // shift to start the vector at the origin
+            // shift the point to give a vector from the origin
             let u = uRaw - this.uOff
             let v = vRaw - this.vOff
-            // rotate by the inverse of the major-axis angle theta
+            // rotate clockwise, using   the INVERSE of the major-axis angle, theta
             let uNew = u * this.cosTheta - v * this.sinTheta
             let vNew = u * this.sinTheta + v * this.cosTheta
             // scale up V to match U
@@ -498,15 +500,14 @@ namespace heading {
             }
         }
 
-        // project reading from Ellipse to Spin-Circle,
+        // project reading from Ellipse to Spin-Circle, as radians anticlockwise from U-axis
         let onCircle = views[bestView].project(uRaw, vRaw)
 
-        // relate it to North and convert to degrees
+        // subtract "toNorth" offset and convert to degrees anticlockwise from North
         let angle = 57.29578 * (onCircle - toNorth)
-        // angle currently runs anticlockwise from U-axis: subtract it from 90 degrees 
-        // to reflect through the diagonal, so making it run clockwise from the V-axis
-        angle = 90 - angle
-        // roll any negative values into the positive range [0...359]
+        // reverse it to measure clockwise from North
+        angle = 360 - angle
+        // finally, roll any negative values into the positive range [0...359]
         angle = (angle + 360) % 360
 
         return angle
@@ -551,63 +552,4 @@ namespace heading {
             scanData.push(xyz)
         }
     }
-
-    /* Perform periodicity analysis from two sets of peaks....
-    function setPeriod(peaks1: number[], peaks2: number[]): number {
-        // did we spin enough to give at least three peak values in both sets?
-        if ((peaks1.length < 3) || (peaks2.length < 3))  {
-            return -3 // NOT ENOUGH SCAN ROTATION
-        }
-        // An Ellipse has two peaks, so period is twice the average time between maximae
-        let first = peaks1[0]
-        let last = peaks1.pop()
-        let gaps = peaks1.length //...having popped the last one
-        // split time between gaps
-        let period1 = (scanTimes[last] - scanTimes[first]) / gaps
-
-        first = peaks2[0]
-        last = peaks2.pop()
-        gaps = peaks2.length
-        let period2 = (scanTimes[last] - scanTimes[first]) / gaps
-
-        period = period1 + period2 // effectively averaging the two results
-
-        /************** global just for testing purposes *************
-        turn45 = Math.floor((last - first) / (4 * gaps)) // ~ #samples covering an octant
-        /*************************************************************
-
-        return period
-    }
-    */
-
-    /* Transform a point on the off-centre projected Ellipse back onto the centred Spin-Circle 
-    // and return its angle (in radians) anticlockwise from the horizontal U-axis
-    // Uses global projection parameters: {uDim, vDim, uOff, vOff, theta, scale}
-    function project(uRaw: number, vRaw: number): number {
-        // shift to start the vector at the origin
-        let u = uRaw - uOff
-        let v = vRaw - vOff
-        // rotate by the inverse of the major-axis angle theta
-        let uNew = u * Math.cos(theta) - v * Math.sin(theta)
-        let vNew = u * Math.sin(theta) + v * Math.cos(theta)
-        // scale up V to match U
-        let vScaled = vNew * scale
-        // return projected angle (undoing the rotation we just applied)
-        let angle = Math.atan2(vScaled, uNew) + theta
-        if (logging) {
-
-            datalogger.setColumnTitles("uRaw", "vRaw", "u", "v", "uNew", "vNew", "vScaled", "angle")
-            datalogger.log(datalogger.createCV("uRaw", uRaw),
-                datalogger.createCV("vRaw", vRaw),
-                datalogger.createCV("u", u),
-                datalogger.createCV("v", v),
-                datalogger.createCV("uNew", uNew),
-                datalogger.createCV("vNew", vNew),
-                datalogger.createCV("vScaled", vScaled),
-                datalogger.createCV("angle", angle) )
-        }
-        
-        return angle
-    } 
-    */
 }
