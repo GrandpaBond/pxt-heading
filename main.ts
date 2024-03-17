@@ -48,7 +48,8 @@ namespace heading {
         radius(uRaw: number, vRaw: number):number {
             let u = uRaw - this.uOff
             let v = vRaw - this.vOff
-            return (u * u) + (v * v)
+            let r = (u * u) + (v * v)
+            return r
         }
 
 
@@ -61,10 +62,11 @@ namespace heading {
         }
 
         nextRadius(index: number, uRaw: number, vRaw: number) {
-            let rSq = this.radius(uRaw, vRaw)
+            let rSqNew = this.radius(uRaw, vRaw)
             // in tracking the radius, we use inertial smoothing to reduce multiple peak-detections
             // due to minor fluctuations in readings
-            let smooth = rSq - Inertia * (rSq - this.rSq) // === rSquared*Inertia + rsq*(1-Inertia)
+            //let smooth = this.rSq - Inertia * (this.radius(uRaw, vRaw) - this.rSq)
+            let smooth = (this.rSq * Inertia) + (this.radius(uRaw, vRaw) * (1 - Inertia))
             this.hiRsq = Math.max(this.hiRsq, smooth) // longest so far...
             this.loRsq = Math.min(this.loRsq, smooth) // shortest so far...
             // need to clock new peak if slope changes from rising to falling
