@@ -319,9 +319,9 @@ namespace heading {
         let y0 = scanData[0][Dim.Y] - yOff
         let z0 = scanData[0][Dim.Z] - zOff
 
-        views[View.XY].firstRadius(x0 * x0, y0 * y0)
-        views[View.YZ].firstRadius(y0 * y0, z0 * z0)
-        views[View.ZX].firstRadius(z0 * z0, x0 * x0)
+        views[View.XY].firstRadius(x0, y0)
+        views[View.YZ].firstRadius(y0, z0)
+        views[View.ZX].firstRadius(z0, x0)
 
         if (logging) {
             // prepare for logging peaks
