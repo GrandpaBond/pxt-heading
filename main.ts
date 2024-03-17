@@ -39,10 +39,12 @@ namespace heading {
         turn45: number; // this view's assessment of samples per octant (for testing)
 
         constructor(plane: string, dim0: number, dim1: number, off0: number, off1: number) {
+            this.plane = plane // (as DEBUG aid)
             this.uDim = dim0
             this.vDim = dim1
             this.uOff = off0
-            this.vOff = off1           
+            this.vOff = off1
+            this.peaks = []       
         }
 
         radius(uRaw: number, vRaw: number):number {
@@ -54,15 +56,14 @@ namespace heading {
 
 
         // initialise smoothing history
-        firstRadius(uRaw: number, vRaw:number) {
+        firstRadiusSq(uRaw: number, vRaw:number) {
             this.rSq = this.radius(uRaw,vRaw)
             this.rSqWas = this.rSq
             this.hiRsq = this.rSq
             this.loRsq = this.rSq
         }
 
-        nextRadius(index: number, uRaw: number, vRaw: number) {
-            let rSqNew = this.radius(uRaw, vRaw)
+        nextRadiusSq(index: number, uRaw: number, vRaw: number) {
             // in tracking the radius, we use inertial smoothing to reduce multiple peak-detections
             // due to minor fluctuations in readings
             //let smooth = this.rSq - Inertia * (this.radius(uRaw, vRaw) - this.rSq)
@@ -163,7 +164,7 @@ namespace heading {
     let turn45 = 0 
     //let uFlip = 1 // set to -1 if uDim polarity is inverted
     //let vFlip = 1 // set to -1 if vDim polarity is inverted
-    let plane: string = "**" // the projection plane we are using: "XY","YZ" or "ZX"
+    //let plane: string = "**" // the projection plane we are using: "XY","YZ" or "ZX"
     let logging = true  // logging mode flag
     let testing = false  // test mode flag
     let test = 0 // selector for test sample
@@ -315,39 +316,41 @@ namespace heading {
         strength = 0
         
         // initialise the smoothed radii and their limits to their first (unsmoothed) values
-        let x0 = scanData[0][Dim.X] - xOff
-        let y0 = scanData[0][Dim.Y] - yOff
-        let z0 = scanData[0][Dim.Z] - zOff
+        let xRaw = scanData[0][Dim.X]
+        let yRaw = scanData[0][Dim.Y]
+        let zRaw = scanData[0][Dim.Z]
 
-        views[View.XY].firstRadius(x0, y0)
-        views[View.YZ].firstRadius(y0, z0)
-        views[View.ZX].firstRadius(z0, x0)
+        views[View.XY].firstRadiusSq(xRaw, yRaw)
+        views[View.YZ].firstRadiusSq(yRaw, zRaw)
+        views[View.ZX].firstRadiusSq(zRaw, xRaw)
 
         if (logging) {
             // prepare for logging peaks
             datalogger.setColumnTitles("view", "index", "loRsq", "hiRsq")
         }
 
+        // process from 2nd sample onwards...
         for (let j = 1; j < nSamples; j++) {
-            let xRaw = scanData[j][Dim.X]
-            let yRaw = scanData[j][Dim.Y]
-            let zRaw = scanData[j][Dim.Z]
-            views[View.XY].nextRadius(j, xRaw, yRaw) // projection in XY plane
-            views[View.YZ].nextRadius(j, yRaw, zRaw) // projection in YZ plane
-            views[View.ZX].nextRadius(j, zRaw, xRaw) // projection in ZX plane
+            xRaw = scanData[j][Dim.X]
+            yRaw = scanData[j][Dim.Y]
+            zRaw = scanData[j][Dim.Z]
+            views[View.XY].nextRadiusSq(j, xRaw, yRaw) // projection in XY plane
+            views[View.YZ].nextRadiusSq(j, yRaw, zRaw) // projection in YZ plane
+            views[View.ZX].nextRadiusSq(j, zRaw, xRaw) // projection in ZX plane
 
-            // square of overall 3-D field strength is sum of squares in each view
-            strength += views[View.XY].hiRsq
-            strength += views[View.YZ].hiRsq
-            strength += views[View.ZX].hiRsq
+            // Square of overall 3-D field strength is sum of squares in each view
+            // Here we will end up accumulating each one twice over!
+            strength += views[View.XY].rSq
+            strength += views[View.YZ].rSq
+            strength += views[View.ZX].rSq
         }
         // process the detected Ellipse axes
         views[View.XY].analyse()
         views[View.YZ].analyse()
         views[View.ZX].analyse()
 
-        // check average overall field-strength
-        strength = Math.sqrt(strength / nSamples)
+        // check average overall field-strength (undoing double-counting)
+        strength = Math.sqrt((strength / 2) / nSamples)
         if (strength < MarginalField) {
             return -2  // "FIELD STRENGTH TOO WEAK"
         }
@@ -372,7 +375,7 @@ namespace heading {
         */
 
         // Choose the "roundest" Ellipse(the one with lowest eccentricity)
-        let bestView = -1
+        bestView = -1
         if (views[View.XY].scale < views[View.YZ].scale) { // not YZ
             if (views[View.XY].scale < views[View.ZX].scale) { // not ZX either: definitely use XY
                 bestView = View.XY
@@ -392,13 +395,13 @@ namespace heading {
             }
         }
         // extract into globals for brevity and efficiency...
-        let uDim = views[bestView].uDim
-        let vDim = views[bestView].vDim
+        uDim = views[bestView].uDim
+        vDim = views[bestView].vDim
 
 
         basic.clearScreen()
         basic.pause(100)
-        basic.showString(plane)
+        basic.showString(views[bestView].plane)
         basic.pause(300)
 
         // check that period was correctly found...
