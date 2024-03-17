@@ -110,8 +110,8 @@ namespace heading {
         // Uses global projection parameters: {uDim, vDim, uOff, vOff, theta, scale}
         project(uRaw: number, vRaw: number): number {
             // shift to start the vector at the origin
-            let u = uRaw - uOff
-            let v = vRaw - vOff
+            let u = uRaw - this.uOff
+            let v = vRaw - this.vOff
             // rotate by the inverse of the major-axis angle theta
             let uNew = u * this.cosTheta - v * this.sinTheta
             let vNew = u * this.sinTheta + v * this.cosTheta
@@ -145,14 +145,15 @@ namespace heading {
 
     let scanTimes: number[] = [] // sequence of time-stamps for scanned readings 
     let scanData: number[][]= [] // scanned sequence of [X,Y,Z] magnetometer readings
-    let views: Ellipse[] = [] // the three possible views of the Spin-Circle
-    let uDim = -1 // the "horizontal" axis (pointing East) for transformed readings (called U)
-    let vDim = -1 // the "vertical" axis (pointing North) for transformed readings (called V)
+    let views: Ellipse[] = [] // the three possible elliptical views of the Spin-Circle
+    let bestView = -1
+    let uDim = -1 // the best "horizontal" axis (pointing East) for transformed readings (called U)
+    let vDim = -1 // the best "vertical" axis (pointing North) for transformed readings (called V)
     //let wDim = -1 // the third, unused, dimension (used to assess rotation-speed)
-    let uOff = 0 // the offset needed to re-centre readings along the U-axis
-    let vOff = 0 // the offset needed to re-centre readings along the V-axis
-    let theta = 0 // the angle to rotate readings so the projected ellipse aligns with the U & V axes
-    let scale = 0 // the scaling to stretch V-axis readings from the ellipse onto a circle
+    //let uOff = 0 // the offset needed to re-centre readings along the U-axis
+    //let vOff = 0 // the offset needed to re-centre readings along the V-axis
+    //let theta = 0 // the angle to rotate readings so the projected ellipse aligns with the U & V axes
+    //let scale = 0 // the scaling to stretch V-axis readings from the ellipse onto a circle
     let toNorth = 0 // the angular bias to be added (so that North = 0)
     let strength = 0 // the average magnetic field-strength observed by the magnetometer
     let period = 0 // average rotation time derived from scanData[]
@@ -255,10 +256,10 @@ namespace heading {
      * 
      *      -3 : NOT ENOUGH SCAN ROTATION
      */
-    //% block="set North" 
+    //% block="set North || with declination $declination" 
     //% inlineInputMode=inline 
     //% weight=80 
-    export function setNorth(): number {
+    export function setNorth(declination: number = 0): number {
     /* Analyse the scan-data to decide how best to use the magnetometer readings.
 
     As the buggy spins, the magnetic field-vector sweeps out a Spin-Circle on the surface of a sphere.
@@ -269,7 +270,9 @@ namespace heading {
     Taking readings from just those two axes, we'll need to transform points lying around the Ellipse 
     (by first rotating about the origin, and then scaling vertically to "un-squash" the Ellipse), so that 
     they lie back on the unprojected Spin-Circle, giving a relative angle that can (eventually) be offset 
-    by a fixed bias to return the true heading with respect to North.
+    by a fixed bias to return the true heading with respect to magnetic North. 
+    If the Declination for your geographic location is supplied, the heading readings can be corrected to 
+    properly align with true North
     */
 
         // we need at least ~3 second's worth of scanned readings...
@@ -323,13 +326,13 @@ namespace heading {
             datalogger.setColumnTitles("view", "index", "loRsq", "hiRsq")
         }
 
-        for (let i = 1; i < nSamples; i++) {
+        for (let j = 1; j < nSamples; j++) {
             let xRaw = scanData[j][Dim.X]
             let yRaw = scanData[j][Dim.Y]
             let zRaw = scanData[j][Dim.Z]
-            views[View.XY].nextRadius(i, xRaw, yRaw) // projection in XY plane
-            views[View.YZ].nextRadius(i, yRaw, zRaw) // projection in YZ plane
-            views[View.ZX].nextRadius(i, zRaw, xRaw) // projection in ZX plane
+            views[View.XY].nextRadius(j, xRaw, yRaw) // projection in XY plane
+            views[View.YZ].nextRadius(j, yRaw, zRaw) // projection in YZ plane
+            views[View.ZX].nextRadius(j, zRaw, xRaw) // projection in ZX plane
 
             // square of overall 3-D field strength is sum of squares in each view
             strength += views[View.XY].hiRsq
@@ -350,7 +353,7 @@ namespace heading {
         // compute eccentricities (the ratio of longest to shortest radii) from their squares
         // (defending against divide-by-zero errors if Spin-circle had projected exactly edge-on)
 
-        if (logging) {
+        /*if (logging) {
             // prepare for analysis
             datalogger.setColumnTitles("xylo", "yzlo", "zxlo", "xyhi", "yzhi", "zxhi", "xye", "yze", "zxe")
             datalogger.log(
@@ -364,26 +367,33 @@ namespace heading {
                 datalogger.createCV("yze", yze),
                 datalogger.createCV("zxe", zxe))
         }
+        */
 
         // Choose the "roundest" Ellipse(the one with lowest eccentricity)
-        let view = -1
+        let bestView = -1
         if (views[View.XY].scale < views[View.YZ].scale) { // not YZ
             if (views[View.XY].scale < views[View.ZX].scale) { // not ZX either: definitely use XY
-                view = View.XY
-                // the other (more eccentric) Ellipses will be more reliable for deriving period
+                bestView = View.XY
+                // the other two (more eccentric) Ellipses will be more reliable for deriving period
                 period = views[View.YZ].semiPeriod + views[View.ZX].semiPeriod
+                turn45 = (views[View.YZ].turn45 + views[View.ZX].turn45) / 2
             }
         } else { // not XY: roundest is either YZ or ZX
             if (views[View.YZ].scale < views[View.ZX].scale) {
-                view = View.YZ
+                bestView = View.YZ
                 period = views[View.XY].semiPeriod + views[View.ZX].semiPeriod
+                turn45 = (views[View.XY].turn45 + views[View.ZX].turn45) / 2
             } else {
-                view = View.ZX
+                bestView = View.ZX
                 period = views[View.XY].semiPeriod + views[View.YZ].semiPeriod
-
+                turn45 = (views[View.XY].turn45 + views[View.YZ].turn45) / 2
             }
         }
-        /**/
+        // extract into globals for brevity and efficiency...
+        let uDim = views[bestView].uDim
+        let vDim = views[bestView].vDim
+
+
         basic.clearScreen()
         basic.pause(100)
         basic.showString(plane)
@@ -397,9 +407,9 @@ namespace heading {
         // Take the average of seven new readings to get a stable fix on the current heading
         let uRaw = 0
         let vRaw = 0
-        if (testing) { //arbitrarily choose 10th reading for North
-            uRaw = scanData[10][uDim]
-            vRaw = scanData[10][vDim]
+        if (testing) { //arbitrarily choose 10th test reading for North
+            uRaw = scanData[10][Dim.Y]
+            vRaw = scanData[10][Dim.Z]
         } else {
             // get a new position as the sum of seven readings
             uRaw = input.magneticForce(uDim)
@@ -412,7 +422,8 @@ namespace heading {
         }
 
         // record its projection angle on the Spin-Circle as the (global) fixed bias to North
-        toNorth = project(uRaw, vRaw)
+        // (factoring in local declination too, if provided)
+        toNorth = views[bestView].project(uRaw, vRaw) - declination
 
 
         /* no longer relevant (I think) but testing will prove... (delete later)
@@ -438,13 +449,13 @@ namespace heading {
             datalogger.log(
                 datalogger.createCV("uDim", uDim),
                 datalogger.createCV("vDim", vDim),
-                datalogger.createCV("uOff", uOff),
-                datalogger.createCV("vOff", vOff),
-                datalogger.createCV("theta",theta),
-                datalogger.createCV("scale",scale),
+                datalogger.createCV("uOff", views[bestView].uOff),
+                datalogger.createCV("vOff", views[bestView].vOff),
+                datalogger.createCV("theta", views[bestView].theta),
+                datalogger.createCV("scale", views[bestView].scale),
                 datalogger.createCV("period", period),
                 datalogger.createCV("toNorth", toNorth),
-                datalogger.createCV("strength",strength))
+                datalogger.createCV("strength", strength))
         }
 
 
@@ -482,8 +493,9 @@ namespace heading {
             }
         }
 
-        // project reading from ellipse to circle,
-        let onCircle = project(uRaw, vRaw)
+        // project reading from Ellipse to Spin-Circle,
+        let onCircle = views[bestView].project(uRaw, vRaw)
+
         // relate it to North and convert to degrees
         let angle = 57.29578 * (onCircle - toNorth)
         // angle currently runs anticlockwise from U-axis: subtract it from 90 degrees 
@@ -535,7 +547,7 @@ namespace heading {
         }
     }
 
-    // Perform periodicity analysis from two sets of peaks....
+    /* Perform periodicity analysis from two sets of peaks....
     function setPeriod(peaks1: number[], peaks2: number[]): number {
         // did we spin enough to give at least three peak values in both sets?
         if ((peaks1.length < 3) || (peaks2.length < 3))  {
@@ -555,15 +567,15 @@ namespace heading {
 
         period = period1 + period2 // effectively averaging the two results
 
-        /************** global just for testing purposes *************/
+        /************** global just for testing purposes *************
         turn45 = Math.floor((last - first) / (4 * gaps)) // ~ #samples covering an octant
-        /*************************************************************/
+        /*************************************************************
 
         return period
     }
+    */
 
-
-    // Transform a point on the off-centre projected Ellipse back onto the centred Spin-Circle 
+    /* Transform a point on the off-centre projected Ellipse back onto the centred Spin-Circle 
     // and return its angle (in radians) anticlockwise from the horizontal U-axis
     // Uses global projection parameters: {uDim, vDim, uOff, vOff, theta, scale}
     function project(uRaw: number, vRaw: number): number {
@@ -591,6 +603,6 @@ namespace heading {
         }
         
         return angle
-    }
-    
+    } 
+    */
 }
