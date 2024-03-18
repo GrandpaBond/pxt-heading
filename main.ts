@@ -376,6 +376,7 @@ namespace heading {
 
         // Choose the "roundest" Ellipse(the one with lowest eccentricity)
         bestView = -1
+        period = -1
         if (views[View.XY].scale < views[View.YZ].scale) { // not YZ
             if (views[View.XY].scale < views[View.ZX].scale) { // not ZX either: definitely use XY
                 bestView = View.XY
@@ -405,7 +406,7 @@ namespace heading {
         basic.pause(300)
 
         // ??? check that period was correctly found...
-        if (period < 0) return period 
+        if (period < 1) return period 
         
     
         // We have successfully set up the projection parameters. Now we need to relate them to North.
@@ -425,6 +426,19 @@ namespace heading {
                 vRaw += input.magneticForce(vDim)
             }
         }
+
+        if (logging) {
+            datalogger.setColumnTitles("uDim", "vDim", "uRaw", "vRaw", "declin")
+
+            datalogger.log(
+                datalogger.createCV("uDim", uDim),
+                datalogger.createCV("vDim", vDim),
+                datalogger.createCV("uOff", uRaw),
+                datalogger.createCV("vOff", vRaw),
+                datalogger.createCV("declin", declination))
+
+        }
+
 
         // record its projection angle on the Spin-Circle as the (global) fixed bias to North
         // (factoring in local declination too, if provided)

@@ -78,6 +78,7 @@ input.onButtonPressed(Button.A, function () {
             basic.clearScreen()
             basic.showArrow(ArrowNames.West)
             nextTask = Task.Scan // restart with a scan
+            datalogger.deleteLog()
             break
     }
 
