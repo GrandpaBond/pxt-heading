@@ -5,13 +5,13 @@
 
 //% color=#6080e0 weight=40 icon="\uf14e" block="Heading" 
 namespace heading {
-    enum Dim { // ...for brevity
+    enum Dim { // ...just for brevity
         X = Dimension.X,
         Y = Dimension.Y,
         Z = Dimension.Z
     }
 
-    enum View { // axis pair forming a projection plane
+    enum View { // the axis-pairs spanning the three possible projection planes
         XY,
         YZ,
         ZX
@@ -19,12 +19,14 @@ namespace heading {
 
     // CLASSES
 
+    // Characteristics of the Ellipse formed when projecting the Spin-Circle onto a View plane
     class Ellipse {
         plane: string; // name (for debug)
-        uDim: number; // horizontal axis
-        vDim: number; // vertical axis
-        uOff: number; // horizontal offset
-        vOff: number; // vertical offset
+        uDim: number; // horizontal axis of this View
+        vDim: number; // vertical axis of this View
+        uOff: number; // horizontal offset needed to re-centre the Ellipse along the U-axis
+        vOff: number; // vertical offset needed to re-centre the Ellipse along the V-axis
+        // properties derived from the Spin-Circle scan:
         rSq: number;  // smoothed radius-squared
         rSqWas: number; // previous smoothed radius-squared
         hiRsq: number; // max radius-squared 
@@ -35,11 +37,11 @@ namespace heading {
         cosTheta: number;
         sinTheta: number;
         scale: number; // stretch in V needed to make Ellipse circular again 
-        semiPeriod: number; // this view's assessment of half of the rotation time
-        turn45: number; // this view's assessment of samples per octant (for testing)
+        semiPeriod: number; // this View's assessment of half of the rotation time
+        turn45: number; // this View's assessment of samples per octant (for testing)
 
         constructor(plane: string, dim0: number, dim1: number, off0: number, off1: number) {
-            this.plane = plane // (as DEBUG aid)
+            this.plane = plane // (as a DEBUG aid)
             this.uDim = dim0
             this.vDim = dim1
             this.uOff = off0
@@ -48,7 +50,7 @@ namespace heading {
         }
 
         // "The square on the hypotenuse..."
-        pythagoras(uRaw: number, vRaw: number):number {
+        pythagoras(uRaw: number, vRaw: number): number {
             let u = uRaw - this.uOff
             let v = vRaw - this.vOff
             let r = (u * u) + (v * v)
@@ -56,7 +58,7 @@ namespace heading {
         }
 
 
-        // initialise smoothing history
+        // initialise the smoothing history
         firstRadiusSq(uRaw: number, vRaw:number) {
             this.rSq = this.pythagoras(uRaw,vRaw)
             this.rSqWas = this.rSq
@@ -64,10 +66,10 @@ namespace heading {
             this.loRsq = this.rSq
         }
 
+        // process another scan sample
         nextRadiusSq(index: number, uRaw: number, vRaw: number) {
-            // in tracking the radius, we use inertial smoothing to reduce multiple peak-detections
-            // due to minor fluctuations in readings
-            //let smooth = this.rSq - Inertia * (this.radius(uRaw, vRaw) - this.rSq)
+            // while tracking the radius, we use inertial smoothing to reduce multiple
+            // spurious peak-detections due to minor fluctuations in readings
             let smooth = (this.rSq * Inertia) + (this.pythagoras(uRaw, vRaw) * (1 - Inertia))
             this.hiRsq = Math.max(this.hiRsq, smooth) // longest so far...
             this.loRsq = Math.min(this.loRsq, smooth) // shortest so far...
@@ -87,45 +89,57 @@ namespace heading {
             this.rSq = smooth
         }
 
-        // analyse peaks to set transform rotation and scale, and measure period
+        // analyse detected peaks[] to set transform rotation and scale; and measure period too
         analyse() {
             let hiR = Math.sqrt(this.hiRsq)
             let loR = Math.sqrt(this.loRsq)
-            this.scale = hiR / loR // = the eccentricity of this view's Ellipse
-            // find rotation angle of latst peak
-            let last = this.peaks.pop() // index of latest hiRsq sample
+            this.scale = hiR / loR // == the eccentricity of this View's Ellipse
+            // find rotation angle of latest peak
+            let last = this.peaks.pop() // sample index of latest major-axis candidate
             let u = scanData[last][this.uDim] - this.uOff
             let v = scanData[last][this.vDim] - this.vOff
             this.theta = Math.atan2(u, v)
-            // might as well remember these...
+            // we might as well remember these...
             this.cosTheta = u / hiR
             this.sinTheta = v / hiR
-            // Ellipse's major-axis peaks are 180 degrees apart...
+            // Ellipse's major-axis peaks fall 180 degrees apart...
             let first = this.peaks[0]
             let gaps = this.peaks.length //(having popped the [last] one)
-            // ...so average time between peaks is just half a rotation
+            // ...so average time between peaks is for just half a rotation
             this.semiPeriod = (scanTimes[last] - scanTimes[first]) / gaps
             /************** just for testing purposes *************/
             this.turn45 = Math.floor((last - first) / (4 * gaps)) // ~ #samples covering an octant
             /******************************************************/
+
+            if (logging) {
+                // prepare for analysis
+                datalogger.setColumnTitles("view", "hiR", "loR", "first", "last", "semiPeriod", "turn45")
+                datalogger.log(
+                    datalogger.createCV("view", this.plane),
+                    datalogger.createCV("hiR", hiR),
+                    datalogger.createCV("loR", loR),
+                    datalogger.createCV("first", first),
+                    datalogger.createCV("last", last),
+                    datalogger.createCV("semiPeriod", this.semiPeriod),
+                    datalogger.createCV("turn45", this.turn45))
+            }
         }
 
 
         // Transform a point on the off-centre projected Ellipse back onto the centred Spin-Circle 
-        // and return its angle (in radians) anticlockwise from the horizontal U-axis
+        // and return its angle (in radians anticlockwise from the horizontal U-axis)
         project(uRaw: number, vRaw: number): number {
             // shift the point to give a vector from the origin
             let u = uRaw - this.uOff
             let v = vRaw - this.vOff
-            // rotate clockwise, using   the INVERSE of the major-axis angle, theta
+            // rotate clockwise, using the INVERSE of the major-axis angle, theta
             let uNew = u * this.cosTheta - v * this.sinTheta
             let vNew = u * this.sinTheta + v * this.cosTheta
-            // scale up V to match U
+            // scale up V to match U, balancing the axes and making the Ellipse circular
             let vScaled = vNew * this.scale
-            // return projected angle (undoing the rotation we just applied)
+            // derive projected angle (undoing the rotation we just applied)
             let angle = Math.atan2(vScaled, uNew) + this.theta
             if (logging) {
-
                 datalogger.setColumnTitles("uRaw", "vRaw", "u", "v", "uNew", "vNew", "vScaled", "angle")
                 datalogger.log(datalogger.createCV("uRaw", uRaw),
                     datalogger.createCV("vRaw", vRaw),
@@ -154,11 +168,6 @@ namespace heading {
     let bestView = -1
     let uDim = -1 // the best "horizontal" axis (pointing East) for transformed readings (called U)
     let vDim = -1 // the best "vertical" axis (pointing North) for transformed readings (called V)
-    //let wDim = -1 // the third, unused, dimension (used to assess rotation-speed)
-    //let uOff = 0 // the offset needed to re-centre readings along the U-axis
-    //let vOff = 0 // the offset needed to re-centre readings along the V-axis
-    //let theta = 0 // the angle to rotate readings so the projected ellipse aligns with the U & V axes
-    //let scale = 0 // the scaling to stretch V-axis readings from the ellipse onto a circle
     let toNorth = 0 // the angular bias to be added (so that North = 0)
     let strength = 0 // the average magnetic field-strength observed by the magnetometer
     let period = 0 // average rotation time derived from scanData[]
@@ -340,41 +349,30 @@ namespace heading {
             views[View.YZ].nextRadiusSq(j, yRaw, zRaw) // projection in YZ plane
             views[View.ZX].nextRadiusSq(j, zRaw, xRaw) // projection in ZX plane
 
-            // Square of overall 3-D field strength is sum of squares in each view
+            // Square of overall 3-D field strength is sum of squares in each View
             // Here we will end up accumulating each one twice over!
             strength += views[View.XY].rSq
             strength += views[View.YZ].rSq
             strength += views[View.ZX].rSq
         }
-        // process the detected Ellipse axes
-        views[View.XY].analyse()
-        views[View.YZ].analyse()
-        views[View.ZX].analyse()
 
-        // check average overall field-strength (undoing double-counting)
+        // check average overall field-strength (undoing the double-counting)
         strength = Math.sqrt((strength / 2) / nSamples)
         if (strength < MarginalField) {
             return -2  // "FIELD STRENGTH TOO WEAK"
         }
 
+        // check that we have collected enough peaks in each View...
+
+
+        // process the detected Ellipse axes
+        views[View.XY].analyse()
+        views[View.YZ].analyse()
+        views[View.ZX].analyse()
+
         // compute eccentricities (the ratio of longest to shortest radii) from their squares
         // (defending against divide-by-zero errors if Spin-circle had projected exactly edge-on)
 
-        /*if (logging) {
-            // prepare for analysis
-            datalogger.setColumnTitles("xylo", "yzlo", "zxlo", "xyhi", "yzhi", "zxhi", "xye", "yze", "zxe")
-            datalogger.log(
-                datalogger.createCV("xylo", xylo),
-                datalogger.createCV("yzlo", yzlo),
-                datalogger.createCV("zxlo", zxlo),
-                datalogger.createCV("xyhi", xyhi),
-                datalogger.createCV("yzhi", yzhi),
-                datalogger.createCV("zxhi", zxhi),
-                datalogger.createCV("xye", xye),
-                datalogger.createCV("yze", yze),
-                datalogger.createCV("zxe", zxe))
-        }
-        */
 
         // Choose the "roundest" Ellipse(the one with lowest eccentricity)
         bestView = -1
@@ -406,7 +404,7 @@ namespace heading {
         basic.showString(views[bestView].plane)
         basic.pause(300)
 
-        // check that period was correctly found...
+        // ??? check that period was correctly found...
         if (period < 0) return period 
         
     
