@@ -199,6 +199,12 @@ namespace heading {
         // Every ~30 ms over the specified duration (generally a couple of seconds),
         // magnetometer readings are sampled and a new [X,Y,Z] triple added to the scanData[] array.
         // A timestamp for each sample is also recorded in the scanTimes[] array.
+        if (logging) {
+            datalogger.deleteLog()
+            datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
+            datalogger.setColumnTitles("trace")
+            datalogger.log(datalogger.createCV("trace", 1))
+        }
         if (testing) {
             simulateScan()
             basic.pause(ms)
@@ -245,8 +251,7 @@ namespace heading {
         }
         
         if (logging) {
-            datalogger.deleteLog()
-            datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
+
             datalogger.setColumnTitles("index","t","x","y","z")
             for (let i = 0; i < scanTimes.length; i++) {
                 datalogger.log(
@@ -288,6 +293,7 @@ namespace heading {
     If the Declination for your geographic location is supplied, the heading readings can be corrected to 
     properly align with true North
     */
+        if (logging) datalogger.log(datalogger.createCV("trace", 2))
 
         // we need at least ~3 second's worth of scanned readings...
         let nSamples = scanTimes.length
@@ -323,6 +329,8 @@ namespace heading {
         views.push(new Ellipse("ZX", Dim.Z, Dim.X, zOff, xOff))
 
 
+        if (logging) datalogger.log(datalogger.createCV("trace", 3))
+
         // initialise global field-strength accumulator squared
         strength = 0
         
@@ -334,6 +342,8 @@ namespace heading {
         views[View.XY].firstRadiusSq(xRaw, yRaw)
         views[View.YZ].firstRadiusSq(yRaw, zRaw)
         views[View.ZX].firstRadiusSq(zRaw, xRaw)
+
+        if (logging) datalogger.log(datalogger.createCV("trace", 4))
 
         if (logging) {
             // prepare for logging peaks
@@ -356,6 +366,8 @@ namespace heading {
             strength += views[View.ZX].rSq
         }
 
+        if (logging) datalogger.log(datalogger.createCV("trace", 4))
+
         // check average overall field-strength (undoing the double-counting)
         strength = Math.sqrt((strength / 2) / nSamples)
         if (strength < MarginalField) {
@@ -367,8 +379,11 @@ namespace heading {
 
         // process the detected Ellipse axes
         views[View.XY].analyse()
+        if (logging) datalogger.log(datalogger.createCV("trace", 5))
         views[View.YZ].analyse()
+        if (logging) datalogger.log(datalogger.createCV("trace", 6))
         views[View.ZX].analyse()
+        if (logging) datalogger.log(datalogger.createCV("trace", 7))
 
         // compute eccentricities (the ratio of longest to shortest radii) from their squares
         // (defending against divide-by-zero errors if Spin-circle had projected exactly edge-on)
@@ -399,6 +414,7 @@ namespace heading {
         uDim = views[bestView].uDim
         vDim = views[bestView].vDim
 
+        if (logging) datalogger.log(datalogger.createCV("trace", 8))
 
         basic.clearScreen()
         basic.pause(100)
@@ -512,8 +528,12 @@ namespace heading {
             }
         }
 
+        if (logging) datalogger.log(datalogger.createCV("trace", 9))
+
         // project reading from Ellipse to Spin-Circle, as radians anticlockwise from U-axis
         let onCircle = views[bestView].project(uRaw, vRaw)
+
+        if (logging) datalogger.log(datalogger.createCV("trace", 10))
 
         // subtract "toNorth" offset and convert to degrees anticlockwise from North
         let angle = 57.29578 * (onCircle - toNorth)
