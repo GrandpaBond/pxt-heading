@@ -385,6 +385,10 @@ namespace heading {
         basic.showString(views[bestView].plane)
         basic.pause(300)
 
+        // extract into globals for future brevity and efficiency...
+        uDim = views[bestView].uDim
+        vDim = views[bestView].vDim
+
         return 0
     }
 
