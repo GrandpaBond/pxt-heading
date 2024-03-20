@@ -398,7 +398,7 @@ namespace heading {
 
         // we've now finished with scanning data, so release its memory
         scanTimes = []
-        scanData = []
+        // scanData = [] (Not yet! still needed to supply test cases!)
         return 0
     }
 
