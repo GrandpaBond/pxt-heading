@@ -47,7 +47,8 @@ input.onButtonPressed(Button.A, function () {
             basic.showString("N")
             basic.pause(1000)
             basic.clearScreen()
-            spinRPM = heading.setNorth(0)
+            heading.setNorth() 
+            spinRPM = heading.scanRPM()
             basic.showNumber(Math.floor(spinRPM))
             if (spinRPM < 0) {
                 basic.showIcon(IconNames.Skull) // scan analysis failed 
