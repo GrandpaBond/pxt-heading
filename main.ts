@@ -102,6 +102,7 @@ namespace heading {
             // we might as well remember these...
             this.cosTheta = u / hiR
             this.sinTheta = v / hiR
+            // While we're at it, analyse the rotation period, in case anyone's interested
             // Ellipse's major-axis peaks fall 180 degrees apart...
             let first = this.peaks[0]
             let gaps = this.peaks.length //(having popped the [last] one)
@@ -158,8 +159,8 @@ namespace heading {
     const Inertia = 0.95 // ratio of old to new radius readings (for inertial smoothing)
     const Window = 200 // minimum ms separation of radius extrema (~ quarter rotation time)
 
-    let scanTimes: number[] = [] // sequence of time-stamps for scanned readings 
-    let scanData: number[][]= [] // scanned sequence of [X,Y,Z] magnetometer readings
+    let scanTimes: number[]  = [] // sequence of time-stamps for scanned readings 
+    let scanData: number[][] = [] // scanned sequence of [X,Y,Z] magnetometer readings
     let views: Ellipse[] = [] // the three possible elliptical views of the Spin-Circle
     let bestView = -1
     let uDim = -1 // the best "horizontal" axis (pointing East) for transformed readings (called U)
@@ -205,8 +206,8 @@ namespace heading {
         if (logging) {
             datalogger.deleteLog()
             datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
-            datalogger.setColumnTitles("trace")
-            datalogger.log(datalogger.createCV("trace", 1))
+            //datalogger.setColumnTitles("trace")
+            //datalogger.log(datalogger.createCV("trace", 1))
         }
         if (testing) {
             simulateScan()
@@ -267,7 +268,7 @@ namespace heading {
         }
 
     // Now analyse the scan-data to decide how best to use the magnetometer readings.
-        if (logging) datalogger.log(datalogger.createCV("trace", 2))
+        //if (logging) datalogger.log(datalogger.createCV("trace", 2))
 
         // we need at least ~3 second's worth of scanned readings...
         let nSamples = scanTimes.length
@@ -302,7 +303,7 @@ namespace heading {
         views.push(new Ellipse("YZ", Dim.Y, Dim.Z, yOff, zOff))
         views.push(new Ellipse("ZX", Dim.Z, Dim.X, zOff, xOff))
 
-        if (logging) datalogger.log(datalogger.createCV("trace", 3))
+        //if (logging) datalogger.log(datalogger.createCV("trace", 3))
 
         // initialise global field-strength accumulator squared
         strength = 0
@@ -316,7 +317,7 @@ namespace heading {
         views[View.YZ].firstRadiusSq(yRaw, zRaw)
         views[View.ZX].firstRadiusSq(zRaw, xRaw)
 
-        if (logging) datalogger.log(datalogger.createCV("trace", 4))
+        //if (logging) datalogger.log(datalogger.createCV("trace", 4))
 
         if (logging) {
             // prepare for logging peaks...
@@ -339,7 +340,7 @@ namespace heading {
             strength += views[View.ZX].rSq
         }
 
-        if (logging) datalogger.log(datalogger.createCV("trace", 4))
+        //if (logging) datalogger.log(datalogger.createCV("trace", 4))
 
         // check average overall field-strength (undoing the double-counting)
         strength = Math.sqrt((strength / 2) / nSamples)
@@ -348,19 +349,25 @@ namespace heading {
         }
 
         // ?? check that we have collected enough peaks in each View...
+        if ((views[View.XY].peaks.length < 3) 
+          ||(views[View.YZ].peaks.length < 3)
+          ||(views[View.ZX].peaks.length < 3) ) {
+            return -3 // "NOT ENOUGH SCAN ROTATION"
+        }
 
 
         // process the detected Ellipse axes
         views[View.XY].analyse()
-        if (logging) datalogger.log(datalogger.createCV("trace", 5))
+        //if (logging) datalogger.log(datalogger.createCV("trace", 5))
         views[View.YZ].analyse()
-        if (logging) datalogger.log(datalogger.createCV("trace", 6))
+        //if (logging) datalogger.log(datalogger.createCV("trace", 6))
         views[View.ZX].analyse()
-        if (logging) datalogger.log(datalogger.createCV("trace", 7))
+        //if (logging) datalogger.log(datalogger.createCV("trace", 7))
 
 
-        // Choose the "roundest" Ellipse (the one with lowest eccentricity=scale)
+        // Choose the "roundest" Ellipse, the one with lowest (eccentricity = scale)
         bestView = -1
+        // while we're at it, derive the rotation period, in case anyone's interested
         period = -1
         if (views[View.XY].scale < views[View.YZ].scale) { // not YZ
             if (views[View.XY].scale < views[View.ZX].scale) { // not ZX either: definitely use XY
@@ -378,7 +385,7 @@ namespace heading {
             }
         }
 
-        if (logging) datalogger.log(datalogger.createCV("trace", 8))
+        //if (logging) datalogger.log(datalogger.createCV("trace", 8))
 
         basic.clearScreen()
         basic.pause(100)
@@ -389,6 +396,9 @@ namespace heading {
         uDim = views[bestView].uDim
         vDim = views[bestView].vDim
 
+        // we've now finished with scanning data, so release its memory
+        scanTimes = []
+        scanData = []
         return 0
     }
 
@@ -504,12 +514,12 @@ namespace heading {
             }
         }
 
-        if (logging) datalogger.log(datalogger.createCV("trace", 9))
+        //if (logging) datalogger.log(datalogger.createCV("trace", 9))
 
         // project reading from Ellipse to Spin-Circle, as radians anticlockwise from U-axis
         let onCircle = views[bestView].project(uRaw, vRaw)
 
-        if (logging) datalogger.log(datalogger.createCV("trace", 10))
+        //if (logging) datalogger.log(datalogger.createCV("trace", 10))
 
         // subtract "toNorth" offset and convert to degrees anticlockwise from North
         let angle = 57.29578 * (onCircle - toNorth)
