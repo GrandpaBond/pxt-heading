@@ -31,6 +31,19 @@ While calibrating, we can visualise the situation from the perspective of our sp
 sphere centred on the magnetometer, with a radius proportional to the strength of the magnetic field. 
 A field-vector passing through its middle will intersect it at a point somewhere on its surface. 
 
+*******
+    As the buggy spins, the magnetic field-vector sweeps out a Spin-Circle on the surface of a sphere.
+    In the fully general case, this projects onto the plane of each pair of orthogonal axes (XY,YZ,ZX) 
+    as an Ellipse with a certain eccentricity (and maybe a tilt). We will get the best heading 
+    discrimination from the "roundest", most "square-on" view (i.e. the least eccentric Ellipse).
+    
+    Taking readings from just those two axes, we'll need to transform points lying around the Ellipse 
+    (by first rotating about the origin, and then scaling vertically to "un-squash" the Ellipse), so that 
+    they lie back on the unprojected Spin-Circle, giving a relative angle that can (eventually) be offset 
+    by a fixed bias to return the true heading with respect to magnetic North. 
+
+*******
+
 As we spin around, successive measured points will then trace out a circle on the sphere with a diameter ranging from 
 tiny (in polar regions where the field is more vertical), to the full diameter of the sphere (when we are near 
 the earth's equator and the field is horizontal). We'll call this circle the Spin-Circle.

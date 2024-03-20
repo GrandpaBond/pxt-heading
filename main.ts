@@ -38,7 +38,6 @@ namespace heading {
         sinTheta: number;
         scale: number; // stretch in V needed to make Ellipse circular again 
         semiPeriod: number; // this View's assessment of half of the rotation time
-        turn45: number; // this View's assessment of samples per octant (for testing)
 
         constructor(plane: string, dim0: number, dim1: number, off0: number, off1: number) {
             this.plane = plane // (as a DEBUG aid)
@@ -93,7 +92,8 @@ namespace heading {
         analyse() {
             let hiR = Math.sqrt(this.hiRsq)
             let loR = Math.sqrt(this.loRsq)
-            this.scale = hiR / loR // == the eccentricity of this View's Ellipse
+            this.scale = hiR / (loR + 0.001) // == the eccentricity of this View's Ellipse
+            // (defend against divide-by-zero errors, if Spin-circle had projected exactly edge-on)
             // find rotation angle of latest peak
             let last = this.peaks.pop() // sample index of latest major-axis candidate
             let u = scanData[last][this.uDim] - this.uOff
@@ -107,21 +107,17 @@ namespace heading {
             let gaps = this.peaks.length //(having popped the [last] one)
             // ...so average time between peaks is for just half a rotation
             this.semiPeriod = (scanTimes[last] - scanTimes[first]) / gaps
-            /************** just for testing purposes *************/
-            this.turn45 = Math.floor((last - first) / (4 * gaps)) // ~ #samples covering an octant
-            /******************************************************/
 
             if (logging) {
                 // prepare for analysis
-                datalogger.setColumnTitles("view", "hiR", "loR", "first", "last", "semiPeriod", "turn45")
+                datalogger.setColumnTitles("view", "hiR", "loR", "first", "last", "semiPeriod")
                 datalogger.log(
                     datalogger.createCV("view", this.plane),
                     datalogger.createCV("hiR", hiR),
                     datalogger.createCV("loR", loR),
                     datalogger.createCV("first", first),
                     datalogger.createCV("last", last),
-                    datalogger.createCV("semiPeriod", this.semiPeriod),
-                    datalogger.createCV("turn45", this.turn45))
+                    datalogger.createCV("semiPeriod", this.semiPeriod))
             }
         }
 
@@ -171,11 +167,9 @@ namespace heading {
     let toNorth = 0 // the angular bias to be added (so that North = 0)
     let strength = 0 // the average magnetic field-strength observed by the magnetometer
     let period = 0 // average rotation time derived from scanData[]
-    // spacing of samples from scanData to test with (~ #samples covering an octant)
-    let turn45 = 0 
     //let uFlip = 1 // set to -1 if uDim polarity is inverted
     //let vFlip = 1 // set to -1 if vDim polarity is inverted
-    //let plane: string = "**" // the projection plane we are using: "XY","YZ" or "ZX"
+
     let logging = true  // logging mode flag
     let testing = false  // test mode flag
     let test = 0 // selector for test sample
@@ -185,17 +179,26 @@ namespace heading {
     /** 
      * Assuming the buggy is currently spinning clockwise on the spot, capture a 
      * time-stamped sequence of magnetometer readings from which to set up the compass.
-     * NOTE that once scanning is complete, the heading.setNorth() function must then 
-     * be called (to process this scanned data) before heading.degrees() will work.
-     * @param ms scanning-time in millisecs (long enough for more than one full rotation) 
-    */
+     * 
+     * Whwn complete, analyse the scanned data to prepare for reading compass-headings.
+     * Returns zero if successful, or a negative error code:
+     *
+     *      -1 : NOT ENOUGH SCAN DATA
+     *
+     *      -2 : FIELD STRENGTH TOO WEAK
+     *
+     *      -3 : NOT ENOUGH SCAN ROTATION
+     * 
+     * @param ms scanning-time in millisecs (long enough for more than one full rotation)    
+     */
+
     //% block="scan for (ms) $ms" 
     //% inlineInputMode=inline 
     //% ms.shadow="timePicker" 
     //% ms.defl=0 
     //% weight=90 
 
-    export function scan(ms: number) {
+    export function scan(ms: number): number {
         // Every ~30 ms over the specified duration (generally a couple of seconds),
         // magnetometer readings are sampled and a new [X,Y,Z] triple added to the scanData[] array.
         // A timestamp for each sample is also recorded in the scanTimes[] array.
@@ -262,37 +265,8 @@ namespace heading {
                     datalogger.createCV("z", scanData[i][Dim.Z]))
             }
         }
-    }
 
-
-    /**
-     * Analyse scanned data to prepare for reading compass-headings.
-     * Returns either the spin RPM, or a negative error code:
-     * 
-     *      -1 : NOT ENOUGH SCAN DATA
-     * 
-     *      -2 : FIELD STRENGTH TOO WEAK
-     * 
-     *      -3 : NOT ENOUGH SCAN ROTATION
-     */
-    //% block="set North || with declination $declination" 
-    //% inlineInputMode=inline 
-    //% weight=80 
-    export function setNorth(declination: number = 0): number {
-    /* Analyse the scan-data to decide how best to use the magnetometer readings.
-
-    As the buggy spins, the magnetic field-vector sweeps out a Spin-Circle on the surface of a sphere.
-    In the fully general case, this projects onto the plane of each pair of orthogonal axes (XY,YZ,ZX) 
-    as an Ellipse with a certain eccentricity (and maybe a tilt). We will get the best heading 
-    discrimination from the "roundest", most "square-on" view (i.e. the least eccentric Ellipse).
-    
-    Taking readings from just those two axes, we'll need to transform points lying around the Ellipse 
-    (by first rotating about the origin, and then scaling vertically to "un-squash" the Ellipse), so that 
-    they lie back on the unprojected Spin-Circle, giving a relative angle that can (eventually) be offset 
-    by a fixed bias to return the true heading with respect to magnetic North. 
-    If the Declination for your geographic location is supplied, the heading readings can be corrected to 
-    properly align with true North
-    */
+    // Now analyse the scan-data to decide how best to use the magnetometer readings.
         if (logging) datalogger.log(datalogger.createCV("trace", 2))
 
         // we need at least ~3 second's worth of scanned readings...
@@ -328,7 +302,6 @@ namespace heading {
         views.push(new Ellipse("YZ", Dim.Y, Dim.Z, yOff, zOff))
         views.push(new Ellipse("ZX", Dim.Z, Dim.X, zOff, xOff))
 
-
         if (logging) datalogger.log(datalogger.createCV("trace", 3))
 
         // initialise global field-strength accumulator squared
@@ -346,11 +319,11 @@ namespace heading {
         if (logging) datalogger.log(datalogger.createCV("trace", 4))
 
         if (logging) {
-            // prepare for logging peaks
+            // prepare for logging peaks...
             datalogger.setColumnTitles("view", "index", "loRsq", "hiRsq")
         }
 
-        // process from 2nd sample onwards...
+        // process scan from 2nd sample onwards...
         for (let j = 1; j < nSamples; j++) {
             xRaw = scanData[j][Dim.X]
             yRaw = scanData[j][Dim.Y]
@@ -374,7 +347,7 @@ namespace heading {
             return -2  // "FIELD STRENGTH TOO WEAK"
         }
 
-        // check that we have collected enough peaks in each View...
+        // ?? check that we have collected enough peaks in each View...
 
 
         // process the detected Ellipse axes
@@ -385,11 +358,8 @@ namespace heading {
         views[View.ZX].analyse()
         if (logging) datalogger.log(datalogger.createCV("trace", 7))
 
-        // compute eccentricities (the ratio of longest to shortest radii) from their squares
-        // (defending against divide-by-zero errors if Spin-circle had projected exactly edge-on)
 
-
-        // Choose the "roundest" Ellipse(the one with lowest eccentricity)
+        // Choose the "roundest" Ellipse (the one with lowest eccentricity=scale)
         bestView = -1
         period = -1
         if (views[View.XY].scale < views[View.YZ].scale) { // not YZ
@@ -397,22 +367,16 @@ namespace heading {
                 bestView = View.XY
                 // the other two (more eccentric) Ellipses will be more reliable for deriving period
                 period = views[View.YZ].semiPeriod + views[View.ZX].semiPeriod
-                turn45 = (views[View.YZ].turn45 + views[View.ZX].turn45) / 2
             }
         } else { // not XY: roundest is either YZ or ZX
             if (views[View.YZ].scale < views[View.ZX].scale) {
                 bestView = View.YZ
                 period = views[View.XY].semiPeriod + views[View.ZX].semiPeriod
-                turn45 = (views[View.XY].turn45 + views[View.ZX].turn45) / 2
             } else {
                 bestView = View.ZX
                 period = views[View.XY].semiPeriod + views[View.YZ].semiPeriod
-                turn45 = (views[View.XY].turn45 + views[View.YZ].turn45) / 2
             }
         }
-        // extract into globals for brevity and efficiency...
-        uDim = views[bestView].uDim
-        vDim = views[bestView].vDim
 
         if (logging) datalogger.log(datalogger.createCV("trace", 8))
 
@@ -421,10 +385,22 @@ namespace heading {
         basic.showString(views[bestView].plane)
         basic.pause(300)
 
-        // ??? check that period was correctly found...
-        if (period < 1) return period 
-        
-    
+        return 0
+    }
+
+
+
+    /**
+     * Read the magnetometer and register the buggy's current direction as "North",
+     * (i.e. the direction that will return zero as its heading).
+     * The actual direction the buggy is pointing when this function is called could be
+     * Magnetic North; True North (compensating for declination); or any convenient
+     * direction from which to measure subsequent heading angles.
+     */
+    //% block="set North" 
+    //% inlineInputMode=inline 
+    //% weight=80 
+    export function setNorth(): number {
         // We have successfully set up the projection parameters. Now we need to relate them to North.
         // Take the average of seven new readings to get a stable fix on the current heading
         let uRaw = 0
@@ -450,15 +426,12 @@ namespace heading {
                 datalogger.createCV("uDim", uDim),
                 datalogger.createCV("vDim", vDim),
                 datalogger.createCV("uOff", uRaw),
-                datalogger.createCV("vOff", vRaw),
-                datalogger.createCV("declin", declination))
+                datalogger.createCV("vOff", vRaw))
 
         }
 
-
         // record its projection angle on the Spin-Circle as the (global) fixed bias to North
-        // (factoring in local declination too, if provided)
-        toNorth = views[bestView].project(uRaw, vRaw) - declination
+        toNorth = views[bestView].project(uRaw, vRaw)
 
 
         /* no longer relevant (I think) but testing will prove... (delete later)
@@ -493,9 +466,8 @@ namespace heading {
                 datalogger.createCV("strength", strength))
         }
 
+        return 0
 
-        // return average RPM of original scan    
-        return 60000 / period
     }
   
 
@@ -512,7 +484,7 @@ namespace heading {
         let uRaw = 0
         let vRaw = 0
         if (testing) {
-            let index = 10 + (test * turn45) // (we chose tenth sample for North)
+            let index = 10 + (test * 50) // (we chose tenth sample for North)
             uRaw = scanData[index][uDim]
             vRaw = scanData[index][vDim]
             test ++
@@ -545,17 +517,31 @@ namespace heading {
         return angle
     }
 
+    /**
+     * Return average RPM of the most recent scan 
+     */
+    //% block="scanRPM" 
+    //% inlineInputMode=inline 
+    //% weight=50 
+    export function scanRPM(): number {
+        if (period <= 0) {
+            return -4 // ERROR: SCAN IS NEEDED FIRST
+        } else {
+            return 60000 / period
+        }
+    }
+
 
     //% block="set test mode: $turnOn"
     //% inlineInputMode=inline 
-    //% weight=50
+    //% weight=40
     export function setTestMode(turnOn: boolean) {
         testing = turnOn
     }
 
     //% block="set logging mode: $loggingOn"
     //% inlineInputMode=inline 
-    //% weight=40
+    //% weight=30
     export function setLogMode(loggingOn: boolean) {
         logging = loggingOn
     }
