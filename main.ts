@@ -365,25 +365,27 @@ namespace heading {
         //if (logging) datalogger.log(datalogger.createCV("trace", 7))
 
 
-        // Choose the "roundest" Ellipse, the one with lowest (eccentricity = scale)
-        bestView = -1
-        // while we're at it, derive the rotation period, in case anyone's interested
-        period = -1
-        if (views[View.XY].scale < views[View.YZ].scale) { // not YZ
-            if (views[View.XY].scale < views[View.ZX].scale) { // not ZX either: definitely use XY
-                bestView = View.XY
-                // the other two (more eccentric) Ellipses will be more reliable for deriving period
-                period = views[View.YZ].semiPeriod + views[View.ZX].semiPeriod
-            }
-        } else { // not XY: roundest is either YZ or ZX
-            if (views[View.YZ].scale < views[View.ZX].scale) {
-                bestView = View.YZ
-                period = views[View.XY].semiPeriod + views[View.ZX].semiPeriod
-            } else {
-                bestView = View.ZX
-                period = views[View.XY].semiPeriod + views[View.YZ].semiPeriod
-            }
+        // Choose the "roundest" Ellipse, the one with lowest (eccentricity = scale).
+        // While we're at it, derive the rotation period, in case anyone's interested.
+        // The other two (more eccentric) Ellipses will be more reliable for deriving period,
+        // so we collect all three semiPeriods, but then subtract the [bestView] version.
+
+        bestView = View.XY
+        period = -views[View.XY].semiPeriod
+        
+        if (views[View.YZ].scale < views[bestView].scale) { 
+            bestView = View.YZ
+            period = -views[View.YZ].semiPeriod
         }
+
+        if (views[View.ZX].scale < views[bestView].scale) {
+            bestView = View.YZ
+            period = -views[View.ZX].semiPeriod
+        }
+
+        period += views[View.XY].semiPeriod 
+                + views[View.YZ].semiPeriod 
+                + views[View.ZX].semiPeriod
 
         //if (logging) datalogger.log(datalogger.createCV("trace", 8))
 
@@ -570,7 +572,6 @@ namespace heading {
 
     // use some sample data, while debugging...
     function simulateScan(dataset: string) {
-        let scanTimes: number[] = []
         let xData: number[] = []
         let yData: number[] = []
         let zData: number[] = []
