@@ -24,8 +24,7 @@ namespace heading {
 
     const MarginalField = 30 // minimum acceptable field-strength for magnetometer readings
     const Inertia = 0.95 // ratio of old to new radius readings (for inertial smoothing)
-    const Window = 200 // minimum ms separation of radius extrema (~ quarter rotation time)
-    // (still permits maximum spin-rate of 120 RPM, or 2 rotations a second!)
+    const Window = 100 // minimum spacing (in samples) of Ellipse major-axis candidates
 
     // CLASSES
 
@@ -68,7 +67,7 @@ namespace heading {
 
 
         // initialise the smoothing history
-        firstRadiusSq(uRaw: number, vRaw:number) {
+        firstSample(uRaw: number, vRaw:number) {
             this.rSq = this.pythagoras(uRaw,vRaw)
             this.rSqWas = this.rSq
             this.hiRsq = this.rSq
@@ -76,15 +75,17 @@ namespace heading {
         }
 
         // process another scan sample
-        nextRadiusSq(index: number, uRaw: number, vRaw: number) {
+        nextSample(index: number, uRaw: number, vRaw: number) {
+            let previous = -Window // always permit first peak
             // while tracking the radius, we use inertial smoothing to reduce multiple
             // spurious peak-detections due to minor fluctuations in readings
             let smooth = (this.rSq * Inertia) + (this.pythagoras(uRaw, vRaw) * (1 - Inertia))
             this.hiRsq = Math.max(this.hiRsq, smooth) // longest so far...
             this.loRsq = Math.min(this.loRsq, smooth) // shortest so far...
             // need to clock new peak if slope changes from rising to falling, but not too recently
-            if ((this.rSqWas < this.rSq) && (this.rSq > smooth) 
-               && ((index - this.peaks.length) > Window)) {
+            if (   (this.rSq >= this.rSqWas) 
+                && (this.rSq >= smooth)
+                && ((index - previous) >= Window) )  {
                 this.peaks.push(index) // (technically, previous sample was the peak, but we're near enough)
                 if (logging) {
                     datalogger.log(
@@ -92,7 +93,9 @@ namespace heading {
                         datalogger.createCV("index", index),
                         datalogger.createCV("loRsq", this.loRsq),
                         datalogger.createCV("hiRsq", this.hiRsq))
+
                 }
+                previous = index
             }
             this.rSqWas = this.rSq
             this.rSq = smooth
@@ -276,7 +279,6 @@ namespace heading {
         }
 
     // Now analyse the scan-data to decide how best to use the magnetometer readings.
-        //if (logging) datalogger.log(datalogger.createCV("trace", 2))
 
         // we need at least ~3 second's worth of scanned readings...
         let nSamples = scanTimes.length
@@ -291,7 +293,7 @@ namespace heading {
         let xhi = -999
         let yhi = -999
         let zhi = -999
-        // To assess the range and offset, find the raw extremes.
+        // To assess the range and offset, first find the raw extremes.
         for (let i = 0; i < nSamples; i++) {
             xhi = Math.max(xhi, scanData[i][Dim.X])
             yhi = Math.max(yhi, scanData[i][Dim.Y])
@@ -306,29 +308,25 @@ namespace heading {
         let yOff = (yhi + ylo) / 2
         let zOff = (zhi + zlo) / 2
 
-        // Now assess eccentricity by looking for the shortest and longest radii for each Ellipse.
+        // create an Ellipse instance for analysing each possible view
         views.push(new Ellipse("XY", Dim.X, Dim.Y, xOff, yOff))
         views.push(new Ellipse("YZ", Dim.Y, Dim.Z, yOff, zOff))
         views.push(new Ellipse("ZX", Dim.Z, Dim.X, zOff, xOff))
 
-        //if (logging) datalogger.log(datalogger.createCV("trace", 3))
-
-        // initialise global field-strength accumulator squared
-        strength = 0
+        // Now assess eccentricities by looking for the shortest and longest radii for each Ellipse.
+        strength = 0 // initialise global field-strength-squared accumulator
         
         // initialise the smoothed radii and their limits to their first (unsmoothed) values
         let xRaw = scanData[0][Dim.X]
         let yRaw = scanData[0][Dim.Y]
         let zRaw = scanData[0][Dim.Z]
 
-        views[View.XY].firstRadiusSq(xRaw, yRaw)
-        views[View.YZ].firstRadiusSq(yRaw, zRaw)
-        views[View.ZX].firstRadiusSq(zRaw, xRaw)
-
-        //if (logging) datalogger.log(datalogger.createCV("trace", 4))
+        views[View.XY].firstSample(xRaw, yRaw)
+        views[View.YZ].firstSample(yRaw, zRaw)
+        views[View.ZX].firstSample(zRaw, xRaw)
 
         if (logging) {
-            // prepare for logging peaks...
+            // prepare for logging peaks within Ellipse.nextSample() function...
             datalogger.setColumnTitles("view", "index", "loRsq", "hiRsq")
         }
 
@@ -337,9 +335,9 @@ namespace heading {
             xRaw = scanData[j][Dim.X]
             yRaw = scanData[j][Dim.Y]
             zRaw = scanData[j][Dim.Z]
-            views[View.XY].nextRadiusSq(j, xRaw, yRaw) // projection in XY plane
-            views[View.YZ].nextRadiusSq(j, yRaw, zRaw) // projection in YZ plane
-            views[View.ZX].nextRadiusSq(j, zRaw, xRaw) // projection in ZX plane
+            views[View.XY].nextSample(j, xRaw, yRaw) // projection in XY plane
+            views[View.YZ].nextSample(j, yRaw, zRaw) // projection in YZ plane
+            views[View.ZX].nextSample(j, zRaw, xRaw) // projection in ZX plane
 
             // Square of overall 3-D field strength is sum of squares in each View
             // Here we will end up accumulating each one twice over!
@@ -348,8 +346,7 @@ namespace heading {
             strength += views[View.ZX].rSq
         }
 
-        //if (logging) datalogger.log(datalogger.createCV("trace", 4))
-
+   
         // check average overall field-strength (undoing the double-counting)
         strength = Math.sqrt((strength / 2) / nSamples)
         if (strength < MarginalField) {
@@ -366,11 +363,8 @@ namespace heading {
 
         // process the detected Ellipse axes
         views[View.XY].analyse()
-        //if (logging) datalogger.log(datalogger.createCV("trace", 5))
         views[View.YZ].analyse()
-        //if (logging) datalogger.log(datalogger.createCV("trace", 6))
         views[View.ZX].analyse()
-        //if (logging) datalogger.log(datalogger.createCV("trace", 7))
 
 
         // Choose the "roundest" Ellipse, the one with lowest (eccentricity = scale).
@@ -407,6 +401,8 @@ namespace heading {
         // we've now finished with scanning data, so release its memory
         scanTimes = []
         scanData = []
+
+        // SUCCESS!
         return 0
     }
 
@@ -526,7 +522,7 @@ namespace heading {
     //% weight=50 
     export function scanRPM(): number {
         if (period <= 0) {
-            return -4 // ERROR: SCAN IS NEEDED FIRST
+            return -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
         } else {
             return 60000 / period
         }

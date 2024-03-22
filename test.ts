@@ -12,6 +12,7 @@ enum Task {
 
 
 input.onButtonPressed(Button.A, function () {
+    let result = 0
     checkLogging()
     switch (nextTask) {
         case Task.Scan:
@@ -21,26 +22,37 @@ input.onButtonPressed(Button.A, function () {
                 case Config.Buggy:
                     heading.setTestMode(false)
                     Kitronik_Move_Motor.spin(Kitronik_Move_Motor.SpinDirections.Right, 30)
-                    heading.scan(4000)
+                    result = heading.scan(4000)
                     Kitronik_Move_Motor.stop()
                     break
                 case Config.Test:
                     heading.setTestMode(true)
-                    heading.scan(1000)
+                    result = heading.scan(1000)
                     break
                 case Config.Jig:
                     heading.setTestMode(false)
                     basic.showString("?") // manually rotate jig (SMOOOOTHLY!)
-                    heading.scan(15000)
-                    music.setVolume(255)
-                    music.tonePlayable(2000, 500)
+                    result = heading.scan(10000)
                     basic.pause(1000)
                     break
             }
-            basic.showIcon(IconNames.Yes)
-            basic.pause(1000)
-            basic.showArrow(ArrowNames.West)
-            nextTask = Task.SetNorth
+            
+            if (result < 0) {
+                basic.showIcon(IconNames.Skull) // scan failed 
+                basic.pause(1000)
+                basic.showNumber(result)
+                basic.pause(1000)
+                basic.clearScreen()
+                basic.showArrow(ArrowNames.West)
+                nextTask = Task.Scan // restart with a fresh scan
+            } else { 
+                spinRPM = heading.scanRPM()
+                basic.showNumber(Math.floor(spinRPM))
+                basic.showIcon(IconNames.Yes)
+                basic.pause(1000)
+                basic.showArrow(ArrowNames.West)
+                nextTask = Task.SetNorth
+            }
             break
 
         case Task.SetNorth:
@@ -48,29 +60,20 @@ input.onButtonPressed(Button.A, function () {
             basic.pause(1000)
             basic.clearScreen()
             heading.setNorth() 
-            spinRPM = heading.scanRPM()
-            basic.showNumber(Math.floor(spinRPM))
-            if (spinRPM < 0) {
-                basic.showIcon(IconNames.Skull) // scan analysis failed 
-                basic.pause(1000)
-                basic.clearScreen()
-                basic.showArrow(ArrowNames.West)
-                nextTask = Task.Scan // restart with a fresh scan
-            } else {
-                turn30 = 60000 / (12 * spinRPM) // time needed to turn 30 degrees
-                basic.showIcon(IconNames.Yes)
-                basic.pause(500)
-                basic.showLeds(`
-                    # # . # #
-                    # . . . #
-                    . . # . .
-                    # . . . #
-                    # # . # #
-                    `)
-                basic.pause(500)
-                basic.showArrow(ArrowNames.East)
-                nextTask = Task.Measure
-            }
+            turn30 = 60000 / (12 * spinRPM) // time needed to turn 30 degrees
+            basic.showIcon(IconNames.Yes)
+            basic.pause(500)
+            basic.showLeds(`
+                # # . # #
+                # . . . #
+                . . # . .
+                # . . . #
+                # # . # #
+                `)
+            basic.pause(500)
+            basic.showArrow(ArrowNames.East)
+            nextTask = Task.Measure
+            
             break
 
         case Task.Measure: // Button A resets everything
