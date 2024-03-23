@@ -381,7 +381,7 @@ namespace heading {
         }
 
         if (views[View.ZX].scale < views[bestView].scale) {
-            bestView = View.YZ
+            bestView = View.ZX
             period = -views[View.ZX].semiPeriod
         }
 
