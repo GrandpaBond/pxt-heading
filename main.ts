@@ -35,9 +35,9 @@ namespace heading {
         vDim: number; // vertical axis of this View
         uOff: number; // horizontal offset needed to re-centre the Ellipse along the U-axis
         vOff: number; // vertical offset needed to re-centre the Ellipse along the V-axis
+        turns: number; // scan rotation accumulator (in radians)
         // properties derived from the Spin-Circle scan:
         rSq: number;  // smoothed radius-squared
-        rSqWas: number; // previous smoothed radius-squared
         hiRsq: number; // max radius-squared 
         loRsq: number; // min radius-squared
         peaks: number[]; // array of indices of maxima
@@ -45,8 +45,14 @@ namespace heading {
         theta: number; // angle (in radians) anticlockwise from U-axis to major axis 
         cosTheta: number;
         sinTheta: number;
-        scale: number; // stretch in V needed to make Ellipse circular again 
+        scale: number; // stretch in V needed to make Ellipse circular again
+        // history:
+        thetaWas: number; // previous sample's theta
+        rSqWas: number; // previous sample's rSq
+        rSqWasWas: number // last-but-one sample's rSq
+        // others:
         semiPeriod: number; // this View's assessment of half of the rotation time
+        fromBelow: number; // rotation seen by this view of the clockwise scan
 
         constructor(plane: string, dim0: number, dim1: number, off0: number, off1: number) {
             this.plane = plane // (as a DEBUG aid)
@@ -57,34 +63,38 @@ namespace heading {
             this.peaks = []       
         }
 
-        // "The square on the hypotenuse..."
-        pythagoras(uRaw: number, vRaw: number): number {
+        // convert the raw values to (kind of) polar coordinates (rSq,theta)
+        // (no need to waste time extracting sqrt of rSq)
+        polarise(uRaw: number, vRaw: number) {
             let u = uRaw - this.uOff
             let v = vRaw - this.vOff
-            let r = (u * u) + (v * v)
-            return r
+            this.rSq = (u * u) + (v * v)
+            this.theta = Math.atan2(v,u)
         }
-
-
-        // initialise the smoothing history
+  
+        // initialise the smoothing and turning history
         firstSample(uRaw: number, vRaw:number) {
-            this.rSq = this.pythagoras(uRaw,vRaw)
+            this.polarise(uRaw, vRaw)
+            this.thetaWas = this.theta
+            this.rSqWasWas = this.rSq
             this.rSqWas = this.rSq
             this.hiRsq = this.rSq
             this.loRsq = this.rSq
-        }
+            this.turns = 0 // accumulates angle turned through by successive scan samples
+        } 
 
         // process another scan sample
         nextSample(index: number, uRaw: number, vRaw: number) {
             let previous = -Window // always permit first peak
+            this.polarise(uRaw, vRaw)
             // while tracking the radius, we use inertial smoothing to reduce multiple
             // spurious peak-detections due to minor fluctuations in readings
-            let smooth = (this.rSq * Inertia) + (this.pythagoras(uRaw, vRaw) * (1 - Inertia))
-            this.hiRsq = Math.max(this.hiRsq, smooth) // longest so far...
-            this.loRsq = Math.min(this.loRsq, smooth) // shortest so far...
+            this.rSq = (this.rSqWas * Inertia) + (this.rSq * (1 - Inertia))
+            this.hiRsq = Math.max(this.hiRsq, this.rSq) // longest so far...
+            this.loRsq = Math.min(this.loRsq, this.rSq) // shortest so far...
             // need to clock new peak if slope changes from rising to falling, but not too recently
-            if (   (this.rSq >= this.rSqWas) 
-                && (this.rSq >= smooth)
+            if (   (this.rSqWas > this.rSqWasWas) 
+                && (this.rSqWas >= this.rSq) // don't miss exactly horizontal peak!
                 && ((index - previous) >= Window) )  {
                 this.peaks.push(index) // (technically, previous sample was the peak, but we're near enough)
                 if (logging) {
@@ -97,8 +107,11 @@ namespace heading {
                 }
                 previous = index
             }
+            this.turns += this.theta - this.thetaWas// accumulate angle turned through
+            // update history
+            this.thetaWas = this.theta
+            this.rSqWasWas = this.rSqWas
             this.rSqWas = this.rSq
-            this.rSq = smooth
         }
 
         // analyse detected peaks[] to set transform rotation and scale; and measure period too
@@ -177,8 +190,7 @@ namespace heading {
     let toNorth = 0 // the angular bias to be added (so that North = 0)
     let strength = 0 // the average magnetic field-strength observed by the magnetometer
     let period = 0 // average rotation time derived from scanData[]
-    //let uFlip = 1 // set to -1 if uDim polarity is inverted
-    //let vFlip = 1 // set to -1 if vDim polarity is inverted
+    let fromBelow = false // set "true" if orientation means readings project backwards
 
     let logging = true  // logging mode flag
     let testing = false  // test mode flag
@@ -221,7 +233,8 @@ namespace heading {
             //datalogger.log(datalogger.createCV("trace", 1))
         }
         if (testing) {
-            simulateScan("Y-up") // Y-Axis vertical; spun around Y-Axis
+            //simulateScan("Y-up") // Y-Axis vertical; spun around Y-Axis
+            simulateScan("tetra")
             basic.pause(ms)
         } else {
 
@@ -368,37 +381,41 @@ namespace heading {
 
 
         // Choose the "roundest" Ellipse, the one with lowest (eccentricity = scale).
-        // While we're at it, derive the rotation period, in case anyone's interested.
-        // The other two (more eccentric) Ellipses will be more reliable for deriving period,
-        // so we collect all three semiPeriods, but then subtract the [bestView] version.
-
         bestView = View.XY
-        period = -views[View.XY].semiPeriod
-        
-        if (views[View.YZ].scale < views[bestView].scale) { 
-            bestView = View.YZ
-            period = -views[View.YZ].semiPeriod
-        }
-
-        if (views[View.ZX].scale < views[bestView].scale) {
-            bestView = View.ZX
-            period = -views[View.ZX].semiPeriod
-        }
-
-        period += views[View.XY].semiPeriod 
-                + views[View.YZ].semiPeriod 
-                + views[View.ZX].semiPeriod
+        if (views[View.YZ].scale < views[bestView].scale) bestView = View.YZ
+        if (views[View.ZX].scale < views[bestView].scale) bestView = View.ZX
 
         basic.clearScreen()
         basic.pause(100)
         basic.showString(views[bestView].plane)
         basic.pause(300)
 
-        // extract into globals for future brevity and efficiency...
+        // While we're at it, derive the scan rotation period, in case anyone's interested.
+        // The other two (more eccentric) Ellipses will be more reliable for deriving this,
+        let uPhase = 0
+        let vPhase = 0
+        switch (bestView) {
+            case View.XY:
+                period = views[View.YZ].semiPeriod + views[View.ZX].semiPeriod
+                break
+            case View.YZ:
+                period = views[View.ZX].semiPeriod + views[View.XY].semiPeriod
+                break
+            case View.ZX:
+                period = views[View.XY].semiPeriod + views[View.YZ].semiPeriod
+                break
+        }
+
+        
+        // Depending on mounting orientation, the bestView Ellipse could just be seeing the Spin-Circle
+        // from "underneath", effectively resulting in an anti-clockwise scan. Check turns:
+        fromBelow = views[bestView].turns > 0
+
+        // extract dims into globals for future brevity and efficiency...
         uDim = views[bestView].uDim
         vDim = views[bestView].vDim
 
-        // we've now finished with scanning data, so release its memory
+        // we've now finished with the scanning data, so release its memory
         scanTimes = []
         scanData = []
 
@@ -505,13 +522,14 @@ namespace heading {
             }
         }
 
-        // project reading from Ellipse-view to Spin-Circle, as radians anticlockwise from U-axis
+        // project the reading from Ellipse-view to Spin-Circle, as radians anticlockwise from U-axis
         let onCircle = views[bestView].project(uRaw, vRaw)
-
-        // subtracting "toNorth" gives an angle measured anticlockwise from North;
-        // negating this gives an angle measured clockwise from North
-        let angle = radians2degrees(toNorth - onCircle)
-        return angle
+        // subtract toNorth to get radians anticlockwise from North,
+        // which is just what we wanted if viewed "fromBelow"
+        let angle = onCircle - toNorth
+        // otherwise, negate heading angle to measure clockwise from North.
+        if (!fromBelow) angle = -angle
+        return radians2degrees(angle)
     }
 
     /**
