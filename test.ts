@@ -32,7 +32,7 @@ input.onButtonPressed(Button.A, function () {
                 case Config.Jig:
                     heading.setTestMode(false)
                     basic.showString("?") // manually rotate jig (SMOOOOTHLY!)
-                    result = heading.scan(10000)
+                    result = heading.scan(15000)
                     basic.pause(1000)
                     break
             }

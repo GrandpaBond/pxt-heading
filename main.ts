@@ -37,23 +37,22 @@ namespace heading {
         vOff: number; // vertical offset needed to re-centre the Ellipse along the V-axis
         // properties used in the Spin-Circle scan:
         rSq: number;  // latest sample's smoothed radius-squared
-        angle: number; // latest sample's polar angle
+        angle: number; // latest sample's polar angle on the Ellipse
         hiRsq: number; // max radius-squared 
         loRsq: number; // min radius-squared
-        //peaks: number[]; // array of indices of maxima
         // history:
         angleWas: number; // previous sample's angle
         rSqWas: number; // previous sample's rSq
         rSqWasWas: number // last-but-one sample's rSq
         // projection params from latest detected major axis:
         theta: number; // angle (in radians) anticlockwise from U-axis to major axis 
-        cosTheta: number;
-        sinTheta: number;
+        cosTheta: number; // save for efficiency
+        sinTheta: number; // ditto
         scale: number; // stretch in V needed to make Ellipse circular again
         // others:
         semiPeriod: number; // this View's assessment of half of the rotation time
         fromBelow: number; // rotation seen by this view of the clockwise scan
-        turned: number; // scan rotation accumulator (in radians)
+        turned: number; // scan rotation accumulator (in degrees)
 
 
         constructor(plane: string, dim0: number, dim1: number, off0: number, off1: number) {
@@ -65,30 +64,30 @@ namespace heading {
             //this.peaks = []       
         }
 
-        // convert the raw values to (kind of) polar coordinates (rSq,angle)
-        // (no need to waste time extracting sqrt of rSq)
+        // convert the raw values to (kind of) re-centred polar coordinates (rSq,angle)
+        // (no need to extract sqrt of rSq every time)
         polarise(uRaw: number, vRaw: number) {
             let u = uRaw - this.uOff
             let v = vRaw - this.vOff
             this.rSq = (u * u) + (v * v)
-            this.theta = Math.atan2(v,u)
+            this.angle = Math.atan2(v,u)
         }
   
         // initialise the smoothing and turning history
         firstSample(uRaw: number, vRaw:number) {
-            this.polarise(uRaw, vRaw) // derive [rSq,angle] for first sample
+            this.polarise(uRaw, vRaw) // derive (rSq,angle) for first sample
             this.angleWas = this.angle
             this.rSqWasWas = this.rSq
             this.rSqWas = this.rSq
             this.hiRsq = this.rSq
             this.loRsq = this.rSq
-            this.turned = 0 // accumulates angle turned through by successive scan samples
+            this.turned = 0 // accumulates angle turned through by successive batches of scan samples
         } 
 
         // process another scan sample
         nextSample(index: number, uRaw: number, vRaw: number) {
             let previous = -Window // always permit first peak
-            this.polarise(uRaw, vRaw) // derive [rSq,angle] for this sample
+            this.polarise(uRaw, vRaw) // derive (rSq, angle) for this sample
             // while tracking the radius, we use inertial smoothing to reduce multiple
             // spurious peak-detections due to minor fluctuations in readings
             this.rSq = (this.rSqWas * Inertia) + (this.rSq * (1 - Inertia))
@@ -103,8 +102,8 @@ namespace heading {
                 //this.peaks.push(index) // (technically, previous sample was the peak, but we're near enough)
                 this.theta = this.angle// remember axis angle
                 // we might as well remember these...
-                let cosTheta = Math.cos(this.theta)
-                let sinTheta = Math.sin(this.theta)
+                this.cosTheta = Math.cos(this.theta)
+                this.sinTheta = Math.sin(this.theta)
 
                 if (logging) {
                     datalogger.log(
@@ -116,11 +115,25 @@ namespace heading {
                 }
                 previous = index
             }
-            this.turned += (this.angle - this.angleWas) // accumulate angle turned through
-            // update history
-            this.angleWas = this.angle
+            // with tiny incremental angles, Math.atan2 inaccuracies become a problem,
+            // so we accumulate angle increments in batches of every 15 samples (~ 500 ms)
+            if ((index % 15) == 0) {
+                let delta = radians2degrees(this.angle) - radians2degrees(this.angleWas)
+                // cope with roll-rounds
+                if (delta < -300) delta +=360
+                if (delta > 300) delta -= 360
+                this.turned += delta 
+                this.angleWas = this.angle   
+            }
+            // update smoothing history
             this.rSqWasWas = this.rSqWas
             this.rSqWas = this.rSq
+        }
+
+        // Use the ratio of the detected extreme radii to derive the V-axis scaling factor
+        // needed to stretch the Ellipse back into a circle
+        setScale() {
+            this.scale = Math.sqrt(this.hiRsq / this.loRsq)
         }
 
         // Transform a point on the off-centre projected Ellipse back onto the centred Spin-Circle 
@@ -153,7 +166,6 @@ namespace heading {
             */
             return angle
         }
-        
     }
 
     // GLOBALS
@@ -206,12 +218,10 @@ namespace heading {
         if (logging) {
             datalogger.deleteLog()
             datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
-            //datalogger.setColumnTitles("trace")
-            //datalogger.log(datalogger.createCV("trace", 1))
         }
         if (testing) {
-            simulateScan("Y-up") // Y-Axis vertical; spun around Y-Axis
-            //simulateScan("tetra")
+           // simulateScan("Y-up") // Y-Axis vertical; spun around Y-Axis
+            simulateScan("tetra")
             basic.pause(ms)
         } else {
 
@@ -270,9 +280,9 @@ namespace heading {
 
     // Now analyse the scan-data to decide how best to use the magnetometer readings.
 
-        // we'll need at least ~3 second's worth of scanned readings...
+        // we'll typically need at least a couple of second's worth of scanned readings...
         let nSamples = scanTimes.length
-        if (nSamples < 100) {
+        if ((scanTimes[nSamples - 1] - scanTimes[0]) < 2000) {
             return -1 // "NOT ENOUGH SCAN DATA"
         }
         // Each dimension tracks a sinusoidal wave of values (generally not centred on zero).
@@ -336,6 +346,11 @@ namespace heading {
             strength += views[View.ZX].rSq
         }
 
+        // for each view, set the scaling needed to stretch its Ellipse into a circle again
+        views[View.XY].setScale()
+        views[View.YZ].setScale()
+        views[View.ZX].setScale()
+
    
         // check average overall field-strength (undoing the double-counting)
         strength = Math.sqrt((strength / 2) / nSamples)
@@ -343,7 +358,7 @@ namespace heading {
             return -2  // "FIELD STRENGTH TOO WEAK"
         }
 
-        // check that at least one View saw a complete rotation...
+        // check that at least one View saw a complete rotation (= 2*Pi radians)...
         if (   (views[View.XY].turned < 6.2832) 
             && (views[View.YZ].turned < 6.2832)
             && (views[View.ZX].turned < 6.2832) ) {
@@ -365,13 +380,13 @@ namespace heading {
         // Check polarity of turns:
         fromBelow = views[bestView].turned > 0
 
-        // extract dims into globals for future brevity and efficiency...
+        // extract some bestView fields into globals for future brevity and efficiency...
         uDim = views[bestView].uDim
         vDim = views[bestView].vDim
-
-        // use the bestView's turns to derive rotation period
-        let revs = views[bestView].turned / 6.2832 // (divide by 2*pi, as turns was in radians)
-        period = Math.abs(ms / revs)
+        
+        // derive scan rotation period from bestView cumulative rotation (in degrees)
+        // (re-derive scan-time in case we're testing with data that doesn't match ms param)
+        period = (scanTimes[nSamples - 1] - scanTimes[0]) * 360 / Math.abs(views[bestView].turned)
 
         // we've now finished with the scanning data, so release its memory
         scanTimes = []
@@ -387,7 +402,7 @@ namespace heading {
      * Read the magnetometer and register the buggy's current direction as "North",
      * (i.e. the direction that will in future return zero as its heading).
      * The actual direction the buggy is pointing when this function is called could be
-     * Magnetic North; True North (compensating for declination); or any convenient
+     * Magnetic North; True North (compensating for local declination); or any convenient
      * direction from which to measure subsequent heading angles.
      */
     //% block="set North" 
@@ -412,9 +427,7 @@ namespace heading {
             }
         }
 
-        
-
-        // get the projection angle of the [uRaw,vRaw] vector on the Spin-Circle 
+        // get the projection angle of the [uRaw,vRaw] vector on the Spin-Circle, 
         // and remember this as the (global) fixed bias to North
         toNorth = views[bestView].project(uRaw, vRaw)
 
@@ -453,7 +466,7 @@ namespace heading {
             uRaw = uData[test]
             vRaw = vData[test]
             test = (test+1) % uData.length
-            if (test > 7) test = 0 // roll round points of the compass
+            if (test > 7) test = 0 // roll round 8 points of the compass
         } else {
             // get the new position as the sum of seven readings
             uRaw = input.magneticForce(uDim)
@@ -472,6 +485,13 @@ namespace heading {
         let angle = onCircle - toNorth
         // otherwise, negate heading angle to measure clockwise from North.
         if (!fromBelow) angle = -angle
+        if (logging) {
+            datalogger.log(datalogger.createCV("uRaw", uRaw),
+                datalogger.createCV("vRaw", vRaw),
+                datalogger.createCV("onCircle", onCircle),
+                datalogger.createCV("toNorth", toNorth),
+                datalogger.createCV("angle", angle))
+        }
         return radians2degrees(angle)
     }
 
