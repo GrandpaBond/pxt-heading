@@ -1,6 +1,6 @@
 /**
  * An extension providing a compass-heading for a buggy located anywhere on the globe 
- * (except at the magnetic poles!), with any mounting orientation for the microbit.
+ * (except at the magnetic poles!), with any mounting orientation for its microbit.
  */
 
 //% color=#6080e0 weight=40 icon="\uf14e" block="Heading" 
@@ -37,7 +37,8 @@ namespace heading {
         vOff: number; // vertical offset needed to re-centre the Ellipse along the V-axis
         // properties used in the Spin-Circle scan:
         rSq: number;  // latest sample's smoothed radius-squared
-        angle: number; // latest sample's polar angle on the Ellipse
+        angle: number; // latest sample's polar angle on the Ellipse 
+        angleDegrees: number; // testing
         hiRsq: number; // max radius-squared 
         loRsq: number; // min radius-squared
         // history:
@@ -46,6 +47,7 @@ namespace heading {
         rSqWasWas: number // last-but-one sample's rSq
         // projection params from latest detected major axis:
         theta: number; // angle (in radians) anticlockwise from U-axis to major axis 
+        thetaDegrees: number; // testing
         cosTheta: number; // save for efficiency
         sinTheta: number; // ditto
         scale: number; // stretch in V needed to make Ellipse circular again
@@ -71,6 +73,7 @@ namespace heading {
             let v = vRaw - this.vOff
             this.rSq = (u * u) + (v * v)
             this.angle = Math.atan2(v,u)
+            this.angleDegrees = radians2degrees(this.angle)
         }
   
         // initialise the smoothing and turning history
@@ -94,46 +97,45 @@ namespace heading {
             this.hiRsq = Math.max(this.hiRsq, this.rSq) // longest so far...
             this.loRsq = Math.min(this.loRsq, this.rSq) // shortest so far...
 
-            // detect possible major axis, if slope changes from rising to falling, but not too recently
-            if (   (this.rSqWas > this.rSqWasWas) 
+            // if slope changes from rising to falling (but not too recently) we're passsing a major axis 
+            if (   (this.rSqWas > this.rSqWasWas)  
                 && (this.rSqWas >= this.rSq) // don't miss an exactly horizontal peak!
                 && ((index - previous) >= Window) )  {
-
-                //this.peaks.push(index) // (technically, previous sample was the peak, but we're near enough)
-                this.theta = this.angle// remember axis angle
-                // we might as well remember these...
-                this.cosTheta = Math.cos(this.theta)
-                this.sinTheta = Math.sin(this.theta)
+                this.theta = this.angle // remember most recent major axis angle
+                this.thetaDegrees = radians2degrees(this.theta)
 
                 if (logging) {
                     datalogger.log(
                         datalogger.createCV("view", this.plane),
                         datalogger.createCV("index", index),
                         datalogger.createCV("rSq", this.rSq),
-                        datalogger.createCV("theta", this.theta),
+                        datalogger.createCV("thetaDegrees", this.thetaDegrees),
                         datalogger.createCV("turned", this.turned))
                 }
                 previous = index
             }
-            // with tiny incremental angles, Math.atan2 inaccuracies become a problem,
-            // so we accumulate angle increments in batches of every 15 samples (~ 500 ms)
-            if ((index % 15) == 0) {
-                let delta = radians2degrees(this.angle) - radians2degrees(this.angleWas)
-                // cope with roll-rounds
-                if (delta < -300) delta +=360
-                if (delta > 300) delta -= 360
-                this.turned += delta 
-                this.angleWas = this.angle   
-            }
+
+            // accumulate incremental turns (and possibly also tiny math errors?)
+            let delta = radians2degrees(this.angle) - radians2degrees(this.angleWas)
+            // cope with roll-rounds
+            if (delta < -300) delta +=360
+            if (delta > 300) delta -= 360
+            this.turned += delta 
+            this.angleWas = this.angle   
+
             // update smoothing history
             this.rSqWasWas = this.rSqWas
             this.rSqWas = this.rSq
         }
 
-        // Use the ratio of the detected extreme radii to derive the V-axis scaling factor
-        // needed to stretch the Ellipse back into a circle
-        setScale() {
+        // set up projection metrics based on the most recently detected major axis
+        setProjection() {
+            // Use the ratio of the detected extreme radii to derive the V-axis scaling factor
+            // needed to stretch the Ellipse back into a circle            
             this.scale = Math.sqrt(this.hiRsq / this.loRsq)
+            // preset the rotation factors for aligning major axis with the U-axis
+            this.cosTheta = Math.cos(this.theta)
+            this.sinTheta = Math.sin(this.theta)
         }
 
         // Transform a point on the off-centre projected Ellipse back onto the centred Spin-Circle 
@@ -152,8 +154,10 @@ namespace heading {
 
             // derive projected angle (undoing the rotation we just applied)
             let angle = Math.atan2(vScaled, uNew) + this.theta
-            /* if (logging) {
-                datalogger.setColumnTitles("uRaw", "vRaw", "u", "v", "uNew", "vNew", "vScaled", "angle")
+            let degrees = radians2degrees(angle)
+
+            if (logging) {
+                datalogger.setColumnTitles("uRaw", "vRaw", "u", "v", "uNew", "vNew", "vScaled", "degrees")
                 datalogger.log(datalogger.createCV("uRaw", uRaw),
                     datalogger.createCV("vRaw", vRaw),
                     datalogger.createCV("u", u),
@@ -161,9 +165,9 @@ namespace heading {
                     datalogger.createCV("uNew", uNew),
                     datalogger.createCV("vNew", vNew),
                     datalogger.createCV("vScaled", vScaled),
-                    datalogger.createCV("angle", angle))
+                    datalogger.createCV("degrees", degrees))
             }
-            */
+
             return angle
         }
     }
@@ -327,7 +331,7 @@ namespace heading {
 
         if (logging) {
             // prepare for logging peaks within Ellipse.nextSample() function...
-            datalogger.setColumnTitles("view", "index", "Rsq", "theta","turned")
+            datalogger.setColumnTitles("view", "index", "Rsq", "thetaDegrees","turned")
         }
 
         // process scan from 2nd sample onwards...
@@ -346,10 +350,10 @@ namespace heading {
             strength += views[View.ZX].rSq
         }
 
-        // for each view, set the scaling needed to stretch its Ellipse into a circle again
-        views[View.XY].setScale()
-        views[View.YZ].setScale()
-        views[View.ZX].setScale()
+        // for each view, set up projection metrics, using the most recently detected major axis
+        views[View.XY].setProjection()
+        views[View.YZ].setProjection()
+        views[View.ZX].setProjection()
 
    
         // check average overall field-strength (undoing the double-counting)
@@ -409,7 +413,7 @@ namespace heading {
     //% inlineInputMode=inline 
     //% weight=80 
     export function setNorth() {
-        // We have successfully set up the projection parameters. Now we need to relate them to North.
+        // We have successfully set up the projection parameters. Now we need to relate them to "North".
         // Take the average of seven new readings to get a stable fix on the current heading
         let uRaw = 0
         let vRaw = 0
@@ -430,21 +434,22 @@ namespace heading {
         // get the projection angle of the [uRaw,vRaw] vector on the Spin-Circle, 
         // and remember this as the (global) fixed bias to North
         toNorth = views[bestView].project(uRaw, vRaw)
+        toNorthDegrees = radians2degrees(toNorth)
 
 
         if (logging) {
             datalogger.setColumnTitles("uDim", "vDim", "uOff", "vOff",
-              "theta", "scale", "period", "toNorth", "strength")
+              "thetaDegrees", "scale", "period", "toNorthDegrees", "strength")
 
             datalogger.log(
                 datalogger.createCV("uDim", uDim),
                 datalogger.createCV("vDim", vDim),
                 datalogger.createCV("uOff", views[bestView].uOff),
                 datalogger.createCV("vOff", views[bestView].vOff),
-                datalogger.createCV("theta", views[bestView].theta),
+                datalogger.createCV("theta", views[bestView].thetaDegrees,
                 datalogger.createCV("scale", views[bestView].scale),
                 datalogger.createCV("period", period),
-                datalogger.createCV("toNorth", toNorth),
+                datalogger.createCV("toNorthDegrees", toNorthDegrees),
                 datalogger.createCV("strength", strength))
         }
     }
@@ -480,17 +485,19 @@ namespace heading {
 
         // project the reading from Ellipse-view to Spin-Circle, as radians anticlockwise from U-axis
         let onCircle = views[bestView].project(uRaw, vRaw)
+        let onCircleDegrees = radians2degrees(onCircle)
         // subtract toNorth to get radians anticlockwise from North,
         // which is just what we wanted if viewed "fromBelow"
         let angle = onCircle - toNorth
+        let angleDegrees = radians2degrees(angle)
         // otherwise, negate heading angle to measure clockwise from North.
         if (!fromBelow) angle = -angle
         if (logging) {
             datalogger.log(datalogger.createCV("uRaw", uRaw),
                 datalogger.createCV("vRaw", vRaw),
-                datalogger.createCV("onCircle", onCircle),
-                datalogger.createCV("toNorth", toNorth),
-                datalogger.createCV("angle", angle))
+                datalogger.createCV("onCircleDegrees", onCircleDegrees),
+                datalogger.createCV("toNorthDegrees", toNorthDegrees),
+                datalogger.createCV("angleDegrees", angleDegrees))
         }
         return radians2degrees(angle)
     }
