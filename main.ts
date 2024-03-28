@@ -181,6 +181,7 @@ namespace heading {
     let uDim = -1 // the best "horizontal" axis (pointing East) for transformed readings (called U)
     let vDim = -1 // the best "vertical" axis (pointing North) for transformed readings (called V)
     let toNorth = 0 // the angular bias to be added (so that North = 0)
+    let toNorthDegrees = 0 // (testing)
     let strength = 0 // the average magnetic field-strength observed by the magnetometer
     let period = 0 // average rotation time derived from scanData[]
     let fromBelow = false // set "true" if orientation means readings project backwards
@@ -446,7 +447,7 @@ namespace heading {
                 datalogger.createCV("vDim", vDim),
                 datalogger.createCV("uOff", views[bestView].uOff),
                 datalogger.createCV("vOff", views[bestView].vOff),
-                datalogger.createCV("theta", views[bestView].thetaDegrees,
+                datalogger.createCV("theta", views[bestView].thetaDegrees),
                 datalogger.createCV("scale", views[bestView].scale),
                 datalogger.createCV("period", period),
                 datalogger.createCV("toNorthDegrees", toNorthDegrees),
