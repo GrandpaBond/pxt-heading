@@ -52,9 +52,10 @@ namespace heading {
         sinTheta: number; // ditto
         scale: number; // stretch in V needed to make Ellipse circular again
         // others:
-        semiPeriod: number; // this View's assessment of half of the rotation time
         fromBelow: number; // rotation seen by this view of the clockwise scan
-        turned: number; // scan rotation accumulator (in degrees)
+        firstAngle: number; // angle of first scan sample 
+        turned: number; // scan angle accumulator (in radians)
+        period: number; // this View's assessment of average rotation time
 
 
         constructor(plane: string, dim0: number, dim1: number, off0: number, off1: number) {
@@ -80,11 +81,12 @@ namespace heading {
         firstSample(uRaw: number, vRaw:number) {
             this.polarise(uRaw, vRaw) // derive (rSq,angle) for first sample
             this.angleWas = this.angle
+            this.firstAngle = this.angle
+            this.turned = 0
             this.rSqWasWas = this.rSq
             this.rSqWas = this.rSq
             this.hiRsq = this.rSq
             this.loRsq = this.rSq
-            this.turned = 0 // accumulates angle turned through by successive batches of scan samples
         } 
 
         // process another scan sample
@@ -96,13 +98,6 @@ namespace heading {
             let guess = this.rSqWas * ratio // projecting same grow/shrink factor
             this.rSq = (guess * Inertia) + (this.rSq * (1 - Inertia)) // deflect by new value
 
-            if (this.rSq < 0) {
-                basic.clearScreen()
-                basic.showIcon(IconNames.Surprised)
-                basic.pause(100)
-                basic.showNumber(this.rSq)
-                basic.pause(300)
-            }
             // If slope changes from rising to falling we've potentially just passed a major-axis.
             if (   (ratio >= 1) // was rising or level...
                 && (this.rSq < this.rSqWas)) { // ... but now definitely falling
@@ -111,41 +106,43 @@ namespace heading {
                     this.hiRsq = this.rSqWas
                     this.theta = this.angleWas
                     this.thetaDegrees = radians2degrees(this.theta) // (while testing)
-
-                    if (logging) {
-                        datalogger.log(
-                            datalogger.createCV("view", this.plane),
-                            datalogger.createCV("index", index),
-                            datalogger.createCV("rSq", this.rSq),
-                            datalogger.createCV("thetaDegrees", this.thetaDegrees),
-                            datalogger.createCV("turned", this.turned))
-                    }
+ 
                 }
             }
             // also keep track of the smallest minor-axis radius
             this.loRsq = Math.min(this.loRsq, this.rSq) // shortest so far...
 
-            // accumulate incremental turns (and possibly also tiny math errors?)
-            let delta = radians2degrees(this.angle) - radians2degrees(this.angleWas)
-            // cope with roll-rounds
-            if (delta < -300) delta +=360
-            if (delta > 300) delta -= 360
-            this.turned += delta 
+            // keep track of complete revolutions, by detecting roll-round
+            if ((this.angleWas < 0) && (this.angle > 0)) this.turned += 2 * Math.PI
             this.angleWas = this.angle   
+
+            if (logging && testing) {
+                datalogger.log(
+                    datalogger.createCV("view", this.plane),
+                    datalogger.createCV("index", index),
+                    datalogger.createCV("loRsq", this.loRsq),
+                    datalogger.createCV("rSq", this.rSq),
+                    datalogger.createCV("hiRsq", this.hiRsq),
+                    datalogger.createCV("thetaDegrees", this.thetaDegrees),
+                    datalogger.createCV("turned", this.turned))
+            }
 
             // update smoothing history
             this.rSqWasWas = this.rSqWas
             this.rSqWas = this.rSq
         }
 
-        // set up projection metrics based on the most recently detected major axis
-        setProjection() {
+        // perform final analysis after scanning
+        finish() {        
+            // Preset the rotation factors for aligning major axis with the U-axis
+            this.cosTheta = Math.cos(this.theta)
+            this.sinTheta = Math.sin(this.theta)
             // Use the ratio of the detected extreme radii to derive the V-axis scaling factor
             // needed to stretch the Ellipse back into a circle            
             this.scale = Math.sqrt(this.hiRsq / this.loRsq)
-            // preset the rotation factors for aligning major axis with the U-axis
-            this.cosTheta = Math.cos(this.theta)
-            this.sinTheta = Math.sin(this.theta)
+            // Work out the total scanned angle and derive the rotation period
+            let revs = (this.angle + this.turned - this.firstAngle) / (2 * Math.PI)
+            this.period = scanTime / revs
         }
 
         // Transform a point on the off-centre projected Ellipse back onto the centred Spin-Circle 
@@ -173,6 +170,7 @@ namespace heading {
    
     let scanTimes: number[]  = [] // sequence of time-stamps for scanned readings 
     let scanData: number[][] = [] // scanned sequence of [X,Y,Z] magnetometer readings
+    let scanTime: number = 0 // duration of scan in ms
     let views: Ellipse[] = [] // the three possible elliptical views of the Spin-Circle
     let bestView = -1
     let uDim = -1 // the best "horizontal" axis (pointing East) for transformed readings (called U)
@@ -180,7 +178,6 @@ namespace heading {
     let toNorth = 0 // the angular bias to be added (so that North = 0)
     let toNorthDegrees = 0 // (testing)
     let strength = 0 // the average magnetic field-strength observed by the magnetometer
-    let period = 0 // average rotation time derived from scanData[]
     let fromBelow = false // set "true" if orientation means readings project backwards
 
     let logging = true  // logging mode flag
@@ -267,7 +264,7 @@ namespace heading {
             }
         }
         
-        if (logging) {
+        if (logging && !testing) {
 
             datalogger.setColumnTitles("index","t","x","y","z")
             for (let i = 0; i < scanTimes.length; i++) {
@@ -284,7 +281,8 @@ namespace heading {
 
         // we'll typically need at least a couple of second's worth of scanned readings...
         let nSamples = scanTimes.length
-        if ((scanTimes[nSamples - 1] - scanTimes[0]) < 2000) {
+        scanTime = scanTimes[nSamples - 1] - scanTimes[0]
+        if (scanTime < 2000) {
             return -1 // "NOT ENOUGH SCAN DATA"
         }
         // Each dimension tracks a sinusoidal wave of values (generally not centred on zero).
@@ -327,10 +325,6 @@ namespace heading {
         views[View.YZ].firstSample(yRaw, zRaw)
         views[View.ZX].firstSample(zRaw, xRaw)
 
-        if (logging) {
-            // prepare for logging peaks within Ellipse.nextSample() function...
-            datalogger.setColumnTitles("view", "index", "Rsq", "thetaDegrees","turned")
-        }
 
         // process scan from 2nd sample onwards...
         for (let j = 1; j < nSamples; j++) {
@@ -348,22 +342,22 @@ namespace heading {
             strength += views[View.ZX].rSq
         }
 
-        // for each view, set up projection metrics, using the most recently detected major axis
-        views[View.XY].setProjection()
-        views[View.YZ].setProjection()
-        views[View.ZX].setProjection()
-
-   
-        // check average overall field-strength (undoing the double-counting)
+         // check average overall field-strength (undoing the double-counting)
         strength = Math.sqrt((strength / 2) / nSamples)
         if (strength < MarginalField) {
             return -2  // "FIELD STRENGTH TOO WEAK"
         }
 
-        // check that at least one View saw a complete rotation (= 2*Pi radians)...
-        if (   (views[View.XY].turned < 6.2832) 
-            && (views[View.YZ].turned < 6.2832)
-            && (views[View.ZX].turned < 6.2832) ) {
+        // for each view, set up projection metrics, using the most recently detected major axis
+        // Also derive rotation period (should match between views!)
+        views[View.XY].finish()
+        views[View.YZ].finish()
+        views[View.ZX].finish()
+   
+       // check that at least one View saw a complete rotation (= 2*Pi radians)...
+        if (   (views[View.XY].turned < (2 * Math.PI))
+            && (views[View.YZ].turned < (2 * Math.PI))
+            && (views[View.ZX].turned < (2 * Math.PI)) ) {
             return -3 // "NOT ENOUGH SCAN ROTATION"
         }
 
@@ -386,10 +380,6 @@ namespace heading {
         uDim = views[bestView].uDim
         vDim = views[bestView].vDim
         
-        // derive scan rotation period from bestView cumulative rotation (in degrees)
-        // (re-derive scan-time in case we're testing with data that doesn't match ms param)
-        period = (scanTimes[nSamples - 1] - scanTimes[0]) * 360 / Math.abs(views[bestView].turned)
-
         // we've now finished with the scanning data, so release its memory
         scanTimes = []
         scanData = []
@@ -446,7 +436,7 @@ namespace heading {
                 datalogger.createCV("vOff", views[bestView].vOff),
                 datalogger.createCV("theta", views[bestView].thetaDegrees),
                 datalogger.createCV("scale", views[bestView].scale),
-                datalogger.createCV("period", period),
+                datalogger.createCV("period", views[bestView].period),
                 datalogger.createCV("toNorthDegrees", toNorthDegrees),
                 datalogger.createCV("strength", strength))
         }
@@ -507,10 +497,10 @@ namespace heading {
     //% inlineInputMode=inline 
     //% weight=50 
     export function scanRPM(): number {
-        if (period <= 0) {
+        if (views[bestView].period <= 0) {
             return -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
         } else {
-            return 60000 / period
+            return 60000 / views[bestView].period
         }
     }
 
