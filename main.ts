@@ -42,9 +42,9 @@ namespace heading {
         hiRsq: number; // max radius-squared 
         loRsq: number; // min radius-squared
         // history:
-        angleWas: number; // previous sample's angle
+        rSqStep: number // previous sample's change in rSq
         rSqWas: number; // previous sample's rSq
-        rSqWasWas: number // last-but-one sample's rSq
+        angleWas: number; // previous sample's angle
         // projection params from latest detected major axis:
         theta: number; // angle (in radians) anticlockwise from U-axis to major axis 
         thetaDegrees: number; // testing
@@ -73,48 +73,44 @@ namespace heading {
             let u = uRaw - this.uOff
             let v = vRaw - this.vOff
             this.rSq = (u * u) + (v * v)
-            this.angle = Math.atan2(v,u)
-            this.angleDegrees = radians2degrees(this.angle)
+            this.angle = Math.atan2(v, u)
+            this.angleDegrees = radians2degrees(this.angle) // for testing
         }
-  
-        // initialise the smoothing and turning history
-        firstSample(uRaw: number, vRaw:number) {
+
+        // initialise the smoothing and turning histories
+        firstSample(uRaw: number, vRaw: number) {
             this.polarise(uRaw, vRaw) // derive (rSq,angle) for first sample
-            this.angleWas = this.angle
             this.firstAngle = this.angle
             this.turned = 0
-            this.rSqWasWas = this.rSq
             this.rSqWas = this.rSq
-            this.hiRsq = this.rSq
-            this.loRsq = this.rSq
-        } 
+            this.hiRsq = this.rSq / 2 // infeasibly low
+            this.loRsq = this.rSq * 2 // infeasibly high
+        }
 
         // process another scan sample
         nextSample(index: number, uRaw: number, vRaw: number) {
-            this.polarise(uRaw, vRaw) // derive (rSq, angle) for this sample
-            // While tracking the radius, we use inertial smoothing to reduce multiple
-            // spurious peak-detections due to minor fluctuations in readings
-            let ratio = this.rSqWas / this.rSqWasWas
-            let guess = this.rSqWas * ratio // projecting same grow/shrink factor
-            this.rSq = (guess * Inertia) + (this.rSq * (1 - Inertia)) // deflect by new value
-
+            this.rSqStep = this.rSq - this.rSqWas // most recent slope
+            this.rSqWas = this.rSq
+            this.angleWas = this.angle
+            this.polarise(uRaw, vRaw) // derive new (rSq, angle) for this samples
             // If slope changes from rising to falling we've potentially just passed a major-axis.
-            if (   (ratio >= 1) // was rising or level...
+            if (   (this.rSqStep >= 0) // was rising or level...
                 && (this.rSq < this.rSqWas)) { // ... but now definitely falling
-                // New peak! if radius is longest so far, adopt it as definitive for now
+                // New peak! if last radius was longest so far, adopt it as definitive U-axis
                 if (this.rSqWas > this.hiRsq) {
                     this.hiRsq = this.rSqWas
                     this.theta = this.angleWas
                     this.thetaDegrees = radians2degrees(this.theta) // (while testing)
- 
                 }
             }
             // also keep track of the smallest minor-axis radius
-            this.loRsq = Math.min(this.loRsq, this.rSq) // shortest so far...
+            if (this.rSqWas < this.loRsq) {
+                this.rSqWas = this.loRsq  // shortest so far...
+            }
 
-            // keep track of complete revolutions, by detecting roll-round
+            // keep track of complete revolutions, by detecting roll-rounds (in either direction)
             if ((this.angleWas < 0) && (this.angle > 0)) this.turned += 2 * Math.PI
-            this.angleWas = this.angle   
+            if ((this.angleWas > 0) && (this.angle < 0)) this.turned -= 2 * Math.PI
 
             if (logging && testing) {
                 datalogger.log(
@@ -126,14 +122,10 @@ namespace heading {
                     datalogger.createCV("thetaDegrees", this.thetaDegrees),
                     datalogger.createCV("turned", this.turned))
             }
-
-            // update smoothing history
-            this.rSqWasWas = this.rSqWas
-            this.rSqWas = this.rSq
         }
 
         // perform final analysis after scanning
-        finish() {        
+        finish() {
             // Preset the rotation factors for aligning major axis with the U-axis
             this.cosTheta = Math.cos(this.theta)
             this.sinTheta = Math.sin(this.theta)
@@ -167,8 +159,8 @@ namespace heading {
     }
 
     // GLOBALS
-   
-    let scanTimes: number[]  = [] // sequence of time-stamps for scanned readings 
+
+    let scanTimes: number[] = [] // sequence of time-stamps for scanned readings 
     let scanData: number[][] = [] // scanned sequence of [X,Y,Z] magnetometer readings
     let scanTime: number = 0 // duration of scan in ms
     let views: Ellipse[] = [] // the three possible elliptical views of the Spin-Circle
@@ -219,8 +211,8 @@ namespace heading {
             datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
         }
         if (testing) {
-           simulateScan("Y-up") // Y-Axis vertical; spun around Y-Axis
-            // simulateScan("tetra")
+            // simulateScan("Y-up") // Y-Axis vertical; spun around Y-Axis
+            simulateScan("tetra")
             basic.pause(ms)
         } else {
 
@@ -231,7 +223,7 @@ namespace heading {
             let xRoll: number[] = []
             let yRoll: number[] = []
             let zRoll: number[] = []
-            // take the first six readings...
+            // collect the first six readings...
             for (let k = 0; k < 6; k++) {
                 xRoll.push(input.magneticForce(0))
                 yRoll.push(input.magneticForce(1))
@@ -239,19 +231,19 @@ namespace heading {
                 basic.pause(25)
             }
 
+            // continue cranking out rolling sums, adding a new reading and dropping the oldest
+
             let x = 0
             let y = 0
             let z = 0
-            // continue cranking out rolling sums, adding a new reading and dropping the oldest
-            // to each of the
             while (now < finish) {
                 now = input.runningTime()
                 scanTimes.push(now - 100) // the time of the middle readings (roughly)
                 basic.pause(25)
-                xRoll.push(input.magneticForce(0))
+                xRoll.push(input.magneticForce(0)) // add 7th reading
                 x = 0
-                xRoll.forEach(a => x += a) // collect x sum
-                xRoll.shift()
+                xRoll.forEach(a => x += a) // collect x as sum of 7 readings
+                xRoll.shift() // lose first reading
                 yRoll.push(input.magneticForce(1))
                 y = 0
                 yRoll.forEach(a => y += a) // collect y sum
@@ -260,13 +252,13 @@ namespace heading {
                 z = 0
                 zRoll.forEach(a => z += a) // collect z sum
                 zRoll.shift()
-                scanData.push([x,y,z]) // add new reading
+                scanData.push([x, y, z]) // add new 3-D reading
             }
         }
-        
+
         if (logging && !testing) {
 
-            datalogger.setColumnTitles("index","t","x","y","z")
+            datalogger.setColumnTitles("index", "t", "x", "y", "z")
             for (let i = 0; i < scanTimes.length; i++) {
                 datalogger.log(
                     datalogger.createCV("index", i),
@@ -277,7 +269,7 @@ namespace heading {
             }
         }
 
-    // Now analyse the scan-data to decide how best to use the magnetometer readings.
+        // Now analyse the scan-data to decide how best to use the magnetometer readings.
 
         // we'll typically need at least a couple of second's worth of scanned readings...
         let nSamples = scanTimes.length
@@ -297,8 +289,10 @@ namespace heading {
         for (let i = 0; i < nSamples; i++) {
             xhi = Math.max(xhi, scanData[i][Dim.X])
             xlo = Math.min(xlo, scanData[i][Dim.X])
+
             yhi = Math.max(yhi, scanData[i][Dim.Y])
             ylo = Math.min(ylo, scanData[i][Dim.Y])
+
             zhi = Math.max(zhi, scanData[i][Dim.Z])
             zlo = Math.min(zlo, scanData[i][Dim.Z])
         }
@@ -315,8 +309,8 @@ namespace heading {
 
         // Now assess eccentricities by looking for the shortest and longest radii for each Ellipse.
         strength = 0 // initialise global field-strength-squared accumulator
-        
-        // initialise the smoothed radii and their limits to their first (unsmoothed) values
+
+        // initialise the radii-squared and their limits to their first values
         let xRaw = scanData[0][Dim.X]
         let yRaw = scanData[0][Dim.Y]
         let zRaw = scanData[0][Dim.Z]
@@ -342,7 +336,7 @@ namespace heading {
             strength += views[View.ZX].rSq
         }
 
-         // check average overall field-strength (undoing the double-counting)
+        // check average overall field-strength (undoing the double-counting)
         strength = Math.sqrt((strength / 2) / nSamples)
         if (strength < MarginalField) {
             return -2  // "FIELD STRENGTH TOO WEAK"
@@ -353,11 +347,11 @@ namespace heading {
         views[View.XY].finish()
         views[View.YZ].finish()
         views[View.ZX].finish()
-   
-       // check that at least one View saw a complete rotation (= 2*Pi radians)...
-        if (   (views[View.XY].turned < (2 * Math.PI))
+
+        // check that at least one View saw a complete rotation (= 2*Pi radians)...
+        if ((views[View.XY].turned < (2 * Math.PI))
             && (views[View.YZ].turned < (2 * Math.PI))
-            && (views[View.ZX].turned < (2 * Math.PI)) ) {
+            && (views[View.ZX].turned < (2 * Math.PI))) {
             return -3 // "NOT ENOUGH SCAN ROTATION"
         }
 
@@ -370,7 +364,7 @@ namespace heading {
         basic.pause(100)
         basic.showString(views[bestView].plane)
         basic.pause(300)
-        
+
         // Depending on mounting orientation, the bestView Ellipse might possibly be seeing the 
         // Spin-Circle from "underneath", effectively resulting in an anti-clockwise scan.
         // Check polarity of turns:
@@ -379,7 +373,7 @@ namespace heading {
         // extract some bestView fields into globals for future brevity and efficiency...
         uDim = views[bestView].uDim
         vDim = views[bestView].vDim
-        
+
         // we've now finished with the scanning data, so release its memory
         scanTimes = []
         scanData = []
@@ -427,7 +421,7 @@ namespace heading {
 
         if (logging) {
             datalogger.setColumnTitles("uDim", "vDim", "uOff", "vOff",
-              "thetaDegrees", "scale", "period", "toNorthDegrees", "strength")
+                "thetaDegrees", "scale", "period", "toNorthDegrees", "strength")
 
             datalogger.log(
                 datalogger.createCV("uDim", uDim),
@@ -441,7 +435,7 @@ namespace heading {
                 datalogger.createCV("strength", strength))
         }
     }
-  
+
 
 
 
@@ -458,7 +452,7 @@ namespace heading {
         if (testing) {
             uRaw = uData[test]
             vRaw = vData[test]
-            test = (test+1) % uData.length
+            test = (test + 1) % uData.length
             if (test > 7) test = 0 // roll round 8 points of the compass
         } else {
             // get the new position as the sum of seven readings
@@ -525,7 +519,7 @@ namespace heading {
 
 
 
-// UTILITY FUNCTIONS
+    // UTILITY FUNCTIONS
 
     // convert angle from radians to degrees in the range 0..360
     function radians2degrees(angle: number): number {
@@ -541,6 +535,17 @@ namespace heading {
         let zData: number[] = []
         switch (dataset) {
             case "Y-up": // Y-axis vertical; spun around Y-axis
+
+            /*
+index, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171
+t, 10844, 10872, 10900, 10928, 10956, 10984, 11012, 11040, 11068, 11098, 11124, 11152, 11180, 11208, 11236, 11264, 11292, 11320, 11348, 11376, 11404, 11432, 11460, 11488, 11516, 11544, 11572, 11600, 11628, 11659, 11684, 11712, 11740, 11768, 11796, 11824, 11852, 11880, 11908, 11936, 11964, 11992, 12020, 12048, 12076, 12107, 12132, 12160, 12188, 12216, 12244, 12272, 12300, 12328, 12356, 12384, 12413, 12440, 12468, 12496, 12524, 12552, 12583, 12608, 12636, 12665, 12692, 12720, 12748, 12776, 12804, 12832, 12860, 12888, 12917, 12947, 12972, 13000, 13028, 13056, 13084, 13112, 13140, 13168, 13196, 13224, 13252, 13280, 13311, 13336, 13364, 13392, 13421, 13448, 13476, 13504, 13532, 13560, 13588, 13616, 13647, 13672, 13700, 13728, 13756, 13784, 13812, 13844, 13872, 13900, 13928, 13956, 13984, 14012, 14041, 14069, 14097, 14127, 14152, 14180, 14208, 14236, 14264, 14293, 14320, 14352, 14380, 14408, 14436, 14464, 14492, 14520, 14552, 14580, 14608, 14636, 14665, 14692, 14721, 14752, 14780, 14808, 14837, 14865, 14893, 14924, 14953, 14980, 15008, 15036, 15068, 15096, 15124, 15152, 15180, 15212, 15240, 15268, 15296, 15325, 15356, 15384, 15412, 15441, 15472, 15500, 15529, 15557, 15588, 15616, 15644, 15676
+x, -223.35, -253.35, -259.80, -264.90, -269.40, -274.35, -278.25, -280.35, -282.45, -283.50, -284.40, -285.45, -286.65, -287.70, -288.15, -289.20, -289.65, -289.65, -289.05, -288.15, -286.35, -285.00, -283.80, -281.70, -279.30, -277.95, -274.05, -270.60, -267.60, -263.55, -259.65, -256.20, -252.30, -249.30, -245.25, -241.05, -236.25, -231.60, -226.80, -221.85, -217.65, -213.90, -209.40, -205.20, -201.15, -196.80, -191.55, -186.30, -180.45, -175.05, -169.95, -163.65, -158.70, -152.70, -147.30, -142.05, -137.70, -132.15, -127.20, -121.80, -116.70, -110.85, -105.15, -98.40, -93.60, -88.35, -82.05, -77.40, -73.95, -70.05, -66.45, -62.10, -59.10, -57.00, -54.75, -51.90, -50.25, -48.45, -48.00, -47.10, -46.35, -45.90, -45.15, -44.85, -46.05, -45.30, -47.10, -48.75, -50.55, -51.75, -52.95, -54.90, -58.05, -60.30, -63.15, -66.15, -69.90, -75.00, -79.35, -84.30, -89.70, -94.20, -98.85, -104.55, -109.80, -115.80, -120.90, -126.00, -132.15, -139.35, -145.65, -151.65, -156.30, -161.25, -166.35, -170.85, -175.20, -180.30, -184.95, -190.05, -195.45, -200.70, -205.80, -210.90, -214.50, -219.15, -223.05, -227.70, -231.60, -236.25, -240.45, -245.40, -250.50, -255.00, -259.05, -262.95, -266.55, -269.55, -272.25, -273.30, -275.40, -277.65, -280.35, -282.75, -284.55, -286.05, -288.15, -289.35, -290.85, -291.45, -290.55, -290.85, -290.40, -289.80, -290.10, -287.85, -285.75, -285.00, -283.35, -282.30, -280.80, -277.65, -276.00, -273.60, -271.20, -267.75, -263.10, -259.50, -254.70, -249.60, -244.35, -237.60
+y, -27.30, -27.00, -26.85, -26.70, -26.40, -26.85, -27.00, -26.55, -26.55, -27.00, -27.30, -28.05, -27.60, -27.60, -27.30, -27.00, -26.40, -27.15, -26.85, -27.45, -27.90, -28.65, -29.10, -29.70, -29.40, -30.00, -29.85, -30.30, -29.25, -28.95, -28.50, -28.20, -27.30, -27.15, -26.85, -27.75, -28.35, -28.50, -28.35, -28.20, -28.20, -28.95, -29.10, -29.40, -30.30, -30.60, -31.35, -31.95, -31.20, -31.05, -30.45, -30.00, -30.00, -29.25, -29.25, -29.25, -28.95, -29.40, -28.80, -28.80, -29.85, -29.85, -29.25, -30.00, -30.30, -30.30, -29.70, -30.00, -30.90, -32.10, -32.40, -31.95, -33.00, -34.50, -34.35, -33.00, -33.30, -33.30, -33.30, -33.00, -32.70, -32.55, -33.30, -32.70, -32.55, -33.15, -33.45, -34.20, -33.90, -34.35, -34.20, -33.45, -33.30, -33.00, -31.65, -31.95, -30.90, -30.30, -30.00, -29.40, -29.85, -29.85, -28.95, -28.50, -28.20, -28.20, -29.10, -28.50, -28.05, -28.65, -29.10, -29.40, -29.85, -28.95, -28.95, -29.10, -28.50, -27.75, -28.05, -27.00, -27.30, -26.10, -25.35, -25.05, -25.20, -24.90, -24.75, -23.55, -24.15, -24.60, -24.75, -25.20, -24.90, -26.40, -27.00, -27.45, -27.45, -28.35, -28.35, -28.80, -27.75, -28.20, -28.20, -29.25, -27.90, -27.75, -27.30, -28.05, -27.30, -27.60, -27.75, -28.20, -28.05, -27.90, -27.60, -28.35, -27.30, -26.70, -27.15, -27.90, -28.50, -28.05, -27.75, -27.90, -27.30, -26.70, -26.55, -26.55, -27.15, -27.60, -28.05, -28.50
+z, -131.85, -148.35, -143.10, -137.10, -131.70, -127.80, -121.20, -115.80, -109.50, -103.05, -96.45, -90.00, -83.40, -79.05, -73.20, -67.65, -62.40, -57.45, -53.55, -47.25, -41.10, -34.80, -30.60, -25.80, -20.25, -13.50, -9.30, -4.35, 0.30, 6.30, 11.10, 14.70, 18.15, 22.95, 26.55, 29.40, 31.35, 34.50, 37.20, 40.05, 41.55, 42.90, 45.30, 47.40, 48.75, 50.25, 52.20, 52.95, 54.30, 52.95, 52.80, 53.25, 53.25, 51.90, 51.45, 50.40, 50.85, 49.95, 48.15, 46.50, 43.95, 41.85, 38.10, 34.05, 29.70, 24.75, 20.70, 16.65, 12.15, 8.25, 3.75, -1.65, -6.15, -12.75, -18.90, -25.65, -32.85, -38.40, -43.35, -49.05, -54.00, -59.40, -64.35, -68.40, -73.95, -79.35, -84.45, -89.40, -93.90, -99.45, -105.15, -110.25, -114.75, -120.00, -126.15, -130.05, -135.60, -140.10, -144.60, -148.50, -153.00, -156.90, -162.00, -164.55, -166.80, -169.95, -174.15, -177.00, -178.80, -180.75, -182.85, -185.40, -186.60, -186.45, -185.85, -187.20, -187.20, -186.45, -185.55, -185.40, -185.25, -184.05, -181.05, -179.85, -178.50, -177.00, -174.30, -172.20, -171.00, -168.45, -165.15, -161.25, -157.50, -153.60, -149.25, -144.75, -141.00, -138.60, -135.75, -130.95, -127.35, -123.90, -119.55, -114.90, -108.75, -102.90, -98.40, -91.95, -85.80, -80.40, -75.15, -69.75, -63.30, -57.45, -52.80, -47.85, -42.60, -36.90, -31.50, -28.80, -23.55, -18.90, -13.80, -8.85, -4.35, 0.60, 6.45, 10.20, 15.15, 19.80, 25.20, 28.20
+U, -22.65, -111.6, -175.5, -180.15, -115.35, -20.55, 44.70, 43.95, -17.10
+V, -54.75, -57.3, -127.95, -219.3, -286.8, -280.20, -210.90, -119.40, -52.95
+
+            */
                 scanTimes = [12068, 12096, 12124, 12152, 12180, 12208, 12236, 12264, 12292, 12322, 12348, 12376, 12404, 12432, 12460, 12488, 12516, 12544, 12572, 12600, 12628, 12656, 12684, 12712, 12740, 12768, 12796, 12824, 12852, 12883, 12908, 12936, 12964, 12992, 13020, 13048, 13076, 13104, 13132, 13160, 13188, 13216, 13244, 13272, 13300, 13328, 13359, 13384, 13412, 13440, 13468, 13496, 13524, 13552, 13580, 13608, 13636, 13664, 13692, 13720, 13748, 13776, 13807, 13832, 13860, 13888, 13916, 13944, 13972, 14000, 14028, 14056, 14084, 14112, 14140, 14171, 14196, 14224, 14252, 14280, 14308, 14336, 14364, 14392, 14420, 14448, 14476, 14504, 14535, 14560, 14588, 14616, 14644, 14672, 14701, 14728, 14756, 14784, 14812, 14844, 14872, 14900, 14928, 14956, 14984, 15012, 15041, 15072, 15100, 15128, 15156, 15184, 15212, 15240, 15268, 15297, 15328, 15356, 15384, 15412, 15440, 15468, 15496, 15524, 15556, 15584, 15612, 15640, 15668, 15696, 15724, 15752, 15784, 15812, 15840, 15868, 15896, 15924, 15952, 15984, 16012, 16040, 16068, 16097, 16124, 16156, 16184, 16213, 16240, 16268, 16300, 16329, 16356, 16384, 16412, 16444, 16472, 16500, 16528, 16556, 16588, 16616, 16644, 16672, 16704, 16732, 16760, 16788, 16820, 16848, 16876, 16908]
                 xData = [-160.80, -184.05, -191.85, -198.90, -207.30, -213.60, -221.70, -227.85, -232.35, -237.75, -243.00, -248.25, -252.45, -255.90, -260.85, -265.05, -268.65, -272.70, -275.10, -279.00, -281.70, -283.20, -285.75, -287.55, -288.45, -289.95, -290.70, -291.15, -291.75, -291.15, -291.00, -289.95, -289.35, -288.00, -287.55, -286.05, -285.00, -283.05, -282.00, -279.90, -277.65, -274.50, -270.30, -266.40, -261.75, -256.05, -251.25, -247.05, -241.95, -237.30, -232.35, -227.40, -223.95, -218.55, -212.85, -207.45, -203.70, -197.85, -192.30, -186.90, -181.65, -175.65, -170.25, -163.05, -156.00, -150.60, -144.30, -138.15, -132.30, -126.45, -121.50, -116.55, -111.15, -105.15, -100.20, -95.85, -90.75, -84.60, -80.10, -75.30, -72.00, -68.10, -63.60, -59.55, -57.15, -54.90, -52.95, -50.55, -48.30, -47.40, -47.25, -47.85, -48.15, -48.90, -50.10, -53.10, -55.80, -58.95, -61.20, -64.35, -67.95, -72.15, -76.05, -80.40, -83.40, -87.75, -91.65, -94.20, -97.65, -102.00, -104.85, -109.80, -112.65, -117.90, -124.95, -131.10, -135.90, -142.35, -147.30, -153.90, -159.75, -164.70, -169.95, -174.60, -180.00, -186.75, -192.90, -197.85, -202.80, -206.40, -211.35, -214.80, -219.30, -223.20, -226.35, -229.80, -234.45, -238.20, -242.10, -244.80, -248.40, -253.20, -256.80, -260.55, -264.30, -267.30, -271.80, -274.65, -277.20, -280.50, -282.45, -285.45, -288.60, -289.50, -290.55, -291.45, -292.80, -292.35, -292.05, -292.05, -291.45, -291.45, -290.55, -287.70, -287.70, -286.80, -284.85, -281.70, -279.30, -275.85, -273.75, -269.55]
                 yData = [-16.50, -16.65, -15.75, -14.55, -14.70, -14.25, -14.55, -14.25, -14.40, -14.70, -14.40, -14.25, -14.10, -13.95, -14.25, -14.10, -13.95, -14.40, -14.25, -15.15, -15.00, -15.00, -15.45, -15.90, -15.75, -16.20, -15.45, -15.45, -16.05, -15.15, -14.40, -14.55, -14.55, -14.70, -14.70, -13.80, -14.25, -15.00, -15.00, -14.70, -14.70, -14.55, -14.40, -14.70, -14.70, -14.40, -15.00, -14.85, -15.45, -15.45, -15.60, -15.15, -14.55, -13.95, -13.95, -13.50, -14.55, -15.15, -15.90, -16.95, -17.25, -17.70, -18.30, -17.70, -18.00, -17.10, -16.50, -17.10, -16.95, -16.05, -15.75, -14.40, -14.40, -14.85, -13.95, -14.10, -14.25, -15.00, -15.45, -15.15, -15.00, -15.00, -13.65, -13.95, -13.20, -12.75, -13.35, -13.35, -13.65, -14.40, -14.25, -15.30, -16.05, -16.35, -16.35, -16.65, -16.80, -16.80, -16.05, -16.05, -15.75, -15.60, -15.15, -15.30, -15.45, -15.75, -15.45, -14.85, -15.45, -15.60, -15.30, -14.85, -15.00, -16.05, -17.40, -16.50, -16.65, -17.40, -18.45, -18.45, -17.55, -16.65, -17.70, -17.25, -16.80, -16.20, -15.60, -15.30, -14.70, -13.35, -13.80, -14.55, -15.45, -14.55, -14.40, -14.55, -14.70 - 27.15, -26.85, -27.00, -27.75, -27.90, -27.00, -27.15, -26.55, -25.50, -24.60, -24.15, -25.05, -25.35, -24.90, -25.35, -26.25, -26.55, -26.70, -25.50, -25.95, -26.25, -25.50, -24.45, -25.05, -25.35, -26.25, -25.65, -25.95, -26.55, -27.60, -27.00, -27.30, -26.70, -26.85, -25.95, -25.80, -25.50, -27.15, -26.70, -26.55, -26.55, -27.00, -26.70, -26.70, -25.50, -25.65, -25.50, -25.50, -25.80, -26.70, -27.30, -27.30, -28.05, -28.20, -28.80, -29.55, -28.65, -28.50, -28.65, -28.80, -29.10, -28.95, -28.80, -30.60, -30.30, -31.05, -30.90, -31.05, -31.35, -31.35, -31.20, -31.65, -31.50, -31.65, -31.65, -31.65, -31.80, -30.60, -30.45, -30.30, -29.70, -30.45, -30.30, -29.55, -29.70, -30.15, -30.45, -30.30, -29.85, -30.00, -30.30, -30.90, -30.60, -30.45, -31.05, -31.35, -31.05, -30.90, -31.05, -30.75, -29.85, -29.85, -30.15, -30.75, -30.15, -28.65, -28.80, -29.10, -29.25, -29.25, -28.05, -28.80, -29.85, -29.40, -29.10, -28.95, -28.20, -28.35, -27.75, -27.75, -28.35, -28.50, -28.80, -28.65, -29.10, -28.95, -29.25, -28.50, -28.65, -27.60, -27.45, -27.00, -27.15, -26.10, -26.10, -25.95, -26.10, -26.55, -26.70, -27.75, -28.50, -28.35, -28.50, -28.65, -28.35, -28.65, -27.30, -26.70, -27.00, -26.70, -26.25, -26.10, -25.35, -25.65, -25.05, -25.65, -25.80, -25.35, -25.35, -26.25, -27.00, -27.30, -26.70, -26.85, -27.60, -27.75, -26.85, -26.70, -26.85, -26.85, -27.75, -28.20]
@@ -557,9 +562,9 @@ namespace heading {
                 vData = [-367.35, -360.60, -181.65, -435.30, -251.85, -283.35, -288.00, -284.40, -317.25, -341.40, -237.30, -209.55]
                 break
         }
-        
+
         // transpose the three arrays into array of triples
-        for (let n = 0; n < scanTimes.length; n++){
+        for (let n = 0; n < scanTimes.length; n++) {
             let xyz = []
             xyz.push(xData[n])
             xyz.push(yData[n])
