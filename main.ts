@@ -43,10 +43,13 @@ namespace heading {
         loRsq: number; // min radius-squared
         // history:
         rSqWas: number; // previous sample's rSq
+        slopeWas: number; // average recent slope to previous sample
         angleWas: number; // previous sample's angle
         // projection params from latest detected major axis:
-        theta: number; // angle (in radians) anticlockwise from U-axis to major axis 
-        thetaDegrees: number; // testing
+        theta: number; // angle (in radians) anticlockwise from U-axis to major axis
+        thetaDegrees: number; // (for testing)
+        maybe: number; // latest potential major-axis angles detected
+        thetas: number[]; // list of potential major-axis angles detected
         cosTheta: number; // save for efficiency
         sinTheta: number; // ditto
         scale: number; // eccentricity: stretch in V needed to make Ellipse circular again
@@ -63,7 +66,7 @@ namespace heading {
             this.vDim = dim1
             this.uOff = off0
             this.vOff = off1
-            //this.peaks = []       
+            this.thetas = []       
         }
 
         // convert the raw values to (kind of) re-centred polar coordinates (rSq,angle)
@@ -73,7 +76,7 @@ namespace heading {
             let v = vRaw - this.vOff
             this.rSq = (u * u) + (v * v)
             this.angle = Math.atan2(v, u)
-            this.angleDegrees = radians2degrees(this.angle) // for testing
+            this.angleDegrees = rad2deg(this.angle) // for testing
         }
 
         // initialise the smoothing and turning histories
@@ -81,18 +84,20 @@ namespace heading {
             this.polarise(uRaw, vRaw) // derive (rSq,angle) for first sample
             this.firstAngle = this.angle
             this.theta = this.angle
-            this.thetaDegrees = radians2degrees(this.theta) // (while testing)
+            this.thetaDegrees = rad2deg(this.theta) // (while testing)
             this.turned = 0
-            this.rSqWas = this.rSq
             this.hiRsq = this.rSq / 2 // infeasibly low
-            this.loRsq = this.rSq * 2 // infeasibly high
+            this.loRsq = this.rSq * 2 // infeasibly high 
+            // avoid spurious initial peak by ensuring first slope is always falling
+            this.slopeWas = -10
+            this.rSqWas = this.rSq + 100
         }
 
         // process another scan sample
         nextSample(index: number, uRaw: number, vRaw: number) {
-            let slope = this.rSq - this.rSqWas // most recent slope
             this.rSqWas = this.rSq
             this.angleWas = this.angle
+            let slope = (this.slopeWas + this.rSq - this.rSqWas) / 2 // average recent slope
             this.polarise(uRaw, vRaw) // derive new (rSq, angle) for this sample
             // If slope changes from rising to falling we've potentially just passed a major-axis.
             if ((slope >= 0) // was rising or level...
@@ -101,8 +106,10 @@ namespace heading {
                 if (this.rSqWas > this.hiRsq) {
                     this.hiRsq = this.rSqWas
                     this.theta = this.angleWas
-                    this.thetaDegrees = radians2degrees(this.theta) // (while testing)
+                    this.thetaDegrees = rad2deg(this.theta) // (while testing)
                 }
+                this.maybe = this.angleWas
+                this.thetas.push(this.angleWas) // remember possible candidates
             }
             // also keep track of the smallest minor-axis radius
             if (this.rSqWas < this.loRsq) {
@@ -116,16 +123,20 @@ namespace heading {
                 if ((this.angleWas > 0) && (this.angle < 0)) this.turned -= 2 * Math.PI
             }
 
+            // remember average recent slope
+            this.slopeWas = slope
+
             if (logging) {
                 datalogger.log(
                     datalogger.createCV("view", this.plane),
                     datalogger.createCV("index", index),
-                    datalogger.createCV("slope", slope),
-                    datalogger.createCV("loRsq", this.loRsq),
-                    datalogger.createCV("rSq", this.rSq),
-                    datalogger.createCV("hiRsq", this.hiRsq),
-                    datalogger.createCV("thetaDegrees", this.thetaDegrees),
-                    datalogger.createCV("turned", this.turned))
+                    datalogger.createCV("slope", round2(slope)),
+                    datalogger.createCV("loRsq", round2(this.loRsq)),
+                    datalogger.createCV("rSq", round2(this.rSq)),
+                    datalogger.createCV("hiRsq", round2(this.hiRsq)),
+                    datalogger.createCV("thetaDegrees", round2(this.thetaDegrees)),
+                    datalogger.createCV("maybe", round2(rad2deg(this.maybe))),
+                    datalogger.createCV("turned", round2(this.turned)))
             }
         }
 
@@ -425,7 +436,7 @@ namespace heading {
         // get the projection angle of the [uRaw,vRaw] vector on the Spin-Circle, 
         // and remember this as the (global) fixed bias to North
         toNorth = views[bestView].project(uRaw, vRaw)
-        toNorthDegrees = radians2degrees(toNorth)
+        toNorthDegrees = rad2deg(toNorth)
 
 
         if (logging) {
@@ -476,11 +487,11 @@ namespace heading {
 
         // project the reading from Ellipse-view to Spin-Circle, as radians anticlockwise from U-axis
         let onCircle = views[bestView].project(uRaw, vRaw)
-        let onCircleDegrees = radians2degrees(onCircle)
+        let onCircleDegrees = rad2deg(onCircle)
         // subtract toNorth to get radians anticlockwise from North,
         // which is just what we wanted if viewed "fromBelow"
         let angle = onCircle - toNorth
-        let angleDegrees = radians2degrees(angle)
+        let angleDegrees = rad2deg(angle)
         // otherwise, negate heading angle to measure clockwise from North.
         if (!fromBelow) angle = -angle
         if (logging) {
@@ -490,7 +501,7 @@ namespace heading {
                 datalogger.createCV("toNorthDegrees", toNorthDegrees),
                 datalogger.createCV("angleDegrees", angleDegrees))
         }
-        return radians2degrees(angle)
+        return rad2deg(angle)
     }
 
     /**
@@ -531,7 +542,7 @@ namespace heading {
     // UTILITY FUNCTIONS
 
     // convert angle from radians to degrees in the range 0..360
-    function radians2degrees(angle: number): number {
+    function rad2deg(angle: number): number {
         let degrees = ((57.29578 * angle) + 360) % 360
         return degrees
     }
@@ -598,6 +609,10 @@ namespace heading {
             xyz.push(zData[n])
             scanData.push(xyz)
         }
+    }
+
+    function round2(v: number): number {
+        return (Math.round(100 * v) / 100)
     }
 
 }
