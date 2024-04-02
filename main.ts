@@ -105,7 +105,7 @@ namespace heading {
                 // New peak! if last radius was longest so far, adopt it as definitive U-axis
                 if (this.rSqWas > this.hiRsq) {
                     this.hiRsq = this.rSqWas
-                    this.theta = this.angleWas
+                    this.theta = -this.angleWas // the clockwise angle 
                     this.thetaDegrees = rad2deg(this.theta) // (while testing)
                 }
                 this.maybe = this.angleWas
