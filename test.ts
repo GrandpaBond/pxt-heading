@@ -22,21 +22,28 @@ input.onButtonPressed(Button.A, function () {
                 case Config.Buggy:
                     heading.setTestMode(false)
                     Kitronik_Move_Motor.spin(Kitronik_Move_Motor.SpinDirections.Right, 30)
-                    result = heading.scan(4000)
+                    heading.scan(4000)
                     Kitronik_Move_Motor.stop()
                     break
                 case Config.Test:
                     heading.setTestMode(true)
-                    result = heading.scan(1000)
+                    heading.scan(1000)
                     break
                 case Config.Jig:
                     heading.setTestMode(false)
                     basic.showString("?") // manually rotate jig (SMOOOOTHLY!)
-                    result = heading.scan(5000)
+                    heading.scan(5000)
                     basic.pause(1000)
                     break
             }
-            
+            break
+
+        case Task.SetNorth:
+            basic.showString("N")
+            basic.pause(1000)
+            basic.clearScreen()
+            result = heading.setNorth()
+
             if (result < 0) {
                 basic.showIcon(IconNames.Skull) // scan failed 
                 basic.pause(1000)
@@ -45,34 +52,25 @@ input.onButtonPressed(Button.A, function () {
                 basic.clearScreen()
                 basic.showArrow(ArrowNames.West)
                 nextTask = Task.Scan // restart with a fresh scan
-            } else { 
+            } else {
                 spinRPM = heading.scanRPM()
                 basic.showNumber(Math.floor(spinRPM))
+                turn30 = 60000 / (12 * spinRPM) // time needed to turn 30 degrees
                 basic.showIcon(IconNames.Yes)
                 basic.pause(1000)
-                basic.showArrow(ArrowNames.West)
-                nextTask = Task.SetNorth
+                basic.showIcon(IconNames.Yes)
+                basic.pause(500)
+                basic.showLeds(`
+                    # # . # #
+                    # . . . #
+                    . . # . .
+                    # . . . #
+                    # # . # #
+                    `)
+                basic.pause(500)
+                basic.showArrow(ArrowNames.East)
+                nextTask = Task.Measure
             }
-            break
-
-        case Task.SetNorth:
-            basic.showString("N")
-            basic.pause(1000)
-            basic.clearScreen()
-            heading.setNorth() 
-            turn30 = 60000 / (12 * spinRPM) // time needed to turn 30 degrees
-            basic.showIcon(IconNames.Yes)
-            basic.pause(500)
-            basic.showLeds(`
-                # # . # #
-                # . . . #
-                . . # . .
-                # . . . #
-                # # . # #
-                `)
-            basic.pause(500)
-            basic.showArrow(ArrowNames.East)
-            nextTask = Task.Measure
             
             break
 
