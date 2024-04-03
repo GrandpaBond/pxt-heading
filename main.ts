@@ -200,16 +200,7 @@ namespace heading {
     /** 
      * Assuming the buggy is currently spinning clockwise on the spot, capture a 
      * time-stamped sequence of magnetometer readings from which to set up the compass.
-     * 
-     * Whwn complete, analyse the scanned data to prepare for reading compass-headings.
-     * Returns zero if successful, or a negative error code:
      *
-     *      -1 : NOT ENOUGH SCAN DATA
-     *
-     *      -2 : FIELD STRENGTH TOO WEAK
-     *
-     *      -3 : NOT ENOUGH SCAN ROTATION
-     * 
      * @param ms scanning-time in millisecs (long enough for more than one full rotation)    
      */
 
@@ -219,7 +210,7 @@ namespace heading {
     //% ms.defl=0 
     //% weight=90 
 
-    export function scan(ms: number): number {
+    export function scan(ms: number) {
         // Every ~30 ms over the specified duration (generally a couple of seconds),
         // magnetometer readings are sampled and a new [X,Y,Z] triple added to the scanData[] array.
         // A timestamp for each sample is also recorded in the scanTimes[] array.
@@ -288,7 +279,31 @@ namespace heading {
             }
         }
 
-        // Now analyse the scan-data to decide how best to use the magnetometer readings.
+       
+    }
+
+
+
+    /**
+     * When complete, analyse the scanned data to prepare for reading compass-headings.
+     * Returns zero if successful, or a negative error code:
+     *
+     *      -1 : NOT ENOUGH SCAN DATA
+     *
+     *      -2 : FIELD STRENGTH TOO WEAK
+     *
+     *      -3 : NOT ENOUGH SCAN ROTATION
+     *
+     * Read the magnetometer and register the buggy's current direction as "North",
+     * (i.e. the direction that will in future return zero as its heading).
+     * The actual direction the buggy is pointing when this function is called could be
+     * Magnetic North; True North (compensating for local declination); or any convenient
+     * direction from which to measure subsequent heading angles.
+     */
+    //% block="set North" 
+    //% inlineInputMode=inline 
+    //% weight=80 
+    export function setNorth(): number { // Now analyse the scan-data to decide how best to use the magnetometer readings.
 
         // we'll typically need at least a couple of second's worth of scanned readings...
         let nSamples = scanTimes.length
@@ -369,7 +384,7 @@ namespace heading {
         views[View.ZX].finish()
 
         // check that at least one View saw a complete rotation (= 2*Pi radians)...
-        if (   (Math.abs(views[View.XY].turned) < (2 * Math.PI))
+        if ((Math.abs(views[View.XY].turned) < (2 * Math.PI))
             && (Math.abs(views[View.YZ].turned) < (2 * Math.PI))
             && (Math.abs(views[View.ZX].turned) < (2 * Math.PI))) {
             return -3 // "NOT ENOUGH SCAN ROTATION"
@@ -398,23 +413,6 @@ namespace heading {
         scanTimes = []
         scanData = []
 
-        // SUCCESS!
-        return 0
-    }
-
-
-
-    /**
-     * Read the magnetometer and register the buggy's current direction as "North",
-     * (i.e. the direction that will in future return zero as its heading).
-     * The actual direction the buggy is pointing when this function is called could be
-     * Magnetic North; True North (compensating for local declination); or any convenient
-     * direction from which to measure subsequent heading angles.
-     */
-    //% block="set North" 
-    //% inlineInputMode=inline 
-    //% weight=80 
-    export function setNorth() {
         // We have successfully set up the projection parameters. Now we need to relate them to "North".
         // Take the average of seven new readings to get a stable fix on the current heading
         let uRaw = 0
@@ -454,6 +452,8 @@ namespace heading {
                 datalogger.createCV("toNorthDegrees", toNorthDegrees),
                 datalogger.createCV("strength", strength))
         }
+        // SUCCESS!
+        return 0
     }
 
 
