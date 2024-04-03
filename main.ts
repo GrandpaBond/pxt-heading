@@ -285,7 +285,12 @@ namespace heading {
 
 
     /**
-     * When complete, analyse the scanned data to prepare for reading compass-headings.
+     * Analyse the scanned data to prepare for reading compass-headings.
+     * Then read the magnetometer and register the buggy's current direction as "North",
+     * (i.e. the direction that will in future return zero as its heading).
+     * The actual direction the buggy is pointing when this function is called could be
+     * Magnetic North; True North (compensating for local declination); or any convenient
+     * direction from which to measure subsequent heading angles.
      * Returns zero if successful, or a negative error code:
      *
      *      -1 : NOT ENOUGH SCAN DATA
@@ -294,17 +299,12 @@ namespace heading {
      *
      *      -3 : NOT ENOUGH SCAN ROTATION
      *
-     * Read the magnetometer and register the buggy's current direction as "North",
-     * (i.e. the direction that will in future return zero as its heading).
-     * The actual direction the buggy is pointing when this function is called could be
-     * Magnetic North; True North (compensating for local declination); or any convenient
-     * direction from which to measure subsequent heading angles.
      */
     //% block="set North" 
     //% inlineInputMode=inline 
     //% weight=80 
-    export function setNorth(): number { // Now analyse the scan-data to decide how best to use the magnetometer readings.
-
+    export function setNorth(): number { 
+        // First analyse the scan-data to decide how best to use the magnetometer readings.
         // we'll typically need at least a couple of second's worth of scanned readings...
         let nSamples = scanTimes.length
         scanTime = scanTimes[nSamples - 1] - scanTimes[0]
@@ -383,7 +383,7 @@ namespace heading {
         views[View.YZ].finish()
         views[View.ZX].finish()
 
-        // check that at least one View saw a complete rotation (= 2*Pi radians)...
+        // check that at least one View saw at least one complete rotation (= 2*Pi radians)...
         if ((Math.abs(views[View.XY].turned) < (2 * Math.PI))
             && (Math.abs(views[View.YZ].turned) < (2 * Math.PI))
             && (Math.abs(views[View.ZX].turned) < (2 * Math.PI))) {
@@ -401,7 +401,7 @@ namespace heading {
         basic.pause(300)
 
         // Depending on mounting orientation, the bestView Ellipse might possibly be seeing the 
-        // Spin-Circle from "underneath", effectively resulting in an anti-clockwise scan.
+        // Spin-Circle from "underneath", effectively experiencing an anti-clockwise scan.
         // Check polarity of turns:
         fromBelow = views[bestView].turned < 0
 

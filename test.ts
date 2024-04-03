@@ -36,6 +36,11 @@ input.onButtonPressed(Button.A, function () {
                     basic.pause(1000)
                     break
             }
+            basic.showIcon(IconNames.Yes)
+            basic.pause(1000)
+            basic.clearScreen()
+            basic.showArrow(ArrowNames.West)
+            nextTask = Task.SetNorth
             break
 
         case Task.SetNorth:
@@ -128,7 +133,8 @@ input.onButtonPressed(Button.B, function () {
 })
 
 
-input.onLogoEvent(TouchButtonEvent.Pressed, function () {
+
+input.onButtonPressed(Button.AB, function () {
     basic.showIcon(IconNames.No)
     basic.pause(500)
     basic.clearScreen()
