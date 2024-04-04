@@ -1,8 +1,8 @@
 // tests go here; this will not be compiled when this package is used as an extension.
 enum Config {
-    Buggy,
-    Jig,
-    Test
+    Buggy, // Normal usage, in a Kitronik Move Motor buggy
+    Jig, // Acquiring new test datasets, using a special rotating jig
+    Debug, // Test & debug (dataset selection is preset in code below)
 }
 enum Task {
     Scan,
@@ -12,6 +12,10 @@ enum Task {
 
 
 input.onButtonPressed(Button.A, function () {
+    performSetup()
+})
+
+function performSetup() {
     let result = 0
     //checkLogging()
     switch (nextTask) {
@@ -20,17 +24,20 @@ input.onButtonPressed(Button.A, function () {
             basic.pause(1000)
             switch (config) {
                 case Config.Buggy:
-                    heading.setTestMode(false)
+                    heading.testDataset("NONE")
                     Kitronik_Move_Motor.spin(Kitronik_Move_Motor.SpinDirections.Right, 30)
                     heading.scan(4000)
                     Kitronik_Move_Motor.stop()
                     break
-                case Config.Test:
-                    heading.setTestMode(true)
+                case Config.Debug:            
+                    // heading.testDataset("Zdn70") // X-Axis upwards; round X-Axis; 70-degreee dip
+                    // heading.testDataset("Yup70") // Y-Axis upwards; round Y-Axis; 70-degreee dip
+                    // heading.testDataset("Zdn70") // Z-Axis downwards; round Z-Axis; 70-degreee dip
+                    heading.testDataset("strange") // No axis aligned with vertical rotation;  70-degreee dip
                     heading.scan(1000)
                     break
                 case Config.Jig:
-                    heading.setTestMode(false)
+                    heading.testDataset("NONE")
                     basic.showString("?") // manually rotate jig (SMOOOOTHLY!)
                     heading.scan(5000)
                     basic.pause(1000)
@@ -60,7 +67,7 @@ input.onButtonPressed(Button.A, function () {
             } else {
                 spinRPM = heading.scanRPM()
                 basic.showNumber(Math.floor(spinRPM))
-                turn30 = 60000 / (12 * spinRPM) // time needed to turn 30 degrees
+                turn45 = 60000 / (8 * spinRPM) // time needed to turn 45 degrees
                 basic.showIcon(IconNames.Yes)
                 basic.pause(1000)
                 basic.showIcon(IconNames.Yes)
@@ -89,11 +96,15 @@ input.onButtonPressed(Button.A, function () {
             break
     }
 
-})
+}
 
 input.onButtonPressed(Button.B, function () {
-    //checkLogging()
+    measure()
+})
+
+function measure() {
     switch (nextTask) {
+        // ? sequence error?
         case Task.SetNorth: 
         case Task.Scan: // use button A to do a scan first
             for (let i = 0; i < 5; i++) {
@@ -103,14 +114,7 @@ input.onButtonPressed(Button.B, function () {
             }
             break
 
-        case Task.Measure: // OK take a new heading measurement
-            if (config == Config.Buggy) {  
-                basic.pause(1000)
-                Kitronik_Move_Motor.spin(Kitronik_Move_Motor.SpinDirections.Right, 30)
-                basic.pause(turn30) // spin to next angle
-                Kitronik_Move_Motor.stop()
-            } 
-            // else we're testing; or we will have manually moved Jig to next test-angle...
+        case Task.Measure: // OK, take a new heading measurement
             basic.pause(1000)
             let compass = heading.degrees()
             basic.clearScreen()   
@@ -127,32 +131,42 @@ input.onButtonPressed(Button.B, function () {
                     `)
             basic.pause(500)
             basic.showArrow(ArrowNames.East)
+            // On the live buggy, move 45 degrees to next test angle;
+            if (config == Config.Buggy) {  
+                basic.pause(1000)
+                Kitronik_Move_Motor.spin(Kitronik_Move_Motor.SpinDirections.Right, 30)
+                basic.pause(turn45) // spin to next angle
+                Kitronik_Move_Motor.stop()
+            } 
+            // else we're simulating; or must manually move Jig to next test-angle...
             break
     }
 
-})
-
-
+}
 
 input.onButtonPressed(Button.AB, function () {
+    nextConfig()
+})
+
+// rotate three-state configuration 
+function nextConfig() {
     basic.showIcon(IconNames.No)
     basic.pause(500)
     basic.clearScreen()
     switch(config) {
         case Config.Buggy:
-            config = Config.Test
-            basic.showString("T") // use sample data while debugging...
-            heading.setTestMode(true) 
+            config = Config.Debug
+            basic.showString("D") // use sample data while debugging...
             break
-        case Config.Test:
+        case Config.Debug:
             config = Config.Jig
             basic.showString("J") // no buggy, but use live magnetometer
-            heading.setTestMode(false) 
+            heading.testDataset("NONE")
             break
         case Config.Jig:
             config = Config.Buggy
             basic.showString("B")  // normal live operation
-            heading.setTestMode(false)
+            heading.testDataset("NONE")
             break
     }
     basic.pause(1000)
@@ -160,31 +174,12 @@ input.onButtonPressed(Button.AB, function () {
     basic.pause(200)
     nextTask = Task.Scan // new mode, so always start with a scan
     basic.showArrow(ArrowNames.West)
-})
-
-function checkLogging() {
-    basic.showString("L")
-    if (heading.isLogging()) {
-        basic.showIcon(IconNames.Yes)
-    } else {
-        basic.showIcon(IconNames.No)
-    }
 }
 
-/*
-music.setVolume(255)
-music.tonePlayable(2000, 500)
-music.tonePlayable(1500, 500)
-music.tonePlayable(1200, 500)
-music.tonePlayable(1000, 1500)
-*/
 
 heading.setLogMode(true)
-//checkLogging()
-let config = Config.Test
-heading.setTestMode(true)
-//checkLogging()
-let nextTask = Task.Scan
-basic.showArrow(ArrowNames.West)
+let nextTask: Task
+let config = Config.Buggy
+nextConfig() // start with Config.Debug ...until it all works!
 let spinRPM = 0
-let turn30 = 0
+let turn45 = 0

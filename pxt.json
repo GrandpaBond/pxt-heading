@@ -9,10 +9,9 @@
         "pxt-kitronik-move-motor": "github:kitronikltd/pxt-kitronik-move-motor#v0.4.17"
     },
     "files": [
-        "main.ts",
         "README.md",
-        "test.ts",
-        "testdata.ts"
+        "testdata.ts",
+        "pxt-heading.ts"
     ],
     "testFiles": [
         "test.ts"
