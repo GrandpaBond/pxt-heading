@@ -212,7 +212,7 @@ namespace heading {
     //% weight=90 
 
     export function scan(ms: number) {
-        // Every ~30 ms over the specified duration (generally a couple of seconds),
+        // Every ~25 ms over the specified duration (generally a couple of seconds),
         // magnetometer readings are sampled and a new [X,Y,Z] triple added to the scanData[] array.
         // A timestamp for each sample is also recorded in the scanTimes[] array.
         if (logging) {
@@ -236,7 +236,7 @@ namespace heading {
                 xRoll.push(input.magneticForce(0))
                 yRoll.push(input.magneticForce(1))
                 zRoll.push(input.magneticForce(2))
-                basic.pause(25)
+                basic.pause(20)
             }
 
             // continue cranking out rolling sums, adding a new reading and dropping the oldest
@@ -247,7 +247,7 @@ namespace heading {
             while (now < finish) {
                 now = input.runningTime()
                 scanTimes.push(now - 100) // the time of the middle readings (roughly)
-                basic.pause(25)
+                basic.pause(20)
                 xRoll.push(input.magneticForce(0)) // add 7th reading
                 x = 0
                 xRoll.forEach(a => x += a) // collect x as sum of 7 readings
@@ -303,10 +303,10 @@ namespace heading {
     //% weight=80 
     export function setNorth(): number {
         // First analyse the scan-data to decide how best to use the magnetometer readings.
-        // we'll typically need at least a couple of second's worth of scanned readings...
+        // we'll typically need about a couple of second's worth of scanned readings...
         let nSamples = scanTimes.length
         scanTime = scanTimes[nSamples - 1] - scanTimes[0]
-        if (scanTime < 2000) {
+        if (scanTime < 1800) {
             return -1 // "NOT ENOUGH SCAN DATA"
         }
         // Each dimension tracks a sinusoidal wave of values (generally not centred on zero).
@@ -393,10 +393,6 @@ namespace heading {
         if (views[View.YZ].scale < views[bestView].scale) bestView = View.YZ
         if (views[View.ZX].scale < views[bestView].scale) bestView = View.ZX
 
-        basic.clearScreen()
-        basic.pause(100)
-        basic.showString(views[bestView].plane)
-        basic.pause(300)
 
         // Depending on mounting orientation, the bestView Ellipse might possibly be seeing the 
         // Spin-Circle from "underneath", effectively experiencing an anti-clockwise scan.
