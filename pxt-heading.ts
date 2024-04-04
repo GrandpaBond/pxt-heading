@@ -24,7 +24,8 @@ namespace heading {
 
     const MarginalField = 30 // minimum acceptable field-strength for magnetometer readings
     const Inertia = 0.95 // ratio of old to new radius readings (for inertial smoothing)
-    //const Window = 100 // minimum spacing (in samples) of Ellipse major-axis candidates
+    const TwoPi = 2 * Math.PI
+    const RadianDegrees = 360 / TwoPi
 
     // CLASSES
 
@@ -46,15 +47,15 @@ namespace heading {
         slopeWas: number; // average recent slope to previous sample
         angleWas: number; // previous sample's angle
         // projection params from latest detected major axis:
-        theta: number; // angle (in radians) anticlockwise from U-axis to major axis
+        theta: number; // clockwise angle (in radians) to "untwist" major axis onto U-axis
         thetaDegrees: number; // (for testing)
-        maybe: number; // latest potential major-axis angles detected
-        thetas: number[]; // list of potential major-axis angles detected
-        cosTheta: number; // save for efficiency
+        maybe: number; // latest potential major-axis angle detected
+        thetas: number[]; // list of potential major-axis angles detected (while testing)
+        cosTheta: number; // saved for efficiency
         sinTheta: number; // ditto
-        scale: number; // eccentricity: stretch in V needed to make Ellipse circular again
+        scale: number; // eccentricity: stretch along minor-axis needed to make Ellipse circular again
         // others:
-        fromBelow: number; // rotation sense, as seen by this View of the clockwise scan
+        fromBelow: boolean; // rotation reversal flag, as seen by this View of the clockwise scan
         firstAngle: number; // angle of first scan sample 
         turned: number; // scan revolutions accumulator (in radians)
         period: number; // this View's assessment of average rotation time
@@ -88,7 +89,7 @@ namespace heading {
             this.turned = 0
             this.hiRsq = this.rSq / 2 // infeasibly low
             this.loRsq = this.rSq * 2 // infeasibly high 
-            // avoid spurious initial peak by ensuring first slope is always falling
+            // avoid any spurious initial peak by ensuring first slope is always falling
             this.slopeWas = -10
             this.rSqWas = this.rSq + 100
         }
@@ -102,25 +103,25 @@ namespace heading {
             // If slope changes from rising to falling we've potentially just passed a major-axis.
             if ((slope >= 0) // was rising or level...
                 && (this.rSq < this.rSqWas)) { // ... but now definitely falling
-                // New peak! if last radius was longest so far, adopt it as definitive U-axis
+                // New peak! if last radius was longest so far, adopt it as definitive major-axis
                 if (this.rSqWas > this.hiRsq) {
                     this.hiRsq = this.rSqWas
-                    this.theta = -this.angleWas // negate for the clockwise angle 
+                    this.theta = -this.angleWas // clockwise turn needed to untwist Ellipse
                     this.thetaDegrees = rad2deg(this.theta) // (while testing)
                 }
                 this.maybe = this.angleWas
-                this.thetas.push(this.maybe) // remember possible candidates
+                this.thetas.push(this.maybe) // remember possible candidates (while testing)
             }
             // also keep track of the smallest minor-axis radius
             if (this.rSqWas < this.loRsq) {
                 this.loRsq = this.rSqWas  // shortest so far...
             }
 
-            // keep track of complete revolutions, by detecting roll-rounds
-            // that jump between -PI and +PI (in either direction)
-            if (Math.abs(this.angle) > 3) {// close to +/- PI
-                if ((this.angleWas < 0) && (this.angle > 0)) this.turned += 2 * Math.PI
-                if ((this.angleWas > 0) && (this.angle < 0)) this.turned -= 2 * Math.PI
+            // keep track of completed revolutions, by detecting roll-rounds that jump  
+            // between -PI and +PI (in either direction) as we pass the -ve horizontal U-axis
+            if (Math.abs(this.angle) > 3) { // near enough to +/- PI
+                if ((this.angleWas < 0) && (this.angle > 0)) this.turned += TwoPi
+                if ((this.angleWas > 0) && (this.angle < 0)) this.turned -= TwoPi
             }
 
             // remember average recent slope
@@ -149,19 +150,19 @@ namespace heading {
             // needed to stretch the Ellipse back into a circle            
             this.scale = Math.sqrt(this.hiRsq / this.loRsq)
             // Work out the total scanned angle and derive the rotation period 
-            let revs = (this.angle + this.turned - this.firstAngle) / (2 * Math.PI)
+            let revs = (this.angle + this.turned - this.firstAngle) / TwoPi
+            if (fromBelow) revs = -revs // reversed polarity?
             this.period = scanTime / revs
-            if (fromBelow) this.period *= -1 // reverse polarity
         }
 
         // Transform a point on the off-centre projected Ellipse back onto the centred Spin-Circle 
         // and return its angle (in radians anticlockwise from the horizontal U-axis)
         project(uRaw: number, vRaw: number): number {
-            // shift the point to give a vector from the origin
+            // shift the point to give a vector from the origin, (a point on the re-centred Ellipse)
             let u = uRaw - this.uOff
             let v = vRaw - this.vOff
 
-            // rotate clockwise, using the INVERSE of the major-axis angle, theta
+            // rotate clockwise by theta, realigning the Ellipse minor-axis angle with the V-axis
             let uNew = u * this.cosTheta - v * this.sinTheta
             let vNew = u * this.sinTheta + v * this.cosTheta
 
@@ -382,9 +383,9 @@ namespace heading {
         views[View.ZX].finish()
 
         // check that at least one View saw at least one complete rotation (= 2*Pi radians)...
-        if ((Math.abs(views[View.XY].turned) < (2 * Math.PI))
-            && (Math.abs(views[View.YZ].turned) < (2 * Math.PI))
-            && (Math.abs(views[View.ZX].turned) < (2 * Math.PI))) {
+        if ((Math.abs(views[View.XY].turned) < TwoPi)
+            && (Math.abs(views[View.YZ].turned) < TwoPi)
+            && (Math.abs(views[View.ZX].turned) < TwoPi)) {
             return -3 // "NOT ENOUGH SCAN ROTATION"
         }
 
@@ -397,7 +398,7 @@ namespace heading {
         // Depending on mounting orientation, the bestView Ellipse might possibly be seeing the 
         // Spin-Circle from "underneath", effectively experiencing an anti-clockwise scan.
         // Check polarity of turns:
-        fromBelow = views[bestView].turned < 0
+        fromBelow = (views[bestView].turned < 0)
 
         // extract some bestView fields into globals for future brevity and efficiency...
         uDim = views[bestView].uDim
@@ -538,8 +539,8 @@ namespace heading {
     // UTILITY FUNCTIONS
 
     // convert angle from radians to degrees in the range 0..360
-    function rad2deg(angle: number): number {
-        let degrees = ((57.29578 * angle) + 360) % 360
+    function rad2deg(radians: number): number {
+        let degrees = ((radians * RadianDegrees) + 360) % 360
         return degrees
     }
 
