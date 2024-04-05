@@ -290,7 +290,8 @@ namespace heading {
      * The actual direction the buggy is pointing when this function is called could be
      * Magnetic North; True North (compensating for local declination); or any convenient
      * direction from which to measure subsequent heading angles.
-     * Returns zero if successful, or a negative error code:
+     * 
+     * @returns: zero if successful, or a negative error code:
      *
      *      -1 : NOT ENOUGH SCAN DATA
      *
@@ -455,7 +456,9 @@ namespace heading {
 
 
     /**
-     * Read the magnetometer and return the current heading of the buggy in degrees
+     * Read the magnetometer
+     * 
+     * $returns : the current heading of the buggy (in degrees from "North")
      */
     //% block="degrees" 
     //% inlineInputMode=inline 
@@ -501,12 +504,26 @@ namespace heading {
     }
 
     /**
+     * Return average rotation time of the most recent scan 
+     */
+    //% block="spinTime" 
+    //% inlineInputMode=inline 
+    //% weight=60 
+    export function scanPeriod(): number {
+        if (views[bestView].period <= 0) {
+            return -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
+        } else {
+            return views[bestView].period
+        }
+    }
+
+    /**
      * Return average RPM of the most recent scan 
      */
-    //% block="scanRPM" 
+    //% block="spinRPM" 
     //% inlineInputMode=inline 
     //% weight=50 
-    export function scanRPM(): number {
+    export function spinRPM(): number {
         if (views[bestView].period <= 0) {
             return -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
         } else {
@@ -514,25 +531,45 @@ namespace heading {
         }
     }
 
-
-    //% block="set test mode: $turnOn"
+    /**
+     * For scanning, wheels are rotated in opposite directions, giving a spin-rate for the 
+     * selected power setting. Based on the wheel-diameter, axle-length and spin-rate, this 
+     * function estimates the forward speed to be expected using that power setting.
+     * (NOTE that tyre-friction when turning may make this a fairly inaccurate estimate!)
+     * 
+     * @param wheeelDiameter : width of wheels (in mm)
+     * @param axleLength : distance betweeen mid-lines of tyres (in mm)
+     * @param spinRate : the spin rotation rate reported by heading.spinRPM() for latest scan
+     */
+    //% block="speed using $wheelDiameter (mm), axleLength (mm) at $spinRate (RPM)" 
     //% inlineInputMode=inline 
-    //% weight=40
-    export function testDataset(selection: string) {
-        dataset = selection
-        debugging = (selection.toUpperCase() != "NONE")
+    //% weight=50 
+    export function speedUsing(wheelDiameter: number, axleLength: number, spinRate: number): number {
+        if (views[bestView].period <= 0) {
+            return -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
+        } else {
+            return 99999999
+        }
     }
 
-    //% block="set logging mode: $loggingOn"
+    /**
+      * Choose a test dataset to use (or "NONE")
+      */
+    //% block="test with: $name"
     //% inlineInputMode=inline 
-    //% weight=30
-    export function setLogMode(loggingOn: boolean) {
-        logging = loggingOn
+    //% weight=20
+    export function testDataset(name: string) {
+        dataset = name
+        debugging = (name.toUpperCase() != "NONE")
     }
 
-    export function isLogging(): boolean {
-        return logging
+    //% block="set logging mode: $on"
+    //% inlineInputMode=inline 
+    //% weight=10
+    export function setLogMode(on: boolean) {
+        logging = on
     }
+
 
 
 
