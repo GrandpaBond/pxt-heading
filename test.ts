@@ -65,7 +65,7 @@ function performSetup() {
                 basic.showArrow(ArrowNames.West)
                 nextTask = Task.Scan // restart with a fresh scan
             } else {
-                spinRPM = heading.scanRPM()
+                spinRPM = heading.spinRPM()
                 basic.showNumber(Math.floor(spinRPM))
                 turn45 = 60000 / (8 * spinRPM) // time needed to turn 45 degrees
                 basic.showIcon(IconNames.Yes)
