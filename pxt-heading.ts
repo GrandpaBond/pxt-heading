@@ -29,6 +29,23 @@ namespace heading {
 
     // CLASSES
 
+    // A 
+
+    // Derived from a scanned sample, an Arrrow holds the properties of the radius of an Ellipse 
+    // when seen in a particular 2-axis View. It holds the square of a polar vector,
+    // together with its direction (as both an trig angle in radians, and a heading in degrees)
+    class Arrow {
+        value: number; // magnitude-squared
+        angle: number; // angle coordinate (radians anticlockwise from East)
+        bearing: number; // the angle in degrees (degrees clockwise from North)
+
+        constructor(u: number, v: number) {
+            this.value = (u * u) + (v * v)  // Note: Cartesian coordinates are normalised!
+            this.angle = Math.atan2(v, u)
+            this.bearing = ((90 - (this.angle * RadianDegrees)) + 360) % 360
+        }
+    }
+
     // Characteristics of the Ellipse formed when projecting the Spin-Circle onto a View plane
     class Ellipse {
         plane: string; // name (for debug)
@@ -70,7 +87,7 @@ namespace heading {
             this.thetas = []
         }
 
-        // convert the raw values to (kind of) re-centred polar coordinates (rSq,angle)
+        /* convert the raw values to (kind of) re-centred polar coordinates (rSq,angle)
         // (no need to extract sqrt of rSq every time)
         polarise(uRaw: number, vRaw: number) {
             let u = uRaw - this.uOff
@@ -79,7 +96,53 @@ namespace heading {
             this.angle = Math.atan2(v, u)
             this.angleDegrees = rad2deg(this.angle) // for testing
         }
+        */
+        arrowFrom(n: number): Arrow {
+            let u = scanData[0][this.uDim]-this.uOff
+            let v = scanData[0][this.vDim]-this.vOff
+            return new Arrow(u,v)
+        }
 
+        // Apply Gaussian smoothing kernel {a + 6b + 15c + 20d + 15e + 6f + g}
+        // to the values of an array of 7 Arrows
+
+        gauss(arrows:Arrow[]): number {
+            return (
+                arrows[0].value 
+                + arrows[6].value
+                + 6 * (arrows[1].value + arrows[5].value)
+                + 15 * (arrows[2].value + arrows[4].value)
+                + 20 * arrows[3].value
+                )
+        }
+
+
+        // apply 7-point Gaussian smoothing, while simultaneously tracking the slope.
+        // Look for inflections and push their angles onto the thetas[] list
+        analyse() {
+            let arrows: Arrow[] = [] // rolling set of 7 Arrows for this View
+
+            // get first Gaussian sum
+            for (let i = 0; i < 7; i++) {
+                arrows.push(this.arrowFrom(i))
+            }
+            let delta
+            let deltaWas
+            let valueWas
+            let value = this.gauss(arrows)
+            // smooth now contains a smoothed version of the third Arrow (in this View) 
+            // now work through remaining samples.
+            for (let i = 7; i < scanTimes.length; i++) {
+                valueWas = value
+                arrows.shift() // drop the earliest arrow
+                arrows.push(this.arrowFrom(i)) // append a new one
+                value = this.gauss(arrows)
+                deltaWas = delta
+                delta = value-valueWas
+            }
+        }
+
+        scanSample
         // initialise the smoothing and turning histories
         firstSample(uRaw: number, vRaw: number) {
             this.polarise(uRaw, vRaw) // derive (rSq,angle) for first sample
@@ -216,6 +279,9 @@ namespace heading {
         // Every ~25 ms over the specified duration (generally a couple of seconds),
         // magnetometer readings are sampled and a new [X,Y,Z] triple added to the scanData[] array.
         // A timestamp for each sample is also recorded in the scanTimes[] array.
+        scanTimes = []
+        scanData = []
+
         if (logging) {
             datalogger.deleteLog()
             datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
@@ -224,46 +290,60 @@ namespace heading {
             simulateScan(dataset)
             basic.pause(ms)
         } else {
-
+            
             // (To smooth out jitter, each reading is always a rolling sum of SEVEN consecutive readings!)
-            let now = input.runningTime()
-            let finish = now + ms
             let index = 0
             let xRoll: number[] = []
             let yRoll: number[] = []
             let zRoll: number[] = []
-            // collect the first six readings...
+            let x = 0
+            let y = 0
+            let z = 0
+            let field = 0
+            let now = input.runningTime()
+            // add up the first six readings, about 25ms apart...
             for (let k = 0; k < 6; k++) {
-                xRoll.push(input.magneticForce(0))
-                yRoll.push(input.magneticForce(1))
-                zRoll.push(input.magneticForce(2))
+                field = input.magneticForce(0)
+                x += field
+                xRoll.push(field)
+
+                field = input.magneticForce(1)
+                y += field
+                yRoll.push(field)
+
+                field = input.magneticForce(2)
+                z += field
+                zRoll.push(field)
+
                 basic.pause(20)
             }
 
             // continue cranking out rolling sums, adding a new reading and dropping the oldest
-
-            let x = 0
-            let y = 0
-            let z = 0
+            let finish = now + ms
             while (now < finish) {
+                field = input.magneticForce(0)
+                x += field
+                xRoll.push(field)
+
+                field = input.magneticForce(1)
+                y += field
+                yRoll.push(field)
+
+                field = input.magneticForce(2)
+                z += field
+                zRoll.push(field)
+
+                scanData.push([x, y, z])
                 now = input.runningTime()
-                scanTimes.push(now - 100) // the time of the middle readings (roughly)
-                basic.pause(20)
-                xRoll.push(input.magneticForce(0)) // add 7th reading
-                x = 0
-                xRoll.forEach(a => x += a) // collect x as sum of 7 readings
-                xRoll.shift() // lose first reading
-                yRoll.push(input.magneticForce(1))
-                y = 0
-                yRoll.forEach(a => y += a) // collect y sum
-                yRoll.shift()
-                zRoll.push(input.magneticForce(2))
-                z = 0
-                zRoll.forEach(a => z += a) // collect z sum
-                zRoll.shift()
-                scanData.push([x, y, z]) // add new 3-D reading
+                scanTimes.push(now) 
+                x -= xRoll.shift()
+                y -= xRoll.shift()
+                z -= xRoll.shift()
+                basic.pause(20)                
             }
         }
+
+
 
         if (logging && !debugging) {
 
@@ -277,8 +357,6 @@ namespace heading {
                     datalogger.createCV("z", round2(scanData[i][Dim.Z])))
             }
         }
-
-
     }
 
 
@@ -335,6 +413,13 @@ namespace heading {
         let xOff = (xhi + xlo) / 2
         let yOff = (yhi + ylo) / 2
         let zOff = (zhi + zlo) / 2
+
+        // apply normalisation to re-centre all of the scan Data
+        for (let i = 0; i < nSamples; i++) {
+            scanData[i][Dim.X] -= xOff
+            scanData[i][Dim.Y] -= yOff
+            scanData[i][Dim.Z] -= zOff
+        }
 
         // create an Ellipse instance for analysing each possible view
         views.push(new Ellipse("XY", Dim.X, Dim.Y, xOff, yOff))
@@ -563,7 +648,11 @@ namespace heading {
         debugging = (name.toUpperCase() != "NONE")
     }
 
-    //% block="set logging mode: $on"
+/**
+ * Choose whether to use Data Logger to grab a new test dataset into MY_DATA,
+ * or to debug processing
+ */
+    //% block="set grab mode $on"
     //% inlineInputMode=inline 
     //% weight=10
     export function setLogMode(on: boolean) {
