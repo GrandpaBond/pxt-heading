@@ -43,7 +43,7 @@ namespace heading {
         constructor(u: number, v: number, t: number) {
             this.value = (u * u) + (v * v)  // Note: Cartesian coordinates are normalised!
             this.angle = Math.atan2(v, u)
-            this.bearing = ((90 - (this.angle * RadianDegrees)) + 360) % 360
+            this.bearing = asBearing(this.angle)
             this.time = t
         }
     }
@@ -108,18 +108,34 @@ namespace heading {
         }
 
         // Reduce an array of seven adjacent Arrows to its central average by applying
-        // the Gaussian smoothing kernel {a + 6b + 15c + 20d + 15e + 6f + g}
+        // the Gaussian smoothing kernel {a + 6b + 15c + 20d + 15e + 6f + g} to the values,
+        // and averaging the angles.
         gauss(arrows:Arrow[]): Arrow {
-            let a:Arrow = arrows[3] // use the central Arrow's angle, bearing & time...
-            // ...but give it a smoothed value
+            let a:Arrow
             a.value = (arrows[0].value + arrows[6].value
                 + 6 * (arrows[1].value + arrows[5].value)
                 + 15 * (arrows[2].value + arrows[4].value)
                 + 20 * arrows[3].value) / 64
+
+            a.angle = this.arrowMeanAngle(arrows)
+            a.bearing = asBearing(a.angle)
+            a.time = arrows[3].time
             return a
         }
 
-
+        // Find the average of a set of Arrow angles (coping with roll-round!)
+        arrowMeanAngle(arrows: Arrow[]): number {
+            // aggregate a chain of unit-vector steps
+            let xSum = 0
+            let ySum = 0
+            for (let i = 0; i < arrows.length; i++) {
+                xSum += Math.cos(arrows[i].angle)
+                ySum += Math.sin(arrows[i].angle)
+            }
+            // see what overall direction they have taken us
+            return Math.atan2(ySum, xSum)
+        }
+        
         // Apply 7-point Gaussian smoothing, while simultaneously tracking the slope.
         // Look for inflections in slope as we pass the Ellipse's axes, and push their angles
         // onto the majors[] or minors[] axis-lists
@@ -146,10 +162,10 @@ namespace heading {
                 delta = (smooth.value - smoothWas.value) / (smooth.time - smoothWas.time)
                 // look for inflections, where the slope crosses zero
                 if ((deltaWas > 0) && (delta <= 0)) {
-                    majors.push(smooth) // passing a major axis
+                    this.majors.push(smooth) // passing a major axis
                 }
                 if ((deltaWas < 0) && (delta >= 0)) {
-                    minors.push(smooth) // passing a minor axis
+                    this.minors.push(smooth) // passing a minor axis
                 }
                 // keep track of completed revolutions, by detecting roll-rounds that jump  
                 // between -PI and +PI (in either direction) as we pass the -ve horizontal U-axis
@@ -162,6 +178,12 @@ namespace heading {
 
         analyse(): number {
             // now process the collected highs[] and lows[]
+
+    // axes are passed twice per revolution: first challenge is to separate them
+    // For well-behaved Ellipses they alternate, but near-circular ones generate multiple false peaks.
+    // First check is for near-circularity: say more than 20 highs?
+
+
             this.hiRsq = 0
             for (let i = 0; i < this.majors.length; i++) {
                 if (this.hiRsq > this.majors[i].value) { // the highest peak so far
@@ -171,6 +193,7 @@ namespace heading {
                     this.period += this.majors[i].time
                 }
             }
+
             this.period -= highs[0].time; // offset average
             this.loRsq = 9999
             for (let i = 0; i < lows.length; i++) {
@@ -708,6 +731,11 @@ namespace heading {
         return degrees
     }
 
+    // Convert angle measured in radians anticlockwise from horizontal U-axis (East)
+    // to a compass bearing in degrees measured clockwise from vertical V-axis (North)
+    function asBearing(angle: number): number {
+        return ((90 - (this.angle * RadianDegrees)) + 360) % 360
+    }
 
     // While debugging, it is useful to re-use predictable sample data for a variety of use-cases 
     // that has been captured from live runs using datalogger.
