@@ -35,14 +35,16 @@ namespace heading {
     // when seen in a particular 2-axis View. It holds the square of a polar vector,
     // together with its direction (as both an trig angle in radians, and a heading in degrees)
     class Arrow {
+        time: number; // timestamp when this collected
         value: number; // magnitude-squared
         angle: number; // angle coordinate (radians anticlockwise from East)
         bearing: number; // the angle in degrees (degrees clockwise from North)
 
-        constructor(u: number, v: number) {
+        constructor(u: number, v: number, t: number) {
             this.value = (u * u) + (v * v)  // Note: Cartesian coordinates are normalised!
             this.angle = Math.atan2(v, u)
             this.bearing = ((90 - (this.angle * RadianDegrees)) + 360) % 360
+            this.time = t
         }
     }
 
@@ -98,51 +100,81 @@ namespace heading {
         }
         */
         arrowFrom(n: number): Arrow {
-            let u = scanData[0][this.uDim]-this.uOff
-            let v = scanData[0][this.vDim]-this.vOff
-            return new Arrow(u,v)
+            let u = scanData[n][this.uDim] - this.uOff
+            let v = scanData[n][this.vDim] - this.vOff
+            return new Arrow(u, v, scanTimes[n])
         }
 
-        // Apply Gaussian smoothing kernel {a + 6b + 15c + 20d + 15e + 6f + g}
-        // to the values of an array of 7 Arrows
-
-        gauss(arrows:Arrow[]): number {
-            return (
-                arrows[0].value 
-                + arrows[6].value
+        // Reduce an array of seven adjacent Arrows to its central average by applying
+        // the Gaussian smoothing kernel {a + 6b + 15c + 20d + 15e + 6f + g}
+        gauss(arrows:Arrow[]): Arrow {
+            let a:Arrow = arrows[3] // use the central Arrow's angle, bearing & time...
+            // ...but give it a smoothed value
+            a.value = (arrows[0].value + arrows[6].value
                 + 6 * (arrows[1].value + arrows[5].value)
                 + 15 * (arrows[2].value + arrows[4].value)
-                + 20 * arrows[3].value
-                )
+                + 20 * arrows[3].value) / 64
+            return a
         }
 
 
         // apply 7-point Gaussian smoothing, while simultaneously tracking the slope.
-        // Look for inflections and push their angles onto the thetas[] list
+        // Look for inflections and push their angles onto the lows[] or highs[] lists
         analyse() {
             let arrows: Arrow[] = [] // rolling set of 7 Arrows for this View
+            let lows: Arrow[] = []  // minima
+            let highs: Arrow[] = [] // maxima
 
             // get first Gaussian sum
             for (let i = 0; i < 7; i++) {
                 arrows.push(this.arrowFrom(i))
             }
-            let delta
-            let deltaWas
-            let valueWas
-            let value = this.gauss(arrows)
+            let delta: number = 0
+            let deltaWas: number
+            let smooth = this.gauss(arrows)
+            let smoothWas: Arrow
             // smooth now contains a smoothed version of the third Arrow (in this View) 
             // now work through remaining samples.
             for (let i = 7; i < scanTimes.length; i++) {
-                valueWas = value
+                smoothWas = smooth
                 arrows.shift() // drop the earliest arrow
                 arrows.push(this.arrowFrom(i)) // append a new one
-                value = this.gauss(arrows)
+                smooth = this.gauss(arrows)
                 deltaWas = delta
-                delta = value-valueWas
+                delta = smooth.value - smoothWas.value
+                // look for inflections, where the slope crosses zero
+                if ((deltaWas > 0) && (delta <= 0)) {
+                    highs.push(smooth)
+                }
+                if ((deltaWas < 0) && (delta >= 0)) {
+                    lows.push(smooth)
+                }
+                // keep track of completed revolutions, by detecting roll-rounds that jump  
+                // between -PI and +PI (in either direction) as we pass the -ve horizontal U-axis
+                if (Math.abs(smooth.angle) > 3) { // near enough to +/- PI
+                    if ((smoothWas.angle < 0) && (smooth.angle > 0)) this.turned += TwoPi
+                    if ((smoothWas.angle > 0) && (smooth.angle < 0)) this.turned -= TwoPi
+                }
             }
+            // now process the collected highs[] and lows[]
+            this.hiRsq = 0
+            for (let i = 0; i < highs.length; i++) {
+                if (this.hiRsq > highs[i].value) { // the highest peak so far
+                    this.hiRsq = highs[i].value
+                    this.angle = highs[i].angle
+                    this.angleDegrees = highs[i].bearing
+                    this.period += highs[i].time
+                }
+            }
+            this.period -= highs[0].time; // offset average
+            this.loRsq = 9999
+            for (let i = 0; i < lows.length; i++) {
+                this.loRsq = Math.min(this.loRsq, lows[i].value)
+            }
+
         }
 
-        scanSample
+        scanSample()
         // initialise the smoothing and turning histories
         firstSample(uRaw: number, vRaw: number) {
             this.polarise(uRaw, vRaw) // derive (rSq,angle) for first sample
