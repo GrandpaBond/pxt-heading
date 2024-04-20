@@ -78,6 +78,8 @@ namespace heading {
         firstAngle: number; // angle of first scan sample 
         turned: number; // scan revolutions accumulator (in radians)
         period: number; // this View's assessment of average rotation time
+        minors: Arrow[] = [] // minor-axis candidates
+        majors: Arrow[] = [] // major-axis candidates
 
 
         constructor(plane: string, dim0: number, dim1: number, off0: number, off1: number) {
@@ -118,12 +120,11 @@ namespace heading {
         }
 
 
-        // apply 7-point Gaussian smoothing, while simultaneously tracking the slope.
-        // Look for inflections and push their angles onto the lows[] or highs[] lists
-        analyse() {
+        // Apply 7-point Gaussian smoothing, while simultaneously tracking the slope.
+        // Look for inflections in slope as we pass the Ellipse's axes, and push their angles
+        // onto the majors[] or minors[] axis-lists
+        extractAxes() {
             let arrows: Arrow[] = [] // rolling set of 7 Arrows for this View
-            let lows: Arrow[] = []  // minima
-            let highs: Arrow[] = [] // maxima
 
             // get first Gaussian sum
             for (let i = 0; i < 7; i++) {
@@ -141,13 +142,14 @@ namespace heading {
                 arrows.push(this.arrowFrom(i)) // append a new one
                 smooth = this.gauss(arrows)
                 deltaWas = delta
-                delta = smooth.value - smoothWas.value
+                // differentiate to get slope
+                delta = (smooth.value - smoothWas.value) / (smooth.time - smoothWas.time)
                 // look for inflections, where the slope crosses zero
                 if ((deltaWas > 0) && (delta <= 0)) {
-                    highs.push(smooth)
+                    majors.push(smooth) // passing a major axis
                 }
                 if ((deltaWas < 0) && (delta >= 0)) {
-                    lows.push(smooth)
+                    minors.push(smooth) // passing a minor axis
                 }
                 // keep track of completed revolutions, by detecting roll-rounds that jump  
                 // between -PI and +PI (in either direction) as we pass the -ve horizontal U-axis
@@ -156,14 +158,17 @@ namespace heading {
                     if ((smoothWas.angle > 0) && (smooth.angle < 0)) this.turned -= TwoPi
                 }
             }
+        }
+
+        analyse(): number {
             // now process the collected highs[] and lows[]
             this.hiRsq = 0
-            for (let i = 0; i < highs.length; i++) {
-                if (this.hiRsq > highs[i].value) { // the highest peak so far
-                    this.hiRsq = highs[i].value
-                    this.angle = highs[i].angle
-                    this.angleDegrees = highs[i].bearing
-                    this.period += highs[i].time
+            for (let i = 0; i < this.majors.length; i++) {
+                if (this.hiRsq > this.majors[i].value) { // the highest peak so far
+                    this.hiRsq = this.majors[i].value
+                    this.angle = this.majors[i].angle
+                    this.angleDegrees = this.majors[i].bearing
+                    this.period += this.majors[i].time
                 }
             }
             this.period -= highs[0].time; // offset average
@@ -171,6 +176,7 @@ namespace heading {
             for (let i = 0; i < lows.length; i++) {
                 this.loRsq = Math.min(this.loRsq, lows[i].value)
             }
+            return 0
 
         }
 
