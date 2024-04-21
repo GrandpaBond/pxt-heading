@@ -136,18 +136,20 @@ namespace heading {
             return Math.atan2(ySum, xSum)
         }
         
-        // Apply 7-point Gaussian smoothing, while simultaneously tracking the slope.
-        // Look for inflections in slope as we pass the Ellipse's axes, and push their angles
-        // onto the majors[] or minors[] axis-lists
-        extractAxes() {
+        // Process the sampleData and work out the eccentricity of this Ellipse.
+        // We apply 7-point Gaussian smoothing, while simultaneously tracking the slope.
+        // Look for inflections in slope as we pass the Ellipse's axes, and push candidates
+        // onto the majors[] or minors[] axis-lists. These are then averaged to set the Ellipse angle,
+        // and the scale factor (or eccentricity), which is returned.
+        findEccentricity(): number {
             let arrows: Arrow[] = [] // rolling set of 7 Arrows for this View
 
             // get first Gaussian sum
             for (let i = 0; i < 7; i++) {
                 arrows.push(this.arrowFrom(i))
             }
-            let delta: number = 0
-            let deltaWas: number
+            let slope: number = 99999 // marker for first time round
+            let slopeWas: number
             let smooth = this.gauss(arrows)
             let smoothWas: Arrow
             // smooth now contains a smoothed version of the third Arrow (in this View) 
@@ -157,14 +159,16 @@ namespace heading {
                 arrows.shift() // drop the earliest arrow
                 arrows.push(this.arrowFrom(i)) // append a new one
                 smooth = this.gauss(arrows)
-                deltaWas = delta
+                slopeWas = slope
                 // differentiate to get slope
-                delta = (smooth.value - smoothWas.value) / (smooth.time - smoothWas.time)
+                slope = (smooth.value - smoothWas.value) / (smooth.time - smoothWas.time)
+                // always ensure first two slopes match
+                if (slopeWas == 99999) slopeWas = slope
                 // look for inflections, where the slope crosses zero
-                if ((deltaWas > 0) && (delta <= 0)) {
+                if ((slopeWas > 0) && (slope <= 0)) {
                     this.majors.push(smooth) // passing a major axis
                 }
-                if ((deltaWas < 0) && (delta >= 0)) {
+                if ((slopeWas < 0) && (slope >= 0)) {
                     this.minors.push(smooth) // passing a minor axis
                 }
                 // keep track of completed revolutions, by detecting roll-rounds that jump  
@@ -174,14 +178,23 @@ namespace heading {
                     if ((smoothWas.angle > 0) && (smooth.angle < 0)) this.turned -= TwoPi
                 }
             }
+
+            // Axes get passed twice per Spin-circle revolution, so an eccentric Ellipse will
+            // produce neatly alternating candidates with opposite angles.
+            // Noisy readings mean that a more-nearly circular Ellipse may generate alternating
+            // clusters of candidates that need to be averaged to get the axis-angle.
+            // An almost circular Ellipse has no meaningful axes, but will generate multiple spurious 
+            // candidates. A quick initial check means we can skip further analysis.
+
+
+            return this.scale
         }
 
-        analyse(): number {
-            // now process the collected highs[] and lows[]
 
-    // axes are passed twice per revolution: first challenge is to separate them
-    // For well-behaved Ellipses they alternate, but near-circular ones generate multiple false peaks.
-    // First check is for near-circularity: say more than 20 highs?
+        analyse(): number {
+            
+
+    
 
 
             this.hiRsq = 0
@@ -482,15 +495,30 @@ namespace heading {
             scanData[i][Dim.Z] -= zOff
         }
 
+        strength = 0 // initialise a global field-strength-squared accumulator
+
         // create an Ellipse instance for analysing each possible view
         views.push(new Ellipse("XY", Dim.X, Dim.Y, xOff, yOff))
         views.push(new Ellipse("YZ", Dim.Y, Dim.Z, yOff, zOff))
         views.push(new Ellipse("ZX", Dim.Z, Dim.X, zOff, xOff))
 
-        // Now assess eccentricities by looking for the shortest and longest radii for each Ellipse.
-        strength = 0 // initialise global field-strength-squared accumulator
+        // For each Ellipse, assess eccentricity by comparing the shortest and longest radii, (i.e. 
+        // the major and minor axes). Future headings will be derived from the most circular Ellipse.
+        // First we collect arrays of candidate major and minor axes for each View. 
+    
+        views[View.XY].findEccentricity()
+        views[View.YZ].findEccentricity()
+        views[View.ZX].findEccentricity()
 
-        // initialise the radii-squared and their limits to their first values
+        views[View.XY].analyse()
+        views[View.YZ].findEccentricity()
+        views[View.ZX].findEccentricity()
+
+        // So the number of candidates gives an approximate measure of eccentricity and shows us 
+        // quickly 
+
+
+        /* initialise the radii-squared and their limits to their first values
         let xRaw = scanData[0][Dim.X]
         let yRaw = scanData[0][Dim.Y]
         let zRaw = scanData[0][Dim.Z]
@@ -522,6 +550,8 @@ namespace heading {
         if (strength < MarginalField) {
             return -2  // "FIELD STRENGTH TOO WEAK"
         }
+        */
+
 
         // for each view, set up projection metrics, using the most recently detected major axis
         // Also derive rotation period (should match between views!)
