@@ -56,39 +56,41 @@ namespace heading {
         uOff: number; // horizontal offset needed to re-centre the Ellipse along the U-axis
         vOff: number; // vertical offset needed to re-centre the Ellipse along the V-axis
         // properties used in the Spin-Circle scan:
-        rSq: number;  // latest sample's smoothed radius-squared
-        angle: number; // latest sample's polar angle on the Ellipse 
+        // rSq: number;  // latest sample's smoothed radius-squared
+        // angle: number; // latest sample's polar angle on the Ellipse 
         angleDegrees: number; // testing
-        hiRsq: number; // max radius-squared 
-        loRsq: number; // min radius-squared
+        //hiRsq: number; // max radius-squared 
+        //loRsq: number; // min radius-squared
         // history:
-        rSqWas: number; // previous sample's rSq
-        slopeWas: number; // average recent slope to previous sample
-        angleWas: number; // previous sample's angle
+        //rSqWas: number; // previous sample's rSq
+        //slopeWas: number; // average recent slope to previous sample
+        //angleWas: number; // previous sample's angle
         // projection params from latest detected major axis:
-        theta: number; // clockwise angle (in radians) to "untwist" major axis onto U-axis
-        thetaDegrees: number; // (for testing)
-        maybe: number; // latest potential major-axis angle detected
-        thetas: number[]; // list of potential major-axis angles detected (while testing)
-        cosTheta: number; // saved for efficiency
-        sinTheta: number; // ditto
+        //theta: number; // clockwise angle (in radians) to "untwist" major axis onto U-axis
+        //thetaDegrees: number; // (for testing)
+        //maybe: number; // latest potential major-axis angle detected
+        //thetas: number[]; // list of potential major-axis angles detected (while testing)
+        //cosTheta: number; // saved for efficiency
+        //sinTheta: number; // ditto
         scale: number; // eccentricity: stretch along minor-axis needed to make Ellipse circular again
         // others:
         fromBelow: boolean; // rotation reversal flag, as seen by this View of the clockwise scan
-        firstAngle: number; // angle of first scan sample 
+        //firstAngle: number; // angle of first scan sample 
         turned: number; // scan revolutions accumulator (in radians)
         period: number; // this View's assessment of average rotation time
         minors: Arrow[] = [] // minor-axis candidates
         majors: Arrow[] = [] // major-axis candidates
+        majorAxis: Arrow; // selected (or averaged) major axis
+        minorAxis: Arrow; // selected (or averaged) minor axis
 
 
-        constructor(plane: string, dim0: number, dim1: number, off0: number, off1: number) {
+        constructor(plane: string, uDim: number, vDim: number, uOff: number, vOff: number) {
             this.plane = plane // (as a DEBUG aid)
-            this.uDim = dim0
-            this.vDim = dim1
-            this.uOff = off0
-            this.vOff = off1
-            this.thetas = []
+            this.uDim = uDim
+            this.vDim = vDim 
+            // remember the normalisation offsets
+            this.uOff = uOff 
+            this.vOff = vOff
         }
 
         /* convert the raw values to (kind of) re-centred polar coordinates (rSq,angle)
@@ -139,9 +141,9 @@ namespace heading {
         // Process the sampleData and work out the eccentricity of this Ellipse.
         // We apply 7-point Gaussian smoothing, while simultaneously tracking the slope.
         // Look for inflections in slope as we pass the Ellipse's axes, and push candidates
-        // onto the majors[] or minors[] axis-lists. These are then averaged to set the Ellipse angle,
-        // and the scale factor (or eccentricity), which is returned.
-        findEccentricity(): number {
+        // onto the majors[] or minors[] axis-lists.
+        // These lists are processed to set the majorAxis and minorAxis Arrows.
+        extractAxes() {
             let arrows: Arrow[] = [] // rolling set of 7 Arrows for this View
 
             // get first Gaussian sum
