@@ -26,6 +26,7 @@ namespace heading {
     const Inertia = 0.95 // ratio of old to new radius readings (for inertial smoothing)
     const TwoPi = 2 * Math.PI
     const RadianDegrees = 360 / TwoPi
+    const Crowded = 10 // excessive population of candidate axes per revolution for near-circular Ellipse
 
     // CLASSES
 
@@ -76,7 +77,9 @@ namespace heading {
         // others:
         fromBelow: boolean; // rotation reversal flag, as seen by this View of the clockwise scan
         //firstAngle: number; // angle of first scan sample 
-        turned: number; // scan revolutions accumulator (in radians)
+        turned: number; // scan revolutions accumulator (in signed radians)
+        turns: number; // scan revolution counter
+        isCircular: boolean; // flag saying this "Ellipse" is almost circular, simplifying future handling
         period: number; // this View's assessment of average rotation time
         minors: Arrow[] = [] // minor-axis candidates
         majors: Arrow[] = [] // major-axis candidates
@@ -91,6 +94,7 @@ namespace heading {
             // remember the normalisation offsets
             this.uOff = uOff 
             this.vOff = vOff
+            this.isCircular = false // until proved otherwise
         }
 
         /* convert the raw values to (kind of) re-centred polar coordinates (rSq,angle)
@@ -112,7 +116,7 @@ namespace heading {
         // Reduce an array of seven adjacent Arrows to its central average by applying
         // the Gaussian smoothing kernel {a + 6b + 15c + 20d + 15e + 6f + g} to the values,
         // and averaging the angles.
-        gauss(arrows:Arrow[]): Arrow {
+        applyGaussian(arrows:Arrow[]): Arrow {
             let a:Arrow
             a.value = (arrows[0].value + arrows[6].value
                 + 6 * (arrows[1].value + arrows[5].value)
@@ -181,12 +185,26 @@ namespace heading {
                 }
             }
 
+            // check number of full revolutions
+            this.turns = Math.abs(this.turned/TwoPi)
+
             // Axes get passed twice per Spin-circle revolution, so an eccentric Ellipse will
-            // produce neatly alternating candidates with opposite angles.
+            // produce neatly alternating candidates with "opposite" angles.
             // Noisy readings mean that a more-nearly circular Ellipse may generate alternating
-            // clusters of candidates that need to be averaged to get the axis-angle.
+            // clusters of candidates.
             // An almost circular Ellipse has no meaningful axes, but will generate multiple spurious 
-            // candidates. A quick initial check means we can skip further analysis.
+            // candidates. A quick initial check on array-length means we can skip further analysis.
+
+            if (this.majors.length / this.turns > Crowded) {
+                this.isCircular = true
+            } else {
+                // We could simply adopt the latest major & minor candidate. More robustly, 
+                // we try to average them, but will need to reverse half of them, so that
+                // they all point at the same end of the axis!
+                
+              
+
+            }
 
 
             return this.scale
