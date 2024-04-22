@@ -113,35 +113,78 @@ namespace heading {
             return new Arrow(u, v, scanTimes[n])
         }
 
-        // Reduce an array of seven adjacent Arrows to its central average by applying
-        // the Gaussian smoothing kernel {a + 6b + 15c + 20d + 15e + 6f + g} to the values,
-        // and averaging the angles.
-        applyGaussian(arrows:Arrow[]): Arrow {
-            let a:Arrow
-            a.value = (arrows[0].value + arrows[6].value
-                + 6 * (arrows[1].value + arrows[5].value)
-                + 15 * (arrows[2].value + arrows[4].value)
-                + 20 * arrows[3].value) / 64
-
-            a.angle = this.arrowMeanAngle(arrows)
-            a.bearing = asBearing(a.angle)
-            a.time = arrows[3].time
-            return a
-        }
-
-        // Find the average of a set of Arrow angles (coping with roll-round!)
-        arrowMeanAngle(arrows: Arrow[]): number {
-            // aggregate a chain of unit-vector steps
+        // Find the average of a set of adjacent Arrow angles (coping with cyclic roll-round)
+        averageAngle(arrows: Arrow[]): number {
+            // aggregate a chain of unit-vector steps, one for each Arrow
             let xSum = 0
             let ySum = 0
             for (let i = 0; i < arrows.length; i++) {
                 xSum += Math.cos(arrows[i].angle)
                 ySum += Math.sin(arrows[i].angle)
             }
-            // see what overall direction they have taken us
+            // the resultant vector shows the overall direction of the chain of Arrows
             return Math.atan2(ySum, xSum)
         }
-        
+
+        // Reduce an array of seven adjacent Arrows to its central average by applying
+        // the Gaussian smoothing kernel {a + 6b + 15c + 20d + 15e + 6f + g} to the values,
+        // and averaging the angles.
+        averageOfSeven(arrows: Arrow[]): Arrow {
+            let a: Arrow
+            a.value = (arrows[0].value + arrows[6].value
+                + 6 * (arrows[1].value + arrows[5].value)
+                + 15 * (arrows[2].value + arrows[4].value)
+                + 20 * arrows[3].value) / 64
+            a.angle = this.averageAngle(arrows)
+            a.bearing = asBearing(a.angle)
+            a.time = arrows[3].time
+            return a
+        }
+
+        // Find the consensus of a set of axis-candidate Arrow angles
+        // (reversing around half of them so they all point to the same end of the axis!)
+        // (The Arrow.time returned holds the average rotation period)
+        averageAxis(arrows: Arrow[]): Arrow {
+            let a: Arrow
+            let xSum = 0
+            let ySum = 0
+            let shrinking = true
+            let shrinkingWas: boolean
+            let first: boolean
+            let period = arrows[0].time
+            for (let i = 0; i < arrows.length; i++) {
+                let dx = Math.cos(arrows[i].angle)
+                let dy = Math.sin(arrows[i].angle)
+                let xNew = xSum + dx
+                let yNew = ySum + dy
+                // ensure we are always extending (never shrinking) the resultant vector
+                shrinkingWas = shrinking
+                shrinking =(xNew * xNew + yNew * yNew) < (xSum * xSum + ySum * ySum)
+                first = shrinking != shrinkingWas // first axis at a new "end"
+                if (shrinking) {
+                    // reverse the contribution of an Arrow pointing to the "other end"
+                    xNew = xSum - dx
+                    yNew = ySum - dy
+                } else { 
+                    if (first) {
+                        timer -= arrows[i].time
+                    } else {
+                        timer += arrows[i-1].time
+                    }
+                }
+                    
+                }
+                xSum = xNew
+                ySum = yNew
+            }
+            // the resultant vector shows the overall direction of the chain of Arrows
+            a.angle = Math.atan2(ySum, xSum)
+            a.bearing = asBearing(a.angle)
+
+            a.time = 
+            return a
+        }
+
         // Process the sampleData and work out the eccentricity of this Ellipse.
         // We apply 7-point Gaussian smoothing, while simultaneously tracking the slope.
         // Look for inflections in slope as we pass the Ellipse's axes, and push candidates
@@ -156,7 +199,7 @@ namespace heading {
             }
             let slope: number = 99999 // marker for first time round
             let slopeWas: number
-            let smooth = this.gauss(arrows)
+            let smooth = this.averageOfSeven(arrows)
             let smoothWas: Arrow
             // smooth now contains a smoothed version of the third Arrow (in this View) 
             // now work through remaining samples.
@@ -164,11 +207,11 @@ namespace heading {
                 smoothWas = smooth
                 arrows.shift() // drop the earliest arrow
                 arrows.push(this.arrowFrom(i)) // append a new one
-                smooth = this.gauss(arrows)
+                smooth = this.averageOfSeven(arrows)
                 slopeWas = slope
                 // differentiate to get slope
                 slope = (smooth.value - smoothWas.value) / (smooth.time - smoothWas.time)
-                // always ensure first two slopes match
+                // ensure first two slopes always match
                 if (slopeWas == 99999) slopeWas = slope
                 // look for inflections, where the slope crosses zero
                 if ((slopeWas > 0) && (slope <= 0)) {
@@ -191,16 +234,21 @@ namespace heading {
             // Axes get passed twice per Spin-circle revolution, so an eccentric Ellipse will
             // produce neatly alternating candidates with "opposite" angles.
             // Noisy readings mean that a more-nearly circular Ellipse may generate alternating
-            // clusters of candidates.
+            // clusters of candidates as we pass each end of the axis.
             // An almost circular Ellipse has no meaningful axes, but will generate multiple spurious 
-            // candidates. A quick initial check on array-length means we can skip further analysis.
-
+            // candidates.
+            
+            // A quick initial check on array-length lets us skip further analysis.
             if (this.majors.length / this.turns > Crowded) {
                 this.isCircular = true
             } else {
-                // We could simply adopt the latest major & minor candidate. More robustly, 
-                // we try to average them, but will need to reverse half of them, so that
-                // they all point at the same end of the axis!
+                // We could simply adopt the latest major & minor candidate. 
+                // More robustly, we average them, but will need to reverse half of them,
+                // so that they all point at the same end of the axis!
+                this.majorAxis.value = this.averageValue(this.majors)
+                this.majorAxis.angle = this.averageAxis(this.majors)
+                this.majorAxis.value = this.averageValue(this.majors)
+                this.minorAxis.angle = this.averageAxis(this.minors)
                 
               
 
