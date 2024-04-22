@@ -141,48 +141,44 @@ namespace heading {
             return a
         }
 
-        // Find the consensus of a set of axis-candidate Arrow angles
-        // (reversing around half of them so they all point to the same end of the axis!)
-        // (The Arrow.time returned holds the average rotation period)
+        // Find the consensus of a set of axis-candidate Arrow angles, reversing around half
+        // of them so they all point to the same end of the axis as the first one.
+        // We use the time property of the returned Arrow to hold the average rotation period.
         averageAxis(arrows: Arrow[]): Arrow {
-            let a: Arrow
+            let resultant: Arrow
             let xSum = 0
             let ySum = 0
-            let shrinking = true
-            let shrinkingWas: boolean
-            let first: boolean
-            let period = arrows[0].time
+            let startTime = arrows[0].time
+            let endTime = 0
+            let turns = -1 // will be incremented on first iteration below
+            let flipped = true
             for (let i = 0; i < arrows.length; i++) {
                 let dx = Math.cos(arrows[i].angle)
                 let dy = Math.sin(arrows[i].angle)
                 let xNew = xSum + dx
                 let yNew = ySum + dy
-                // ensure we are always extending (never shrinking) the resultant vector
-                shrinkingWas = shrinking
-                shrinking =(xNew * xNew + yNew * yNew) < (xSum * xSum + ySum * ySum)
-                first = shrinking != shrinkingWas // first axis at a new "end"
-                if (shrinking) {
-                    // reverse the contribution of an Arrow pointing to the "other end"
-                    xNew = xSum - dx
-                    yNew = ySum - dy
-                } else { 
-                    if (first) {
-                        timer -= arrows[i].time
-                    } else {
-                        timer += arrows[i-1].time
+                // ensure we are always extending (never shrinking) our resultant vector
+                if ((xNew * xNew + yNew * yNew) > (xSum * xSum + ySum * ySum)) {   
+                    if (flipped) {
+                        flipped = false
+                        // clock a revolution at first unflipped after one or more flipped Arrows
+                        turns++ 
+                        endTime = arrows[i].time
                     }
+                } else { // reverse this arrow as its pointing the "wrong" way
+                    dx = -dx
+                    dy = -dy
+                    flipped = true
                 }
-                    
-                }
-                xSum = xNew
-                ySum = yNew
+                xSum += dx
+                ySum += dy
             }
-            // the resultant vector shows the overall direction of the chain of Arrows
-            a.angle = Math.atan2(ySum, xSum)
-            a.bearing = asBearing(a.angle)
 
-            a.time = 
-            return a
+            // the resultant vector now shows the overall direction of the chain of Arrows
+            resultant.angle = Math.atan2(ySum, xSum)
+            resultant.bearing = asBearing(resultant.angle)
+            resultant.time =  (endTime - startTime) / turns  // start point
+            return resultant
         }
 
         // Process the sampleData and work out the eccentricity of this Ellipse.
