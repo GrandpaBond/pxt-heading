@@ -139,18 +139,21 @@ namespace heading {
             return a
         }
 
-        // Find the consensus of a set of axis-candidate Arrow angles, reversing around half
-        // of them so they all point to the same end of the axis as the first.
-        // We hijack the time property of the returned Arrow to hold the average rotation period detected.
-        // SIDE EFFECT! The detected number of revolutions is updated for this Ellipse in this.turns
+        // This method does two jobs: refining axes, and measuring perdiodicity.
+        // 1. Finds the consensus of a set of axis-candidate Arrow angles (reversing "opposite"
+        // ones, so they all point to the same end of the axis as the first candidate).
+        // 2. Hijacks the "time" property of the returned Arrow to hold the average rotation period detected.
+        // **SIDE EFFECT** The detected number of revolutions is updated for this Ellipse (in this.turns)
         averageAxis(arrows: Arrow[]): Arrow {
-            let xSum = 0
-            let ySum = 0
+            // first candidate determines which "end" of the axis we choose
+            let xSum = Math.cos(arrows[0].angle)
+            let ySum = Math.sin(arrows[0].angle)
             let startTime = arrows[0].time
             let endTime = 0
-            this.turns = -1 // will be incremented on first iteration below
-            let flipped = true
-            for (let i = 0; i < arrows.length; i++) {
+            this.turns = 0 // will be incremented on first iteration below
+            let flipped = false
+            let count = arrows.length
+            for (let i = 1; i < count; i++) {
                 let dx = Math.cos(arrows[i].angle)
                 let dy = Math.sin(arrows[i].angle)
                 let xNew = xSum + dx
@@ -163,16 +166,20 @@ namespace heading {
                         this.turns++ 
                         endTime = arrows[i].time // update for new revolution
                     }
-                } else { // reverse this arrow as its pointing the "wrong" way
+                } else { // reverse this arrow, as it's pointing the "wrong" way
+                    flipped = true
                     dx = -dx
                     dy = -dy
-                    flipped = true
                 }
                 xSum += dx
                 ySum += dy
             }
-            let period =  (endTime - startTime) / this.turns // compute the average rotation time
-            // the resultant vector {xSum,ySum} now shows the overall direction of the chain of Arrows
+            // re-normalise the resultant's coordinates
+            xSum /= count
+            ySum /= count 
+            // compute the average rotation time
+            let period =  (endTime - startTime) / this.turns
+            // make an Arrow to {xSum,ySum}, showing the overall direction of the chain of Arrows
             return new Arrow(xSum, ySum, period)
         }
 
@@ -214,12 +221,13 @@ namespace heading {
                 if ((slopeWas < 0) && (slope >= 0)) {
                     this.minors.push(smooth) // passing a minor axis
                 }
-                // keep track of completed revolutions, by detecting roll-rounds that jump  
+                /* keep track of completed revolutions, by detecting roll-rounds that jump  
                 // between -PI and +PI (in either direction) as we pass the -ve horizontal U-axis
                 if (Math.abs(smooth.angle) > 3) { // near enough to +/- PI
                     if ((smoothWas.angle < 0) && (smooth.angle > 0)) this.turned += TwoPi
                     if ((smoothWas.angle > 0) && (smooth.angle < 0)) this.turned -= TwoPi
                 }
+                */
             }
             // 
 
@@ -233,7 +241,7 @@ namespace heading {
             // An almost circular Ellipse has no meaningful axes, but will generate multiple spurious 
             // candidates.
             
-            // A quick initial check on array-length lets us skip further analysis.
+            // A quick initial check on the array-length lets us skip further analysis.
             if (this.majors.length / this.turns > Crowded) {
                 this.isCircular = true
             } else {
@@ -244,6 +252,15 @@ namespace heading {
                 this.majorAxis = this.averageAxis(this.majors)
                 this.majorAxis = this.averageAxis(this.minors)
             }
+
+            // Preset the rotation factors for aligning major-axis clockwise with the U-axis
+            this.cosTheta = Math.cos(this.majorAxis.angle)
+            this.sinTheta = Math.sin(this.majorAxis.angle)
+            // Use the ratio of the detected axes to derive the V-axis scaling factor that would
+            // stretch the Ellipse back into a circle            
+            this.scale = Math.sqrt(this.majorAxis.value / this.minorAxis.value) 
+            // take the average of the two estimates
+            this.period = (this.majorAxis.time + this.minorAxis.time) / 2
         }
         /*
             if (logging) {
@@ -260,16 +277,7 @@ namespace heading {
             }
         }*/
 
-        // perform final analysis after scanning
-        finish() {
-            // Preset the rotation factors for aligning major axis clockwise with the U-axis
-            this.cosTheta = Math.cos(this.majorAxis.angle)
-            this.sinTheta = Math.sin(this.majorAxis.angle)
-            // Use the ratio of the detected extreme radii to derive the V-axis scaling factor
-            // needed to stretch the Ellipse back into a circle            
-            this.scale = Math.sqrt(this.majorAxis.value / this.minorAxis.value)
-            this.period = (this.majorAxis.time + this.minorAxis.time) / 2 // average of the two estimates
-        }
+
 
         // Transform a point on the off-centre projected Ellipse back onto the centred Spin-Circle 
         // and return its angle (in radians anticlockwise from the horizontal U-axis)
