@@ -1,6 +1,7 @@
 /**
  * An extension providing a compass-heading for a buggy located anywhere on the globe 
- * (except at the magnetic poles!), with any mounting orientation for its microbit.
+ * (except at the magnetic poles!), with any arbitrary mounting orientation for its microbit.
+ * See the README for a detailed description of the approach, methods and algorithms.
  */
 
 //% color=#6080e0 weight=40 icon="\uf14e" block="Heading" 
@@ -30,17 +31,18 @@ namespace heading {
 
     // CLASSES
 
-    // Derived from a smoothed scanned sample, an Arrrow holds the properties of a radius of an Ellipse 
-    // when seen in a particular 2-axis View. It stores the square of a polar vector magnitude,
-    // together with its direction (as both an trig angle in radians, and a compass bearing in degrees)
+    // Derived from a smoothed scanned field measurement sample, an Arrrow holds the properties of a radius of
+    // the Ellipse seen in a particular 2-axis View. It uses polar coordinates and stores the square of a vector
+    // magnitude, together with its direction (as both an trig angle in radians, and a compass bearing in degrees)
     class Arrow {
         time: number; // timestamp when this was collected
         value: number; // magnitude-squared
         angle: number; // angle coordinate (radians anticlockwise from East)
         bearing: number; // the compass-bearing (degrees clockwise from North)
 
-        constructor(u: number, v: number, t: number) {
-            this.value = (u * u) + (v * v)  // Note: Cartesian coordinates must be normalised!
+        constructor(u: number, v: number, t: number) { 
+            // {u,v} are coordinates of field measurement relative to Ellipse centre
+            this.value = (u * u) + (v * v)  
             this.angle = Math.atan2(v, u)
             this.bearing = asBearing(this.angle)
             this.time = t
@@ -57,7 +59,7 @@ namespace heading {
         // properties used in the Spin-Circle scan:
         // rSq: number;  // latest sample's smoothed radius-squared
         // angle: number; // latest sample's polar angle on the Ellipse 
-        angleDegrees: number; // testing
+        //angleDegrees: number; // testing
         //hiRsq: number; // max radius-squared 
         //loRsq: number; // min radius-squared
         // history:
@@ -65,10 +67,11 @@ namespace heading {
         //slopeWas: number; // average recent slope to previous sample
         //angleWas: number; // previous sample's angle
         // projection params from latest detected major axis:
-        //theta: number; // clockwise angle (in radians) to "untwist" major axis onto U-axis
-        //thetaDegrees: number; // (for testing)
+        
         //maybe: number; // latest potential major-axis angle detected
         //thetas: number[]; // list of potential major-axis angles detected (while testing)
+        theta: number; // clockwise angle (in radians) to "untwist" major axis onto U-axis
+        thetaBearing: number; // (for testing)
         cosTheta: number; // saved for efficiency
         sinTheta: number; // ditto
         scale: number; // eccentricity: stretch along minor-axis needed to make Ellipse circular again
@@ -139,7 +142,7 @@ namespace heading {
             return a
         }
 
-        // This method does two jobs: refining axes, and measuring perdiodicity.
+        // This method does two jobs: refining axes; and measuring perdiodicity.
         // 1. Finds the consensus of a set of axis-candidate Arrow angles (reversing "opposite"
         // ones, so they all point to the same end of the axis as the first candidate).
         // 2. Hijacks the "time" property of the returned Arrow to hold the average rotation period detected.
@@ -198,11 +201,9 @@ namespace heading {
             let slope: number = 99999 // marker for first time round
             let slopeWas: number
             let smooth = this.averageOfSeven(arrows)
-            let smoothWas: Arrow
             // smooth now contains a smoothed version of the third Arrow (in this View)
+            let smoothWas: Arrow
 
-            // ??? do we still need to use cumulative angle this.turned to compute period and speed ???
-            
             // now work through remaining samples...
             for (let i = 7; i < scanTimes.length; i++) {
                 smoothWas = smooth
@@ -221,7 +222,7 @@ namespace heading {
                 if ((slopeWas < 0) && (slope >= 0)) {
                     this.minors.push(smooth) // passing a minor axis
                 }
-                /* keep track of completed revolutions, by detecting roll-rounds that jump  
+                /* OLD METHOD: keep track of completed revolutions, by detecting roll-rounds that jump  
                 // between -PI and +PI (in either direction) as we pass the -ve horizontal U-axis
                 if (Math.abs(smooth.angle) > 3) { // near enough to +/- PI
                     if ((smoothWas.angle < 0) && (smooth.angle > 0)) this.turned += TwoPi
@@ -242,24 +243,26 @@ namespace heading {
             // candidates.
             
             // A quick initial check on the array-length lets us skip further analysis.
-            if (this.majors.length / this.turns > Crowded) {
+            if ((this.majors.length / this.turns) > Crowded) {
                 this.isCircular = true
             } else {
                 this.isCircular = false
-                // We could simply adopt the latest major & minor candidate. 
-                // More robustly, we average them (but will need to reverse half of them,
+                // We could simply use just the latest major & minor axis-candidate. 
+                // More robustly, we average them (but note that we'll need to reverse half of them,
                 // so that they all point at the same end of the axis!)          
                 this.majorAxis = this.averageAxis(this.majors)
                 this.majorAxis = this.averageAxis(this.minors)
             }
 
             // Preset the rotation factors for aligning major-axis clockwise with the U-axis
-            this.cosTheta = Math.cos(this.majorAxis.angle)
-            this.sinTheta = Math.sin(this.majorAxis.angle)
+            this.theta = this.majorAxis.angle
+            this.thetaBearing = this.majorAxis.bearing // (for debug)
+            this.cosTheta = Math.cos(this.theta)
+            this.sinTheta = Math.sin(this.theta)
             // Use the ratio of the detected axes to derive the V-axis scaling factor that would
-            // stretch the Ellipse back into a circle            
+            // stretch the Ellipse back into a circle (remember we store radius-squared in an Arrow)          
             this.scale = Math.sqrt(this.majorAxis.value / this.minorAxis.value) 
-            // take the average of the two estimates
+            // take the average of the two period estimates
             this.period = (this.majorAxis.time + this.minorAxis.time) / 2
         }
         /*
@@ -337,7 +340,7 @@ namespace heading {
     //% weight=90 
 
     export function scan(ms: number) {
-        // Every ~25 ms over the specified duration (generally a couple of seconds),
+        // Every 25-30 ms over the specified duration (generally a couple of seconds),
         // magnetometer readings are sampled and a new [X,Y,Z] triple added to the scanData[] array.
         // A timestamp for each sample is also recorded in the scanTimes[] array.
         scanTimes = []
@@ -427,7 +430,7 @@ namespace heading {
      * Then read the magnetometer and register the buggy's current direction as "North",
      * (i.e. the direction that will in future return zero as its heading).
      * The actual direction the buggy is pointing when this function is called could be
-     * Magnetic North; True North (compensating for local declination); or any convenient
+     * Magnetic North; or True North (compensating for local declination); or any convenient
      * direction from which to measure subsequent heading angles.
      * 
      * @returns: zero if successful, or a negative error code:
@@ -487,14 +490,10 @@ namespace heading {
         views.push(new Ellipse("YZ", Dim.Y, Dim.Z, yOff, zOff))
         views.push(new Ellipse("ZX", Dim.Z, Dim.X, zOff, xOff))
 
-
+        // perform the analysis of Ellipse angle and eccentricity 
         views[View.XY].extractAxes()
         views[View.YZ].extractAxes()
         views[View.ZX].extractAxes()
-
-        views[View.XY].finish()
-        views[View.YZ].finish()
-        views[View.ZX].finish()
 
         // check that at least one View saw at least one complete rotation (= 2*Pi radians)...
         if ((Math.abs(views[View.XY].turned) < TwoPi)
@@ -555,7 +554,7 @@ namespace heading {
                 datalogger.createCV("vDim", vDim),
                 datalogger.createCV("uOff", round2(views[bestView].uOff)),
                 datalogger.createCV("vOff", round2(views[bestView].vOff)),
-                datalogger.createCV("thetaDegrees", round2(views[bestView].thetaDegrees)),
+                datalogger.createCV("thetaDegrees", round2(views[bestView].thetaBearing)),
                 datalogger.createCV("scale", round2(views[bestView].scale)),
                 datalogger.createCV("period", round2(views[bestView].period)),
                 datalogger.createCV("toNorthDegrees", round2(toNorthDegrees)),
@@ -701,7 +700,7 @@ namespace heading {
     // Convert angle measured in radians anticlockwise from horizontal U-axis (East)
     // to a compass bearing in degrees measured clockwise from vertical V-axis (North)
     function asBearing(angle: number): number {
-        return ((90 - (this.angle * RadianDegrees)) + 360) % 360
+        return ((90 - (angle * RadianDegrees)) + 360) % 360
     }
 
     // While debugging, it is useful to re-use predictable sample data for a variety of use-cases 

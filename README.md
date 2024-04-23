@@ -13,7 +13,7 @@ possible direction, potentially a rather awkward operation with a buggy!
 
 This pxt-heading extension is designed to meet the need for a location-independent and orientation-independent compass,
 based solely on the magnetometer readings. The magnetometer does still need to be calibrated (to discover how it 
-sees its magnetic environment), but we achieve that simply by spinning the buggy on the spot for a couple of rotations, 
+sees its magnetic environment), but we achieve that simply by spinning the buggy on the spot for a few rotations, 
 and then teaching it where North is.
 
 ## Earth's Magnetic Field
@@ -27,22 +27,24 @@ into the ground; near the Equator it is roughly horizontal. The magnetometer rea
 
 ## Magnetometer Calibration
 While calibrating, imagine the situation from the perspective of our spinning buggy.
-As the buggy spins clockwise, the end of the magnetic field-vector sweeps out an anti-clockwise Spin-Circle. When the spin-axis neatly aligns with a magnetometer axis, this Spin-Circle projects squarely at right-angles to it, resulting in simple sine-wave readings in the other two axes.
-    But in the fully general case, where the microbit is off-axis to the rotation, the Spin-Circle projects onto the plane of each pair of orthogonal axes (XY,YZ,ZX) 
-    as an Ellipse with a certain eccentricity (and maybe a tilt). We will always get the best heading 
-    discrimination from the "roundest", most "square-on" view (i.e. the least eccentric Ellipse).
+As the buggy spins clockwise, the end of the magnetic field-vector sweeps out an anti-clockwise Spin-Circle.
+
+When the spin-axis neatly aligns with a magnetometer axis, this Spin-Circle projects squarely at right-angles to it, 
+resulting in simple sine-wave readings in the other two axes.
+
+But in the fully general case, where the microbit is off-axis to the rotation, the Spin-Circle projects onto the plane of each pair of orthogonal axes (XY,YZ,ZX) 
+as an Ellipse with a certain eccentricity (and maybe a tilt). 
+
+We will always get the best heading 
+discrimination from the "roundest", most "square-on" view (i.e. the least eccentric Ellipse).
     
-    Taking readings from just those two axes, we'll need to transform points lying around the Ellipse 
-    (by first rotating about the origin, and then scaling vertically to "un-squash" the Ellipse), so that 
-    they lie back on the original Spin-Circle, giving a relative angle that can (eventually) be offset 
-    by a fixed bias to return the true heading with respect to magnetic North. 
+Taking readings from just those two axes, we'll need to transform points lying around the Ellipse 
+(by first rotating about the origin, and then scaling vertically to "un-squash" the Ellipse), so that 
+they lie back on the original Spin-Circle, giving a relative angle that can (eventually) be offset 
+by a fixed bias to return the true heading with respect to magnetic North. 
 
-*******
 
-As we spin around, successive measured points will then trace out a circle on the sphere with a diameter ranging from 
-tiny (in polar regions where the field is more vertical), to the full diameter of the sphere (when we are near 
-the earth's equator and the field is horizontal). We'll call this circle the Spin-Circle.
-
+??????
 Although the magnetometer provides three readings (X,Y & Z), we will only need to use two of them to get our 
 heading angle; the challenge is to choose the best two for the job! 
 
@@ -54,7 +56,7 @@ However, in the fully general situation where the microbit might be mounted on a
 tilted into an Ellipse when looking down any axis onto the plane of the other two axes (XY,YZ or ZX).
 Each Ellipse will in general show a different eccentricity, and we will obtain the best heading discrimination by 
 choosing the projection plane showing the least eccentric (i.e most nearly circular) Ellipse. 
-
+??????
 (Some systems just use an accelerometer to tell which way is "up", but this can only be trusted if the buggy is 
 guaranteed to be completely at rest when you measure.) 
 
@@ -65,7 +67,7 @@ a true circle. This can require up to three transformation steps:
 
 * if we are unlucky and the Ellipse appears tilted, we may then have to rotate it to lie squarely over the axes;
 
-* finally we must scale one value in propotion to the eccentricity (so stretching the Ellipse back into a perfect circle).
+* finally we must scale one value in proportion to the eccentricity (so stretching the Ellipse back into a perfect circle).
 
 Applying simple trigonometry to the final position on the circle gives us a relative angle which can then be adjusted
 by a known offset to return the true heading with repect to magnetic North.
@@ -78,16 +80,21 @@ measured by the magnetometer. These can include:
 
 * Electro-magnetic fields due to flowing currents (especially powering the buggy's motors).
 
+* Varying fields from the arbitrary angle of rotating magnetic elements in the motors at the moment of measurement.
+
 * Fixed metalwork and static motor magnets on the buggy itself, if they lie close to the microbit mounting-point. 
 These will add (or subtract) a different fixed bias for each axis.
 
 * "Jitter". Even when nothing has changed, repeated readings from the magnetometer often tend to differ.
 
-We can only really account for the last two of these: Spinning the buggy lets us separate the local and environmental
+We can only hope to account for the last two of these: Spinning the buggy lets us separate the local and environmental
 influences and so calculate the fixed biases to be applied to each axis reading. Additionally, to smooth out any jitter,
 we always use a rolling average of seven consecutive readings.
 
-Unfortunately, the other factors lie outside our control, and will inevitably limit the accuracy and repeatability
+Counter-intuitively, reading the heading while the motors are running may prove more accurate, as their rotating fields 
+will then get averaged-out somewhat.
+
+Unfortunately, the first two factors lie outside our control, and will inevitably limit the accuracy and repeatability
 of reported headings.
 
 ## heading.scan()
@@ -97,16 +104,16 @@ function to perform a magnetic scan of 3-D readings. The scanning time specified
 two full rotations.
 
 ## heading.setNorth()
-Because this extension can't know just how the microbit is mounted your particular buggy, you need to point it towards 
+Because this extension can't know just how the microbit is mounted your particular buggy, you'll need to point it towards 
 North and then call this function (after first performing a heading.scan()) to register that direction as zero degrees. 
-It will analyse the data collected during the scan to choose the best axes and how to calibrate them.
+It will analyse the data collected during the scan to choose the best axes, and how to calibrate readings from them.
 
-As an interesting by-product, it will return the spin-rate (in RPM) of the buggy during its latest scan, letting 
+As an interesting by-product, it will calculate the rotation-period of the buggy during its latest scan, letting 
 you compare the effects of setting different motor speeds.
 
 ## heading.degrees()
 Having performed the scan using heading.scan(), and calibrated the measuring set-up using heading.setNorth(), 
-this is the function that returns the current compass heading in degrees (0 to 360)
+this is the function that actually returns the current compass heading in degrees (0 to 360) clockwise from North.
 
 ## rpm2Speed(diameter, axle)
 A utility function to help with motor calibration. This function converts the spin-rate kin RPM) achieved with wheels turning 
@@ -114,9 +121,9 @@ in opposite directions, into the equivalent linear speed (in cm/sec) when both w
 on the wheel-diameter and axle-length (in cm). 
 
 NOTE: It should be noted that motor calibration using this technique can only ever be approximate. 
-For a given power setting, inertial and frictional effects may mean that the actual 
-wheel-rotation speeds achieved will differ between moving forwards, and spinning on the spot.
-Also, for low power settings, some buggies may automatically give an initial "kick" to get the motor going!
+For a given power setting, inertial effects and tyre-friction may mean that the wheel-rotation speeds
+actually achieved will differ between moving forwards and spinning on the spot.
+Also, on slower power settings, some buggies may automatically give an initial "kick" to get the motor going!
 
 
 
