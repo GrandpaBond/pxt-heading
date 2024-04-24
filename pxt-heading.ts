@@ -181,7 +181,10 @@ namespace heading {
             xSum /= count
             ySum /= count 
             // compute the average rotation time
-            let period =  (endTime - startTime) / this.turns
+            let period = -1
+            if (endTime > 0) {
+                let period =  (endTime - startTime) / this.turns
+            }
             // make an Arrow to {xSum,ySum}, showing the overall direction of the chain of Arrows
             return new Arrow(xSum, ySum, period)
         }
@@ -251,7 +254,7 @@ namespace heading {
                 // More robustly, we average them (but note that we'll need to reverse half of them,
                 // so that they all point at the same end of the axis!)          
                 this.majorAxis = this.averageAxis(this.majors)
-                this.majorAxis = this.averageAxis(this.minors)
+                this.minorAxis = this.averageAxis(this.minors)
             }
 
             // Preset the rotation factors for aligning major-axis clockwise with the U-axis
