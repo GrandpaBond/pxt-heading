@@ -46,7 +46,16 @@ namespace heading {
             this.angle = Math.atan2(v, u)
             this.bearing = asBearing(this.angle)
             this.time = t
-        }    
+        }
+        // cloning method
+        clone():Arrow {
+            let a = new Arrow(0,0,0)
+            a.time = this.time
+            a.value = this.value
+            a.angle = this.angle
+            a.bearing = this.bearing
+            return a
+        }
     }
 
     // Characteristics of the Ellipse formed when projecting the Spin-Circle onto a View plane
@@ -107,12 +116,12 @@ namespace heading {
             this.angle = Math.atan2(v, u)
             this.angleDegrees = rad2deg(this.angle) // for testing
         }
-        */
         arrowFrom(n: number): Arrow {
-            let u = scanData[n][this.uDim] - this.uOff
-            let v = scanData[n][this.vDim] - this.vOff
-            return new Arrow(u, v, scanTimes[n])
+            let u = scanData[n][this.uDim]
+            let v = scanData[n][this.vDim]
+            return new Arrow(scanData[n][this.uDim], scanData[n][this.vDim], scanTimes[n])
         }
+        */
 
         // Find the average of a set of adjacent Arrow angles (coping with cyclic roll-round)
         averageAngle(arrows: Arrow[]): number {
@@ -183,7 +192,7 @@ namespace heading {
             // compute the average rotation time
             let period = -1
             if (endTime > 0) {
-                let period =  (endTime - startTime) / this.turns
+                period =  (endTime - startTime) / this.turns
             }
             // make an Arrow to {xSum,ySum}, showing the overall direction of the chain of Arrows
             return new Arrow(xSum, ySum, period)
@@ -199,19 +208,20 @@ namespace heading {
 
             // get first Gaussian sum
             for (let i = 0; i < 7; i++) {
-                arrows.push(this.arrowFrom(i))
+                arrows.push(new Arrow(scanData[i][this.uDim], scanData[i][this.vDim], scanTimes[i]))
             }
             let slope: number = 99999 // marker for first time round
             let slopeWas: number
             let smooth = this.averageOfSeven(arrows)
             // smooth now contains a smoothed version of the third Arrow (in this View)
             let smoothWas: Arrow
+            let peak = 0 // debug
 
             // now work through remaining samples...
             for (let i = 7; i < scanTimes.length; i++) {
                 smoothWas = smooth
                 arrows.shift() // drop the earliest arrow
-                arrows.push(this.arrowFrom(i)) // append a new one
+                arrows.push(new Arrow(scanData[i][this.uDim], scanData[i][this.vDim], scanTimes[i])) // append a new one
                 smooth = this.averageOfSeven(arrows)
                 slopeWas = slope
                 // differentiate to get slope
@@ -220,10 +230,12 @@ namespace heading {
                 if (slopeWas == 99999) slopeWas = slope
                 // look for inflections, where the slope crosses zero
                 if ((slopeWas > 0) && (slope <= 0)) {
-                    this.majors.push(smooth) // passing a major axis
+                    this.majors.push(smooth.clone()) // copy the major axis we are passing
+                    peak = 300000
                 }
                 if ((slopeWas < 0) && (slope >= 0)) {
-                    this.minors.push(smooth) // passing a minor axis
+                    this.minors.push(smooth.clone()) // copy the minor axis we are passing
+                    peak = 100000
                 }
                 /* OLD METHOD: keep track of completed revolutions, by detecting roll-rounds that jump  
                 // between -PI and +PI (in either direction) as we pass the -ve horizontal U-axis
@@ -232,6 +244,15 @@ namespace heading {
                     if ((smoothWas.angle > 0) && (smooth.angle < 0)) this.turned -= TwoPi
                 }
                 */
+                if (logging) {
+                    datalogger.log(
+                        datalogger.createCV("i", i),
+                        datalogger.createCV("coarse", arrows[3].value),
+                        datalogger.createCV("smooth", smooth.value),
+                        datalogger.createCV("slope", slope),
+                        datalogger.createCV("peak?", peak))
+                }
+                peak = 0
             }
             // 
 
@@ -519,6 +540,8 @@ namespace heading {
         // extract some bestView fields into globals for future brevity and efficiency...
         uDim = views[bestView].uDim
         vDim = views[bestView].vDim
+        // ?uOff = views[bestView].uOff
+        // ?vOff = views[bestView].voff
 
         // we've now finished with the scanning data, so release its memory
         scanTimes = []
