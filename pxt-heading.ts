@@ -56,6 +56,11 @@ namespace heading {
             a.bearing = this.bearing
             return a
         }
+        // angle adjustment method
+        adjustBy(radians:number) {
+            this.angle += radians
+            this.bearing = asBearing(this.angle)
+        }
     }
 
     // Characteristics of the Ellipse formed when projecting the Spin-Circle onto a View plane
@@ -316,9 +321,8 @@ namespace heading {
                 // scale up V to match U, balancing the axes and making the Ellipse circular
                 v = vNew * this.eccentricity
                 a = new Arrow(u,v,0)
-                // undo the rotation by theta (radians go anticlockwise) *** Make this an Arrow.adjust() method!
-                a.angle += this.theta
-                a.bearing = asBearing(a.angle)
+                // undo the rotation by theta (radians go anticlockwise!)
+                a.adjustBy(this.theta)
             }
         }
     }
@@ -618,6 +622,9 @@ namespace heading {
 
         // convert the raw {u,v} readings into a compass-needle Arrow
         let needle = views[bestView].bearingTo(uRaw, vRaw)
+
+        // make Arrow direction read relative to our registered North
+        needle.adjustBy(this.toNorth)
 
         if (logging) {
             datalogger.log(
