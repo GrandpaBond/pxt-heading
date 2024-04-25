@@ -32,8 +32,8 @@ function performSetup() {
                 case Config.Debug:            
                     // heading.testDataset("Zdn70") // X-Axis upwards; round X-Axis; 70-degreee dip
                     // heading.testDataset("Yup70") // Y-Axis upwards; round Y-Axis; 70-degreee dip
-                    // heading.testDataset("Zdn70") // Z-Axis downwards; round Z-Axis; 70-degreee dip
-                    heading.testDataset("strange") // No axis aligned with vertical rotation;  70-degreee dip
+                    heading.testDataset("Zdn70") // Z-Axis downwards; round Z-Axis; 70-degreee dip
+                    // heading.testDataset("strange") // No axis aligned with vertical rotation;  70-degreee dip
                     heading.scan(1000)
                     break
                 case Config.Jig:

@@ -67,11 +67,14 @@ namespace heading {
 
     // Characteristics of the Ellipse formed when projecting the Spin-Circle onto a View plane
     class Ellipse {
-        plane: string; // name (just for debug)
+        plane: string; // View name (just for debug)
         uDim: number; // horizontal axis of this View
         vDim: number; // vertical axis of this View
         uOff: number; // horizontal offset needed to re-centre this Ellipse along the U-axis
         vOff: number; // vertical offset needed to re-centre this Ellipse along the V-axise circular again
+
+        toNorth: number; // the angle registered as North in this View (in radians anticlockwise from the U-Axis).
+        // toNorth must be subtracted from a heading to give an angle from the registered North direction.
 
         // calibration characteristics
         majors: Arrow[] = [] // set of detected major-axis candidates
@@ -100,6 +103,7 @@ namespace heading {
             this.uOff = uOff 
             this.vOff = vOff
             this.isCircular = false // until proved otherwise!
+            this.period = -1
         }
 
         // Method to find the average of a set of adjacent Arrow angles (coping with cyclic angle roll-round)
@@ -253,7 +257,7 @@ namespace heading {
             // take the average of the two period estimates
             this.period = (this.majorAxis.time + this.minorAxis.time) / 2
 
-            // Readings taken from a circular Ellipse won't be fore-shortened, so will need no correction.
+            // Readings taken from a circular Ellipse won't be fore-shortened, so will need no correction!
             this.isCircular = (this.eccentricity < Circular) 
         }
         /*
@@ -594,17 +598,15 @@ namespace heading {
         let needle = views[bestView].bearingTo(uRaw, vRaw)
 
         // make Arrow direction read relative to our registered North
-        needle.adjustBy(this.toNorth)
+        needle.adjustBy(views[bestView].toNorth)
 
         if (logging) {
             datalogger.log(
                 datalogger.createCV("uRaw", round2(uRaw)),
                 datalogger.createCV("vRaw", round2(vRaw)),
-                datalogger.createCV("onCircleDegrees", Math.round(onCircleDegrees)),
-                datalogger.createCV("toNorthDegrees", Math.round(toNorthDegrees)),
-                datalogger.createCV("angleDegrees", Math.round(angleDegrees)))
+                datalogger.createCV("value", Math.round(needle.bearing)))
         }
-        return rad2deg(angle)
+        return needle.bearing
     }
 
     /**
@@ -614,7 +616,7 @@ namespace heading {
     //% inlineInputMode=inline 
     //% weight=60 
     export function scanPeriod(): number {
-        if (views[bestView].period <= 0) {
+        if (views[bestView].period == -1) {
             return -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
         } else {
             return views[bestView].period
