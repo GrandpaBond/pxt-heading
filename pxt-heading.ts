@@ -1,5 +1,5 @@
 /**
- * An extension providing a compass-heading for a buggy located anywhere on the globe 
+ * An extension providing a compass-bearing for a buggy located anywhere on the globe 
  * (except at the magnetic poles!), with any arbitrary mounting orientation for its microbit.
  * See the README for a detailed description of the approach, methods and algorithms.
  */
@@ -23,17 +23,19 @@ namespace heading {
 
     // CONSTANTS
 
+    const EnoughScanTime = 1800 // minimum accectable scan-time
     const MarginalField = 30 // minimum acceptable field-strength for magnetometer readings
-    const Inertia = 0.95 // ratio of old to new radius readings (for inertial smoothing)
+    //const Inertia = 0.95 // ratio of old to new radius readings (for inertial smoothing)
     const TwoPi = 2 * Math.PI
     const RadianDegrees = 360 / TwoPi
     const Circular = 1.03 // maximum eccentricity to consider an Ellipse as "circular"
 
     // CLASSES
 
-    // Derived from a smoothed scanned field measurement sample, an Arrrow holds the properties of a radius of
-    // the Ellipse seen in a particular 2-axis View. It uses polar coordinates and stores the square of a vector
-    // magnitude, together with its direction (as both an trig angle in radians, and a compass bearing in degrees)
+    // An Arrow is an object holding a directed vector, stored in polar coordinates as a magnitude and angle in radians.
+    // It also carries a time field and (for convenience) a version of the angle rxpressed in degrees    
+    // As a code optimisation, the value field always holds the *square* of the actual magnitude.
+ 
     class Arrow {
         time: number; // timestamp when this was collected
         value: number; // magnitude-squared
@@ -65,41 +67,29 @@ namespace heading {
 
     // Characteristics of the Ellipse formed when projecting the Spin-Circle onto a View plane
     class Ellipse {
-        plane: string; // name (for debug)
+        plane: string; // name (just for debug)
         uDim: number; // horizontal axis of this View
         vDim: number; // vertical axis of this View
-        uOff: number; // horizontal offset needed to re-centre the Ellipse along the U-axis
-        vOff: number; // vertical offset needed to re-centre the Ellipse along the V-axis
-        // properties used in the Spin-Circle scan:
-        // rSq: number;  // latest sample's smoothed radius-squared
-        // angle: number; // latest sample's polar angle on the Ellipse 
-        //angleDegrees: number; // testing
-        //hiRsq: number; // max radius-squared 
-        //loRsq: number; // min radius-squared
-        // history:
-        //rSqWas: number; // previous sample's rSq
-        //slopeWas: number; // average recent slope to previous sample
-        //angleWas: number; // previous sample's angle
-        // projection params from latest detected major axis:
-        
-        //maybe: number; // latest potential major-axis angle detected
-        //thetas: number[]; // list of potential major-axis angles detected (while testing)
-        theta: number; // clockwise angle (in radians) to "untwist" major axis onto U-axis
-        thetaBearing: number; // (for testing)
+        uOff: number; // horizontal offset needed to re-centre this Ellipse along the U-axis
+        vOff: number; // vertical offset needed to re-centre this Ellipse along the V-axise circular again
+
+        // calibration characteristics
+        majors: Arrow[] = [] // set of detected major-axis candidates
+        minors: Arrow[] = [] // set of detected minor-axis candidates
+        majorAxis: Arrow; // averaged major axis 
+        minorAxis: Arrow; // averaged minor axis
+        turns: number; // scan revolution counter
+        period: number; // this View's assessment of average rotation time
+
+        // correction parameters for future readings
+        isCircular: boolean; // flag saying this "Ellipse" View is almost circular, simplifying future handling
+        theta: number; // rotation (in clockwise radians) needed for a tilted Ellipse, 
+                        // to "untwist" majorAxis onto positive U-axis (and minorAxis onto positive V-axis)
+        thetaBearing: number; // (just for testing)
         cosTheta: number; // saved for efficiency
         sinTheta: number; // ditto
-        eccentricity: number; // eccentricity: stretch along minor-axis needed to make Ellipse circular again
-        // others:
-        fromBelow: boolean; // rotation reversal flag, as seen by this View of the clockwise scan
-        //firstAngle: number; // angle of first scan sample 
-        turned: number; // scan revolutions accumulator (in signed radians)
-        turns: number; // scan revolution counter
-        isCircular: boolean; // flag saying this "Ellipse" is almost circular, simplifying future handling
-        period: number; // this View's assessment of average rotation time
-        minors: Arrow[] = [] // minor-axis candidates
-        majors: Arrow[] = [] // major-axis candidates
-        majorAxis: Arrow; // selected (or averaged) major axis
-        minorAxis: Arrow; // selected (or averaged) minor axis
+        eccentricity: number; // ratio of major-axis to minor-axis magnitudes
+        fromBelow: boolean; // rotation reversal flag, reflecting this View of the clockwise scan
 
 
         constructor(plane: string, uDim: number, vDim: number, uOff: number, vOff: number) {
@@ -109,44 +99,30 @@ namespace heading {
             // remember the normalisation offsets
             this.uOff = uOff 
             this.vOff = vOff
-            this.isCircular = false // until proved otherwise
+            this.isCircular = false // until proved otherwise!
         }
 
-        /* convert the raw values to (kind of) re-centred polar coordinates (rSq,angle)
-        // (no need to extract sqrt of rSq every time)
-        polarise(uRaw: number, vRaw: number) {
-            let u = uRaw - this.uOff
-            let v = vRaw - this.vOff
-            this.rSq = (u * u) + (v * v)
-            this.angle = Math.atan2(v, u)
-            this.angleDegrees = rad2deg(this.angle) // for testing
-        }
-        arrowFrom(n: number): Arrow {
-            let u = scanData[n][this.uDim]
-            let v = scanData[n][this.vDim]
-            return new Arrow(scanData[n][this.uDim], scanData[n][this.vDim], scanTimes[n])
-        }
-        */
-
-        // Find the average of a set of adjacent Arrow angles (coping with cyclic roll-round)
+        // Method to find the average of a set of adjacent Arrow angles (coping with cyclic angle roll-round)
         averageAngle(arrows: Arrow[]): number {
-            // aggregate a chain of unit-vector steps, one for each Arrow
+            // approach is to aggregate a chain of unit-vector steps, one for each Arrow
             let xSum = 0
             let ySum = 0
             for (let i = 0; i < arrows.length; i++) {
                 xSum += Math.cos(arrows[i].angle)
                 ySum += Math.sin(arrows[i].angle)
             }
-            // the resultant vector shows the overall direction of the chain of Arrows
+            // the resultant vector then shows the overall direction of the chain of Arrows
             return Math.atan2(ySum, xSum)
         }
 
-        // Reduce an array of seven adjacent Arrows to its central average by applying
+        // Method to reduce an array of seven adjacent Arrows to its central average by applying
         // the Gaussian smoothing kernel {a + 6b + 15c + 20d + 15e + 6f + g} to their values,
         // and averaging their angles.
         averageOfSeven(arrows: Arrow[]): Arrow {
             let a = new Arrow(0,0,0)
             a.time = arrows[3].time // the timestamp of the central Arrow
+            // although the values we are smoothing are SQUARES of the magnitudes, it makes very little numerical difference
+            // (less than 1%) and saves us the work of extracting roots all the time
             a.value = (arrows[0].value + arrows[6].value
                 + 6 * (arrows[1].value + arrows[5].value)
                 + 15 * (arrows[2].value + arrows[4].value)
@@ -156,21 +132,19 @@ namespace heading {
             return a
         }
 
-        // This method does two jobs: refining axes; and measuring perdiodicity.
+        // This method does two jobs:
         // 1. Finds the consensus of a set of axis-candidate Arrow angles (reversing "opposite"
-        // ones, so they all point to the same end of the axis as the first candidate).
-        // 2. Hijacks the "time" property of the returned Arrow to hold the average rotation period detected.
-
-        // **SIDE EFFECT** The detected number of revolutions is updated for this Ellipse (in this.turns)
+        // ones, so they all point to the same end of the axis as the very first candidate).
+        // 2. Hijacks the "time" property of the returned Arrow to report the average rotation period detected.
         formAverageAxis(arrows: Arrow[]): Arrow {
+            let turns = 0
+            let endTime = 0
+            let flipped = false
+            let count = arrows.length
             // first candidate determines which "end" of the axis we choose
             let xSum = Math.cos(arrows[0].angle)
             let ySum = Math.sin(arrows[0].angle)
             let startTime = arrows[0].time
-            let endTime = 0
-            this.turns = 0 // will be incremented on first iteration below
-            let flipped = false
-            let count = arrows.length
             for (let i = 1; i < count; i++) {
                 let dx = Math.cos(arrows[i].angle)
                 let dy = Math.sin(arrows[i].angle)
@@ -179,9 +153,9 @@ namespace heading {
                 // ensure we are always extending (never shrinking) our resultant vector
                 if ((xNew * xNew + yNew * yNew) > (xSum * xSum + ySum * ySum)) {  // no need to flip
                     if (flipped) {
-                        flipped = false
                         // the first unflipped Arrow after one or more flipped ones clocks a new revolution
-                        this.turns++ 
+                        flipped = false
+                        turns++ 
                         endTime = arrows[i].time // update for new completed revolution
                     }
                 } else { // reverse this arrow, as it's pointing the "wrong" way
@@ -195,12 +169,12 @@ namespace heading {
             // re-normalise the resultant's coordinates
             xSum /= count
             ySum /= count 
-            // compute the average rotation time
+            // compute the average rotation time (as long as we've made at least one complete revolution)
             let period = -1
             if (endTime > 0) {
                 period =  (endTime - startTime) / this.turns
             }
-            // make an Arrow to {xSum,ySum}, showing the overall direction of the chain of Arrows
+            // make an Arrow pointing to {xSum,ySum}, showing the overall direction of the chain of source Arrows
             return new Arrow(xSum, ySum, period)
         }
 
@@ -210,13 +184,13 @@ namespace heading {
         // candidate values onto the majors[] or minors[] axis-lists.
         // These lists are processed to set the Ellipse's majorAxis and minorAxis Arrows.
         extractAxes() {
-            let arrows: Arrow[] = [] // rolling set of 7 Arrows for this View
+            let arrows: Arrow[] = [] // rolling set of 7 Arrows
 
             // get first Gaussian sum
             for (let i = 0; i < 7; i++) {
                 arrows.push(new Arrow(scanData[i][this.uDim], scanData[i][this.vDim], scanTimes[i]))
             }
-            let slope: number = 99999 // marker for first time round
+            let slope: number = 99999 // marker for "first time round"
             let slopeWas: number
             let smooth = this.averageOfSeven(arrows)
             // smooth now contains a smoothed version of the third Arrow (in this View)
@@ -243,13 +217,7 @@ namespace heading {
                     this.minors.push(smooth.cloneMe()) // copy the minor axis we are passing
                     peak = 100000
                 }
-                /* OLD METHOD: keep track of completed revolutions, by detecting roll-rounds that jump  
-                // between -PI and +PI (in either direction) as we pass the -ve horizontal U-axis
-                if (Math.abs(smooth.angle) > 3) { // near enough to +/- PI
-                    if ((smoothWas.angle < 0) && (smooth.angle > 0)) this.turned += TwoPi
-                    if ((smoothWas.angle > 0) && (smooth.angle < 0)) this.turned -= TwoPi
-                }
-                */
+
                 if (logging) {
                     datalogger.log(
                         datalogger.createCV("i", i),
@@ -264,27 +232,28 @@ namespace heading {
             // Axes get passed twice per Spin-circle revolution, so an eccentric Ellipse will produce neatly alternating
             // candidates with "opposite" angles. Noisy readings mean that a more-nearly circular Ellipse may generate 
             // alternating clusters of candidates as we pass each end of each axis. An almost circular Ellipse has no
-            // meaningful axes, but will generate multiple spurious candidates. We could simply nominate the last 
-            // major / minor axis-candidates detected, but (more robustly) we average them (noting that we'll need 
+            // meaningful axes, but will generate multiple spurious candidates. 
+            // We are trying to find the tilt of the Ellipse's major-axis.  We could simply nominate the last 
+            // major / minor axis-candidates detected, but (more robustly) we average their angles (noting that we'll need 
             // to reverse half of them, so that they all point at the same end of the axis!) 
                     
             this.majorAxis = this.formAverageAxis(this.majors)
             this.minorAxis = this.formAverageAxis(this.minors)
 
             // The ratio of the axis lengths gives the eccentricity the V-axis scaling factor that would stretch
-            // the Ellipse back into a circle. (note Arrow.value is a radius-squared) 
+            // the Ellipse back into a circle. (But note Arrow.value is a radius-squared!) 
             this.eccentricity = Math.sqrt(this.majorAxis.value / this.minorAxis.value)
     
-            // Preset the rotation factors for aligning major-axis clockwise with the U-axis
+            // Preset the rotation factors we'll need for aligning major-axis clockwise with the U-axis
             this.theta = this.majorAxis.angle
-            this.thetaBearing = this.majorAxis.bearing // (for debug)
+            this.thetaBearing = this.majorAxis.bearing // (just for debug)
             this.cosTheta = Math.cos(this.theta)
             this.sinTheta = Math.sin(this.theta)
 
             // take the average of the two period estimates
             this.period = (this.majorAxis.time + this.minorAxis.time) / 2
 
-            // Readings taken from a circular Ellipse are not fore-shortened, so will need no correction.
+            // Readings taken from a circular Ellipse won't be fore-shortened, so will need no correction.
             this.isCircular = (this.eccentricity < Circular) 
         }
         /*
@@ -324,6 +293,7 @@ namespace heading {
                 // undo the rotation by theta (radians go anticlockwise!)
                 a.adjustBy(this.theta)
             }
+            return a
         }
     }
 
@@ -474,7 +444,7 @@ namespace heading {
         // we'll typically need about a couple of second's worth of scanned readings...
         let nSamples = scanTimes.length
         scanTime = scanTimes[nSamples - 1] - scanTimes[0]
-        if (scanTime < 1800) {
+        if (scanTime < EnoughScanTime) {
             return -1 // "NOT ENOUGH SCAN DATA"
         }
         // Each dimension tracks a sinusoidal wave of values (generally not centred on zero).
@@ -507,7 +477,7 @@ namespace heading {
             scanData[i][Dim.Z] -= zOff
         }
 
-        strength = 0 // initialise a global field-strength-squared accumulator
+        strength = 0 // initialise a global field-strength-squared accumulator **** UNIMPLEMENTED
 
         // create an Ellipse instance for analysing each possible view
         views.push(new Ellipse("XY", Dim.X, Dim.Y, xOff, yOff))
@@ -519,14 +489,14 @@ namespace heading {
         views[View.YZ].extractAxes()
         views[View.ZX].extractAxes()
 
-        // check that at least one View saw at least one complete rotation (= 2*Pi radians)...
-        if ((Math.abs(views[View.XY].turned) < TwoPi)
-            && (Math.abs(views[View.YZ].turned) < TwoPi)
-            && (Math.abs(views[View.ZX].turned) < TwoPi)) {
+        // check that at least one View saw at least one complete rotation (with measured period)...
+        if (   (views[View.XY].period == -1)
+            && (views[View.YZ].period == -1)
+            && (views[View.ZX].period == -1) ) {
             return -3 // "NOT ENOUGH SCAN ROTATION"
         }
 
-        // Choose the "roundest" Ellipse, the one with lowest (eccentricity = scale).
+        // Choose the "roundest" Ellipse, the one with lowest eccentricity.
         bestView = View.XY
         if (views[View.YZ].eccentricity < views[bestView].eccentricity) bestView = View.YZ
         if (views[View.ZX].eccentricity < views[bestView].eccentricity) bestView = View.ZX
@@ -535,7 +505,7 @@ namespace heading {
         // Depending on mounting orientation, the bestView Ellipse might possibly be seeing the 
         // Spin-Circle from "underneath", effectively experiencing an anti-clockwise scan.
         // Check polarity of turns:
-        fromBelow = (views[bestView].turned < 0)
+        fromBelow = (views[bestView].period < -1)
 
         // extract some bestView fields into globals for future brevity and efficiency...
         uDim = views[bestView].uDim
@@ -567,8 +537,8 @@ namespace heading {
 
         // get the projection angle of the [uRaw,vRaw] vector on the Spin-Circle, 
         // and remember this as the (global) fixed bias to North
-        toNorth = views[bestView].project(uRaw, vRaw)
-        toNorthDegrees = rad2deg(toNorth)
+        let toNorth: Arrow
+        toNorth = views[bestView].bearingTo(uRaw, vRaw)
 
 
         if (logging) {
@@ -583,7 +553,7 @@ namespace heading {
                 datalogger.createCV("thetaDegrees", round2(views[bestView].thetaBearing)),
                 datalogger.createCV("scale", round2(views[bestView].eccentricity)),
                 datalogger.createCV("period", round2(views[bestView].period)),
-                datalogger.createCV("toNorthDegrees", round2(toNorthDegrees)),
+                datalogger.createCV("toNorthDegrees", round2(toNorth.bearing)),
                 datalogger.createCV("strength", round2(strength)))
         }
         // SUCCESS!
