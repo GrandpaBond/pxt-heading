@@ -32,35 +32,34 @@ namespace heading {
 
     // CLASSES
 
-    // An Arrow is an object holding a directed vector, stored in polar coordinates as a magnitude and angle in radians.
-    // It also carries a time field and (for convenience) a version of the angle rxpressed in degrees    
-    // As a code optimisation, the value field always holds the *square* of the actual magnitude.
+    // An Arrow is an object holding a directed vector {u,v} in both cartesian and polar coordinates. 
+    // It also carries a time field and (for convenience) the angle expressed as a compass-bearing
  
     class Arrow {
-        time: number; // timestamp when this was collected
-        value: number; // magnitude-squared
-        angle: number; // angle coordinate (radians anticlockwise from East)
-        bearing: number; // the compass-bearing (degrees clockwise from North)
+        u: number; // horizontal component
+        v: number; // vertical component
+        size: number; // polar magnitude of vector
+        angle: number; // polar angle (radians anticlockwise from East)
+        bearing: number; // equivalent compass-bearing (degrees clockwise from North)
+        time: number; // (for scan samples) timestamp when this was collected
 
         constructor(u: number, v: number, t: number) { 
-            // {u,v} are coordinates of field measurement relative to Ellipse centre
-            this.value = (u * u) + (v * v)  
+            this.u = u
+            this.v = v
+            this.size = Math.sqrt((u * u) + (v * v))
             this.angle = Math.atan2(v, u)
             this.bearing = asBearing(this.angle)
             this.time = t
         }
         // cloning method
         cloneMe():Arrow {
-            let a = new Arrow(0,0,0)
-            a.time = this.time
-            a.value = this.value
-            a.angle = this.angle
-            a.bearing = this.bearing
-            return a
+            return new Arrow(this.u, this.v, this.time)
         }
         // angle adjustment method
         adjustBy(radians:number) {
             this.angle += radians
+            this.u = this.size*Math.cos(this.angle)
+            this.v = this.size*Math.sin(this.angle)
             this.bearing = asBearing(this.angle)
         }
     }
@@ -72,34 +71,31 @@ namespace heading {
         vDim: number; // vertical axis of this View
         uOff: number; // horizontal offset needed to re-centre this Ellipse along the U-axis
         vOff: number; // vertical offset needed to re-centre this Ellipse along the V-axise circular again
-
         toNorth: number; // the angle registered as North in this View (in radians anticlockwise from the U-Axis).
-        // toNorth must be subtracted from a heading to give an angle from the registered North direction.
-
+    
         // calibration characteristics
         majors: Arrow[] = [] // set of detected major-axis candidates
         minors: Arrow[] = [] // set of detected minor-axis candidates
         majorAxis: Arrow; // averaged major axis 
         minorAxis: Arrow; // averaged minor axis
-        turns: number; // scan revolution counter
+        turns: number; // scan revolution-counter
         period: number; // this View's assessment of average rotation time
+        rpm: number; // the equivalent rotation rate in revs-per-minute
 
         // correction parameters for future readings
         isCircular: boolean; // flag saying this "Ellipse" View is almost circular, simplifying future handling
-        theta: number; // rotation (in clockwise radians) needed for a tilted Ellipse, 
-                        // to "untwist" majorAxis onto positive U-axis (and minorAxis onto positive V-axis)
-        thetaBearing: number; // (just for testing)
+        theta: number; // major-axis tilt angle (in radians anticlockwise from the U-axis) 
+        thetaBearing: number; // (helpful for testing)
         cosTheta: number; // saved for efficiency
         sinTheta: number; // ditto
-        eccentricity: number; // ratio of major-axis to minor-axis magnitudes
-        fromBelow: boolean; // rotation reversal flag, reflecting this View of the clockwise scan
+        eccentricity: number; // ratio of major-axis to minor-axis magnitudes for this Ellipse
+        fromBelow: boolean; // rotation reversal flag, reflecting this Ellipse's view of the clockwise scan
 
 
         constructor(plane: string, uDim: number, vDim: number, uOff: number, vOff: number) {
             this.plane = plane // (as a DEBUG aid)
             this.uDim = uDim
             this.vDim = vDim 
-            // remember the normalisation offsets
             this.uOff = uOff 
             this.vOff = vOff
             this.isCircular = false // until proved otherwise!
@@ -108,32 +104,29 @@ namespace heading {
 
         // Method to find the average of a set of adjacent Arrow angles (coping with cyclic angle roll-round)
         averageAngle(arrows: Arrow[]): number {
-            // approach is to aggregate a chain of unit-vector steps, one for each Arrow
-            let xSum = 0
-            let ySum = 0
+            let uSum = 0
+            let vSum = 0
+            // make a chain of all the arrow vectors
             for (let i = 0; i < arrows.length; i++) {
-                xSum += Math.cos(arrows[i].angle)
-                ySum += Math.sin(arrows[i].angle)
+                uSum += arrows[i].u
+                vSum += arrows[i].v
             }
             // the resultant vector then shows the overall direction of the chain of Arrows
-            return Math.atan2(ySum, xSum)
+            return Math.atan2(vSum, uSum)
         }
 
         // Method to reduce an array of seven adjacent Arrows to its central average by applying
-        // the Gaussian smoothing kernel {a + 6b + 15c + 20d + 15e + 6f + g} to their values,
-        // and averaging their angles.
-        averageOfSeven(arrows: Arrow[]): Arrow {
-            let a = new Arrow(0,0,0)
-            a.time = arrows[3].time // the timestamp of the central Arrow
-            // although the values we are smoothing are SQUARES of the magnitudes, it makes very little numerical difference
-            // (less than 1%) and saves us the work of extracting roots all the time
-            a.value = (arrows[0].value + arrows[6].value
-                + 6 * (arrows[1].value + arrows[5].value)
-                + 15 * (arrows[2].value + arrows[4].value)
-                + 20 * arrows[3].value) / 64
-            a.angle = this.averageAngle(arrows)
-            a.bearing = asBearing(a.angle)
-            return a
+        // the Gaussian smoothing kernel {a + 6b + 15c + 20d + 15e + 6f + g}.
+        gaussianAverage(arrows: Arrow[]): Arrow {
+            let uBlend = (arrows[0].u + arrows[6].u
+                + 6 * (arrows[1].u + arrows[5].u)
+                + 15 * (arrows[2].u + arrows[4].u)
+                + 20 * arrows[3].u) / 64
+            let vBlend = (arrows[0].v + arrows[6].v
+                + 6 * (arrows[1].v + arrows[5].v)
+                + 15 * (arrows[2].v + arrows[4].v)
+                + 20 * arrows[3].v) / 64
+            return new Arrow(uBlend, vBlend, arrows[3].time) // use the timestamp of the central Arrow
         }
 
         // This method does two jobs:
@@ -144,42 +137,45 @@ namespace heading {
             let turns = 0
             let endTime = 0
             let flipped = false
-            let count = arrows.length
-            // first candidate determines which "end" of the axis we choose
-            let xSum = Math.cos(arrows[0].angle)
-            let ySum = Math.sin(arrows[0].angle)
-            let startTime = arrows[0].time
-            for (let i = 1; i < count; i++) {
-                let dx = Math.cos(arrows[i].angle)
-                let dy = Math.sin(arrows[i].angle)
-                let xNew = xSum + dx
-                let yNew = ySum + dy
-                // ensure we are always extending (never shrinking) our resultant vector
-                if ((xNew * xNew + yNew * yNew) > (xSum * xSum + ySum * ySum)) {  // no need to flip
-                    if (flipped) {
-                        // the first unflipped Arrow after one or more flipped ones clocks a new revolution
-                        flipped = false
-                        turns++ 
-                        endTime = arrows[i].time // update for new completed revolution
-                    }
-                } else { // reverse this arrow, as it's pointing the "wrong" way
-                    flipped = true
-                    dx = -dx
-                    dy = -dy
-                }
-                xSum += dx
-                ySum += dy
-            }
-            // re-normalise the resultant's coordinates
-            xSum /= count
-            ySum /= count 
-            // compute the average rotation time (as long as we've made at least one complete revolution)
+            let uSum = 0
+            let vSum = 0
             let period = -1
-            if (endTime > 0) {
-                period =  (endTime - startTime) / this.turns
+            let count = arrows.length
+            if (count > 0) {
+                // first candidate fixes which "end" of the axis we're choosing
+                uSum = arrows[0].u
+                vSum = arrows[0].v
+                let startTime = arrows[0].time
+                for (let i = 1; i < count; i++) {
+                    let uNew = uSum + arrows[i].u
+                    let vNew = uSum + arrows[i].v
+                    // ensure we are always extending (never shrinking) our resultant vector
+                    if ((uNew * uNew + vNew * vNew) > (uSum * uSum + vSum * vSum)) {
+                        // no need to flip this one
+                        uSum = uNew
+                        vSum = vNew
+                        // the first unflipped Arrow after one or more flipped ones clocks a new revolution
+                        if (flipped) {
+                            flipped = false
+                            turns++ 
+                            endTime = arrows[i].time // one more completed revolution
+                        }
+                    } else { // flip this arrow, as it's pointing the "wrong" way
+                        flipped = true
+                        uSum -= arrows[i].u
+                        vSum -= arrows[i].v
+                    }
+                }
+                // re-normalise the resultant's coordinates
+                uSum /= count
+                vSum /= count
+                // compute the average rotation time (as long as we've made at least one complete revolution)
+                if (endTime > 0) {
+                    period =  (endTime - startTime) / turns
+                }
             }
-            // make an Arrow pointing to {xSum,ySum}, showing the overall direction of the chain of source Arrows
-            return new Arrow(xSum, ySum, period)
+            // make an Arrow pointing to {uSum,vSum}, showing the overall direction of the chain of source Arrows
+            return new Arrow(uSum, vSum, period)
         }
 
         // Process the sampleData so that we can work out the eccentricity of this Ellipse.
@@ -196,7 +192,7 @@ namespace heading {
             }
             let slope: number = 99999 // marker for "first time round"
             let slopeWas: number
-            let smooth = this.averageOfSeven(arrows)
+            let smooth = this.gaussianAverage(arrows)
             // smooth now contains a smoothed version of the third Arrow (in this View)
             let smoothWas: Arrow
             let peak = 0 // debug
@@ -206,10 +202,10 @@ namespace heading {
                 smoothWas = smooth
                 arrows.shift() // drop the earliest arrow
                 arrows.push(new Arrow(scanData[i][this.uDim], scanData[i][this.vDim], scanTimes[i])) // append a new one
-                smooth = this.averageOfSeven(arrows)
+                smooth = this.gaussianAverage(arrows)
                 slopeWas = slope
                 // differentiate to get slope
-                slope = (smooth.value - smoothWas.value) / (smooth.time - smoothWas.time)
+                slope = (smooth.size - smoothWas.size) / (smooth.time - smoothWas.time)
                 // ensure first two slopes always match
                 if (slopeWas == 99999) slopeWas = slope
                 // look for inflections, where the slope crosses zero
@@ -225,8 +221,8 @@ namespace heading {
                 if (logging) {
                     datalogger.log(
                         datalogger.createCV("i", i),
-                        datalogger.createCV("coarse", arrows[3].value),
-                        datalogger.createCV("smooth", smooth.value),
+                        datalogger.createCV("coarse", arrows[3].size),
+                        datalogger.createCV("smooth", smooth.size),
                         datalogger.createCV("slope", slope),
                         datalogger.createCV("peak?", peak))
                 }
@@ -246,7 +242,7 @@ namespace heading {
 
             // The ratio of the axis lengths gives the eccentricity the V-axis scaling factor that would stretch
             // the Ellipse back into a circle. (But note Arrow.value is a radius-squared!) 
-            this.eccentricity = Math.sqrt(this.majorAxis.value / this.minorAxis.value)
+            this.eccentricity = Math.sqrt(this.majorAxis.size / this.minorAxis.size)
     
             // Preset the rotation factors we'll need for aligning major-axis clockwise with the U-axis
             this.theta = this.majorAxis.angle
