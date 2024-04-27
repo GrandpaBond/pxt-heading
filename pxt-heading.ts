@@ -142,11 +142,12 @@ namespace heading {
             let period = -1
             let count = arrows.length
             if (count > 0) {
-                // first candidate fixes which "end" of the axis we're choosing
+                // the first candidate fixes which "end" of the axis we're choosing
                 uSum = arrows[0].u
                 vSum = arrows[0].v
                 let startTime = arrows[0].time
                 for (let i = 1; i < count; i++) {
+                    // add the next arrow to the chain
                     let uNew = uSum + arrows[i].u
                     let vNew = uSum + arrows[i].v
                     // ensure we are always extending (never shrinking) our resultant vector
@@ -160,7 +161,7 @@ namespace heading {
                             turns++ 
                             endTime = arrows[i].time // one more completed revolution
                         }
-                    } else { // flip this arrow, as it's pointing the "wrong" way
+                    } else { // flip this arrow before chaining it, as it's pointing the "wrong" way
                         flipped = true
                         uSum -= arrows[i].u
                         vSum -= arrows[i].v
@@ -172,7 +173,7 @@ namespace heading {
                 // compute the average rotation time (as long as we've made at least one complete revolution)
                 if (endTime > 0) {
                     period =  (endTime - startTime) / turns
-                }
+                } // else period remains at -1
             }
             // make an Arrow pointing to {uSum,vSum}, showing the overall direction of the chain of source Arrows
             return new Arrow(uSum, vSum, period)
@@ -182,7 +183,7 @@ namespace heading {
         // We apply 7-point Gaussian smoothing, while simultaneously tracking the first derivative (the slope).
         // We look for inflections in the slope which occur as we pass the Ellipse's axes, and push
         // candidate values onto the majors[] or minors[] axis-lists.
-        // These lists are processed to set the Ellipse's majorAxis and minorAxis Arrows.
+        // These lists are then processed to set the Ellipse's average majorAxis and minorAxis Arrows.
         extractAxes() {
             let arrows: Arrow[] = [] // rolling set of 7 Arrows
 
@@ -193,35 +194,35 @@ namespace heading {
             let slope: number = 99999 // marker for "first time round"
             let slopeWas: number
             let smooth = this.gaussianAverage(arrows)
-            // smooth now contains a smoothed version of the third Arrow (in this View)
+            // smooth now contains a smoothed (w.r.t its neighbours) version of the third Arrow in this View
             let smoothWas: Arrow
-            let peak = 0 // debug
+            let peak = 0 // (just for debug trace)
 
             // now work through remaining samples...
             for (let i = 7; i < scanTimes.length; i++) {
                 smoothWas = smooth
-                arrows.shift() // drop the earliest arrow
-                arrows.push(new Arrow(scanData[i][this.uDim], scanData[i][this.vDim], scanTimes[i])) // append a new one
+                arrows.shift() // drop the earliest arrow & append the next one
+                arrows.push(new Arrow(scanData[i][this.uDim], scanData[i][this.vDim], scanTimes[i]))
                 smooth = this.gaussianAverage(arrows)
                 slopeWas = slope
-                // differentiate to get slope
+                // differentiate to get ongoing slope
                 slope = (smooth.size - smoothWas.size) / (smooth.time - smoothWas.time)
-                // ensure first two slopes always match
+                // ensure the first two slopes always match
                 if (slopeWas == 99999) slopeWas = slope
-                // look for inflections, where the slope crosses zero
+                // look for peaks & troughs, where the slope crosses zero
                 if ((slopeWas > 0) && (slope <= 0)) {
                     this.majors.push(smooth.cloneMe()) // copy the major axis we are passing
-                    peak = 300000
+                    peak = 200
                 }
                 if ((slopeWas < 0) && (slope >= 0)) {
                     this.minors.push(smooth.cloneMe()) // copy the minor axis we are passing
-                    peak = 100000
+                    peak = 100
                 }
 
                 if (logging) {
                     datalogger.log(
-                        datalogger.createCV("i", i),
-                        datalogger.createCV("coarse", arrows[3].size),
+                        datalogger.createCV("i", i-4), // (the centre of our 7-sample neighbourhood)
+                        datalogger.createCV("coarse", arrows[i-4].size),
                         datalogger.createCV("smooth", smooth.size),
                         datalogger.createCV("slope", slope),
                         datalogger.createCV("peak?", peak))
@@ -229,22 +230,22 @@ namespace heading {
                 peak = 0
             }
 
-            // Axes get passed twice per Spin-circle revolution, so an eccentric Ellipse will produce neatly alternating
-            // candidates with "opposite" angles. Noisy readings mean that a more-nearly circular Ellipse may generate 
-            // alternating clusters of candidates as we pass each end of each axis. An almost circular Ellipse has no
-            // meaningful axes, but will generate multiple spurious candidates. 
-            // We are trying to find the tilt of the Ellipse's major-axis.  We could simply nominate the last 
-            // major / minor axis-candidates detected, but (more robustly) we average their angles (noting that we'll need 
-            // to reverse half of them, so that they all point at the same end of the axis!) 
-                    
+            /* We pass each axis twice per Spin-circle revolution, so an eccentric Ellipse will produce neatly alternating
+                candidates with "opposite" angles. Noisy readings mean that a more-nearly circular Ellipse may generate 
+                alternating clusters of candidates as we pass each end of each axis. An almost circular Ellipse has no
+                meaningful axes, but will generate multiple spurious candidates. 
+                We are trying to find the tilt of the Ellipse's major-axis.  We could simply nominate the last 
+                major / minor axis-candidates detected, but, more robustly, we (carefully!) average their angles. 
+            */    
             this.majorAxis = this.formAverageAxis(this.majors)
             this.minorAxis = this.formAverageAxis(this.minors)
 
-            // The ratio of the axis lengths gives the eccentricity the V-axis scaling factor that would stretch
-            // the Ellipse back into a circle. (But note Arrow.value is a radius-squared!) 
-            this.eccentricity = Math.sqrt(this.majorAxis.size / this.minorAxis.size)
+            // The ratio of the axis lengths gives the eccentricity: the V-axis scaling-factor that would stretch
+            // the Ellipse back into a circle.
+            this.eccentricity = this.majorAxis.size / this.minorAxis.size
     
-            // Preset the rotation factors we'll need for aligning major-axis clockwise with the U-axis
+            // Pre-set the rotation factors we'll need for aligning the major-axis clockwise with the U-axis
+            // *************
             this.theta = this.majorAxis.angle
             this.thetaBearing = this.majorAxis.bearing // (just for debug)
             this.cosTheta = Math.cos(this.theta)
