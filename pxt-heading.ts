@@ -244,9 +244,8 @@ namespace heading {
             // the Ellipse back into a circle.
             this.eccentricity = this.majorAxis.size / this.minorAxis.size
     
-            // Pre-set the rotation factors we'll need for aligning the major-axis clockwise with the U-axis
-            // *************
-            this.theta = this.majorAxis.angle
+            // Pre-set some rotation factors
+            this.theta = this.majorAxis.angle // the rotation (in radians) that aligns the major-axis clockwise with the U-axis
             this.thetaBearing = this.majorAxis.bearing // (just for debug)
             this.cosTheta = Math.cos(this.theta)
             this.sinTheta = Math.sin(this.theta)
@@ -256,25 +255,17 @@ namespace heading {
 
             // Readings taken from a circular Ellipse won't be fore-shortened, so will need no correction!
             this.isCircular = (this.eccentricity < Circular) 
-        }
-        /*
+        
             if (logging) {
                 datalogger.log(
                     datalogger.createCV("view", this.plane),
-                    datalogger.createCV("index", index),
-                    datalogger.createCV("slope", round2(slope)),
-                    datalogger.createCV("loRsq", round2(this.loRsq)),
-                    datalogger.createCV("rSq", round2(this.rSq)),
-                    datalogger.createCV("hiRsq", round2(this.hiRsq)),
-                    datalogger.createCV("thetaDegrees", round2(this.thetaDegrees)),
-                    datalogger.createCV("maybe", round2(rad2deg(this.maybe))),
-                    datalogger.createCV("turned", round2(this.turned)))
+                    datalogger.createCV("thetaBearing", round2(this.thetaBearing)),
+                    datalogger.createCV("period", round2(rad2deg(this.period))),
+                    datalogger.createCV("ecc.", round2(this.eccentricity)))
             }
-        }*/
+        }
 
-
-
-        // Form an Arrow holding a new reading's bearing (with respect to North) 
+        // Form an Arrow holding a new reading's bearing (with respect to the registered North) 
         // Unless Ellipse.isCircular, the {u,v} reading will be foreshortened and needs correction.
         bearingTo(uRaw: number, vRaw: number): Arrow {
             // First shift the point into a vector from the origin (a point on the re-centred Ellipse)
