@@ -9,13 +9,13 @@ namespace heading {
 
     // ENUMERATIONS
 
-    enum Dim { // ...just for brevity!
+    enum Dim { // Synonyms for the three magnetometer dimensions (just for brevity!)
         X = Dimension.X,
         Y = Dimension.Y,
         Z = Dimension.Z
     }
 
-    enum View { // the axis-pairs spanning the three possible projection planes
+    enum View { // the axis-pairs that span the three possible magnetometer projection planes
         XY,
         YZ,
         ZX
@@ -23,11 +23,10 @@ namespace heading {
 
     // CONSTANTS
 
-    const EnoughScanTime = 1800 // minimum accectable scan-time
-    const MarginalField = 30 // minimum acceptable field-strength for magnetometer readings
-    //const Inertia = 0.95 // ratio of old to new radius readings (for inertial smoothing)
     const TwoPi = 2 * Math.PI
     const RadianDegrees = 360 / TwoPi
+    const EnoughScanTime = 1800 // minimum acceptable scan-time
+    const MarginalField = 30 // minimum acceptable field-strength for magnetometer readings
     const Circular = 1.03 // maximum eccentricity to consider an Ellipse as "circular"
 
     // CLASSES
@@ -64,14 +63,15 @@ namespace heading {
         }
     }
 
-    // Characteristics of the Ellipse formed when projecting the Spin-Circle onto a View plane
+    // An Ellipse is an object holding the characteristics of the (typically) elliptical
+    // view formed when projecting the scan Spin-Circle onto a 2-axis View plane.
     class Ellipse {
         plane: string; // View name (just for debug)
         uDim: number; // horizontal axis of this View
         vDim: number; // vertical axis of this View
         uOff: number; // horizontal offset needed to re-centre this Ellipse along the U-axis
         vOff: number; // vertical offset needed to re-centre this Ellipse along the V-axise circular again
-        toNorth: number; // the angle registered as North in this View (in radians anticlockwise from the U-Axis).
+        //toNorth: number; // the angle registered as North in this View (in radians anticlockwise from the U-Axis).
     
         // calibration characteristics
         majors: Arrow[] = [] // set of detected major-axis candidates
@@ -84,10 +84,10 @@ namespace heading {
 
         // correction parameters for future readings
         isCircular: boolean; // flag saying this "Ellipse" View is almost circular, simplifying future handling
-        theta: number; // major-axis tilt angle (in radians anticlockwise from the U-axis) 
-        thetaBearing: number; // (helpful for testing)
+        theta: number; // major-axis tilt angle (in radians anticlockwise from the U-axis)
         cosTheta: number; // saved for efficiency
-        sinTheta: number; // ditto
+        sinTheta: number; // ditto 
+        thetaBearing: number; // (helpful for testing)
         eccentricity: number; // ratio of major-axis to minor-axis magnitudes for this Ellipse
         fromBelow: boolean; // rotation reversal flag, reflecting this Ellipse's view of the clockwise scan
 
@@ -265,9 +265,10 @@ namespace heading {
             }
         }
 
-        // Form an Arrow holding a new reading's bearing (with respect to the registered North) 
-        // Unless Ellipse.isCircular, the {u,v} reading will be foreshortened and needs correction.
-        bearingTo(uRaw: number, vRaw: number): Arrow {
+        // Form an Arrow holding a new reading's raw bearing (with no regard to the registered North) 
+        // Unless Ellipse.isCircular, the {u,v} reading will be foreshortened and needs correction
+        // to place it on the Spin-Circle.
+        getArrowFor(uRaw: number, vRaw: number): Arrow {
             // First shift the point into a vector from the origin (a point on the re-centred Ellipse)
             let u = uRaw - this.uOff
             let v = vRaw - this.vOff
@@ -296,10 +297,9 @@ namespace heading {
     let scanTime: number = 0 // duration of scan in ms
     let views: Ellipse[] = [] // the three possible elliptical views of the Spin-Circle
     let bestView = -1
-    let uDim = -1 // the best "horizontal" axis (pointing East) for transformed readings (called U)
-    let vDim = -1 // the best "vertical" axis (pointing North) for transformed readings (called V)
-    let toNorth = 0 // the angular bias to be added (so that North = 0)
-    let toNorthDegrees = 0 // (testing)
+    let uDim = -1 // the "horizontal" axis (called U) for the best View
+    let vDim = -1 // the "vertical" axis (called V) for the best View
+    let toNorth: Arrow // pointer to the registered "North" direction
     let strength = 0 // the average magnetic field-strength observed by the magnetometer
     let fromBelow = false // set "true" if orientation means readings project backwards
 
@@ -439,7 +439,7 @@ namespace heading {
         if (scanTime < EnoughScanTime) {
             return -1 // "NOT ENOUGH SCAN DATA"
         }
-        // Each dimension tracks a sinusoidal wave of values (generally not centred on zero).
+        // Each dimension should track  a sinusoidal wave of values (generally not centred on zero).
         // The first pass finds the ranges for each axis 
         let xlo = 999
         let ylo = 999
@@ -447,7 +447,6 @@ namespace heading {
         let xhi = -999
         let yhi = -999
         let zhi = -999
-        // To assess the range and offset, first find the raw extremes.
         for (let i = 0; i < nSamples; i++) {
             xhi = Math.max(xhi, scanData[i][Dim.X])
             xlo = Math.min(xlo, scanData[i][Dim.X])
@@ -457,26 +456,34 @@ namespace heading {
             zlo = Math.min(zlo, scanData[i][Dim.Z])
         }
 
+        // Bail out early if the scan can't properly detect the Earth's magnetic field, perhaps due to
+        // magnetic shielding, (or even sitting directly over a magnetic Pole!)
+        let xField = (xhi - xlo) / 2
+        let yField = (yhi - ylo) / 2
+        let zField = (zhi - zlo) / 2
+        strength = Math.sqrt(xField * xField) + (yField * yField) + (zField * zField)
+        if (strength < MarginalField) {
+            return -2 // "FIELD STRENGTH TOO WEAK"
+        }
+
         // Use the mean of these extremes as normalisation offsets
         let xOff = (xhi + xlo) / 2
         let yOff = (yhi + ylo) / 2
         let zOff = (zhi + zlo) / 2
 
-        // apply normalisation to re-centre all of the scan Data
+        // apply normalisation to re-centre all of the scan Data 
         for (let i = 0; i < nSamples; i++) {
             scanData[i][Dim.X] -= xOff
             scanData[i][Dim.Y] -= yOff
             scanData[i][Dim.Z] -= zOff
         }
 
-        strength = 0 // initialise a global field-strength-squared accumulator **** UNIMPLEMENTED
-
         // create an Ellipse instance for analysing each possible view
         views.push(new Ellipse("XY", Dim.X, Dim.Y, xOff, yOff))
         views.push(new Ellipse("YZ", Dim.Y, Dim.Z, yOff, zOff))
         views.push(new Ellipse("ZX", Dim.Z, Dim.X, zOff, xOff))
 
-        // perform the analysis of Ellipse angle and eccentricity 
+        // perform the analysis of Ellipse tilt-angle and eccentricity in each View
         views[View.XY].extractAxes()
         views[View.YZ].extractAxes()
         views[View.ZX].extractAxes()
@@ -488,7 +495,7 @@ namespace heading {
             return -3 // "NOT ENOUGH SCAN ROTATION"
         }
 
-        // Choose the "roundest" Ellipse, the one with lowest eccentricity.
+        // Choose the "roundest" Ellipse  --the one with lowest eccentricity.
         bestView = View.XY
         if (views[View.YZ].eccentricity < views[bestView].eccentricity) bestView = View.YZ
         if (views[View.ZX].eccentricity < views[bestView].eccentricity) bestView = View.ZX
@@ -496,12 +503,13 @@ namespace heading {
 
         // Depending on mounting orientation, the bestView Ellipse might possibly be seeing the 
         // Spin-Circle from "underneath", effectively experiencing an anti-clockwise scan.
-        // Check polarity of turns:
+        // Check polarity of revolution:
         fromBelow = (views[bestView].period < -1)
 
-        // extract some bestView fields into globals for future brevity and efficiency...
         uDim = views[bestView].uDim
         vDim = views[bestView].vDim
+
+        // ??? extract some bestView fields into globals for future brevity and efficiency...
         // ?uOff = views[bestView].uOff
         // ?vOff = views[bestView].voff
 
@@ -509,11 +517,12 @@ namespace heading {
         scanTimes = []
         scanData = []
 
+
         // We have successfully set up the projection parameters. Now we need to relate them to "North".
         // Take the average of seven new readings to get a stable fix on the current heading
         let uRaw = 0
         let vRaw = 0
-        if (debugging) { // arbitrarily choose first test-data reading as North
+        if (debugging) { // arbitrarily choose first test-data reading as "North"
             uRaw = uData[0]
             vRaw = vData[0]
         } else {
@@ -529,8 +538,7 @@ namespace heading {
 
         // get the projection angle of the [uRaw,vRaw] vector on the Spin-Circle, 
         // and remember this as the (global) fixed bias to North
-        let toNorth: Arrow
-        toNorth = views[bestView].bearingTo(uRaw, vRaw)
+        let toNorth = views[bestView].getArrowFor(uRaw, vRaw)
 
 
         if (logging) {
@@ -583,10 +591,10 @@ namespace heading {
         }
 
         // convert the raw {u,v} readings into a compass-needle Arrow
-        let needle = views[bestView].bearingTo(uRaw, vRaw)
+        let needle = views[bestView].getArrowFor(uRaw, vRaw)
 
         // make Arrow direction read relative to our registered North
-        needle.adjustBy(views[bestView].toNorth)
+        needle.adjustBy(toNorth.angle)
 
         if (logging) {
             datalogger.log(
@@ -756,6 +764,7 @@ namespace heading {
             scanData.push(xyz)
         }
     }
+
     // helpful for logging:
     function round2(v: number): number {
         return (Math.round(100 * v) / 100)
