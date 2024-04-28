@@ -179,8 +179,9 @@ namespace heading {
             return new Arrow(uSum, vSum, period)
         }
 
-        // Process the sampleData so that we can work out the eccentricity of this Ellipse.
-        // We apply 7-point Gaussian smoothing, while simultaneously tracking the first derivative (the slope).
+        // Process the sampleData so that we can work out the eccentricity of this Ellipse. Although already
+        // a rolling sum of seven readings, differentiation amplifes noise, so for stability, we apply an 
+        // additional 7-point Gaussian smoothing as we track the first derivative (the slope).
         // We look for inflections in the slope which occur as we pass the Ellipse's axes, and push
         // candidate values onto the majors[] or minors[] axis-lists.
         // These lists are then processed to set the Ellipse's average majorAxis and minorAxis Arrows.
@@ -261,13 +262,13 @@ namespace heading {
                     datalogger.createCV("view", this.plane),
                     datalogger.createCV("thetaBearing", round2(this.thetaBearing)),
                     datalogger.createCV("period", round2(rad2deg(this.period))),
-                    datalogger.createCV("ecc.", round2(this.eccentricity)))
+                    datalogger.createCV("eccent.", round2(this.eccentricity)))
             }
         }
 
         // Form an Arrow holding a new reading's raw bearing (with no regard to the registered North) 
-        // Unless Ellipse.isCircular, the {u,v} reading will be foreshortened and needs correction
-        // to place it on the Spin-Circle.
+        // Unless Ellipse.isCircular, the {u,v} reading will be foreshortened and so needs correction
+        // to place it correctly on the Spin-Circle.
         getArrowFor(uRaw: number, vRaw: number): Arrow {
             // First shift the point into a vector from the origin (a point on the re-centred Ellipse)
             let u = uRaw - this.uOff
@@ -299,14 +300,14 @@ namespace heading {
     let bestView = -1
     let uDim = -1 // the "horizontal" axis (called U) for the best View
     let vDim = -1 // the "vertical" axis (called V) for the best View
-    let toNorth: Arrow // pointer to the registered "North" direction
+    let north: Arrow // pointer to the registered "North" direction
     let strength = 0 // the average magnetic field-strength observed by the magnetometer
     let fromBelow = false // set "true" if orientation means readings project backwards
 
     let logging = true  // logging mode flag
     let debugging = false  // test mode flag
     let dataset: string = "NONE" // test dataset to use
-    let test = 0 // selector for test cases
+    let test = 0 // incremental selector for test cases
     let uData: number[] = [] // U values for test cases
     let vData: number[] = [] // V values for test cases
 
@@ -329,6 +330,8 @@ namespace heading {
         // Every 25-30 ms over the specified duration (generally a couple of seconds),
         // magnetometer readings are sampled and a new [X,Y,Z] triple added to the scanData[] array.
         // A timestamp for each sample is also recorded in the scanTimes[] array.
+        // To smooth out jitter, each reading is always a rolling sum of SEVEN consecutive readings
+        // so the dynamic field range due to the Earth is extended seven-fold to about +/- 350 microTeslas
         scanTimes = []
         scanData = []
 
@@ -341,7 +344,6 @@ namespace heading {
             basic.pause(ms)
         } else {
             
-            // (To smooth out jitter, each reading is always a rolling sum of SEVEN consecutive readings!)
             let index = 0
             let xRoll: number[] = []
             let yRoll: number[] = []
@@ -387,8 +389,8 @@ namespace heading {
                 now = input.runningTime()
                 scanTimes.push(now) 
                 x -= xRoll.shift()
-                y -= xRoll.shift()
-                z -= xRoll.shift()
+                y -= yRoll.shift()
+                z -= zRoll.shift()
                 basic.pause(20)                
             }
         }
@@ -594,7 +596,7 @@ namespace heading {
         let needle = views[bestView].getArrowFor(uRaw, vRaw)
 
         // make Arrow direction read relative to our registered North
-        needle.adjustBy(toNorth.angle)
+        needle.adjustBy(north.angle)
 
         if (logging) {
             datalogger.log(
