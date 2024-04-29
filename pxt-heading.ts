@@ -55,12 +55,14 @@ namespace heading {
             return new Arrow(this.u, this.v, this.time)
         }
         // angle adjustment method
-        adjustBy(radians:number) {
+       /* adjustBy(radians:number) {
             this.angle += radians
             this.u = this.size*Math.cos(this.angle)
             this.v = this.size*Math.sin(this.angle)
             this.bearing = asBearing(this.angle)
         }
+        */
+
     }
 
     // An Ellipse is an object holding the characteristics of the (typically) elliptical
@@ -79,7 +81,6 @@ namespace heading {
         minorAxis: Arrow; // averaged minor axis
         turns: number; // scan revolution-counter
         period: number; // this View's assessment of average rotation time
-        rpm: number; // the equivalent rotation rate in revs-per-minute
 
         // correction parameters for future readings
         isCircular: boolean; // flag saying this "Ellipse" View is almost circular, simplifying future handling
@@ -315,6 +316,8 @@ namespace heading {
     let north: number // angle registered as "North", in radians counter-clockwise from U-axis
     let strength = 0 // the average magnetic field-strength observed by the magnetometer
     let fromBelow = false // set "true" if orientation means readings project backwards
+    let period: number // overall assessment of average rotation time
+    let rpm: number // the equivalent rotation rate in revs-per-minute
 
     let logging = true  // logging mode flag
     let debugging = false  // test mode flag
@@ -471,7 +474,7 @@ namespace heading {
         }
 
         // Bail out early if the scan can't properly detect the Earth's magnetic field, perhaps due to
-        // magnetic shielding, (or even sitting directly over a magnetic Pole!)
+        // magnetic shielding, (or even because it's sitting directly over a magnetic Pole!)
         let xField = (xhi - xlo) / 2
         let yField = (yhi - ylo) / 2
         let zField = (zhi - zlo) / 2
@@ -502,7 +505,7 @@ namespace heading {
         views[View.YZ].extractAxes()
         views[View.ZX].extractAxes()
 
-        // check that at least one View saw at least one complete rotation (with measured period)...
+        // check that at least one View saw at least one complete rotation (with measurable period)...
         if (   (views[View.XY].period == -1)
             && (views[View.YZ].period == -1)
             && (views[View.ZX].period == -1) ) {
@@ -514,18 +517,18 @@ namespace heading {
         if (views[View.YZ].eccentricity < views[bestView].eccentricity) bestView = View.YZ
         if (views[View.ZX].eccentricity < views[bestView].eccentricity) bestView = View.ZX
 
+        // periodicity is unreliable in the best View: average just the other two Views' measurements
+        period = (views[0].period + views[1].period + views[2].period - views[bestView].period)/2
+        rpm = 60000 / period
 
         // Depending on mounting orientation, the bestView Ellipse might possibly be seeing the 
         // Spin-Circle from "underneath", effectively experiencing an anti-clockwise scan.
         // Check polarity of revolution:
         fromBelow = (views[bestView].period < -1)
 
-        uDim = views[bestView].uDim
-        vDim = views[bestView].vDim
+        //uDim = views[bestView].uDim
+        //vDim = views[bestView].vDim
 
-        // ??? extract some bestView fields into globals for future brevity and efficiency...
-        // ?uOff = views[bestView].uOff
-        // ?vOff = views[bestView].voff
 
         // we've now finished with the scanning data, so release its memory
         scanTimes = []
