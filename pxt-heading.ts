@@ -129,10 +129,11 @@ namespace heading {
             return new Arrow(uBlend, vBlend, arrows[3].time) // use the timestamp of the central Arrow
         }
 
-        /* This method does two jobs:
+        /// This method does two jobs:
         // 1. Finds the consensus of a set of axis-candidate Arrow angles (reversing "opposite"
-        // ones, so they all point to the same end of the axis as the very first candidate).
-        // 2. Hijacks the "time" property of the returned Arrow to report the average rotation period detected.
+        //    ones, so they all point to the same end of the axis as the very first candidate).
+        // 2. Clocks each time we pass this end, Hi-jacking the "time" property of the 
+        //    returned Arrow to report the average rotation period detected.
         formAverageAxis(arrows: Arrow[]): Arrow {
             let turns = 0
             let endTime = 0
@@ -142,7 +143,7 @@ namespace heading {
             let period = -1
             let count = arrows.length
             if (count > 0) {
-                // the first candidate fixes which "end" of the axis we're choosing
+                // the first candidate fixes which "end" of this axis we're choosing
                 uSum = arrows[0].u
                 vSum = arrows[0].v
                 let startTime = arrows[0].time
@@ -174,56 +175,38 @@ namespace heading {
                 if (endTime > 0) {
                     period =  (endTime - startTime) / turns
                 } // else period remains at -1
-            }
+            } // else period remains at -1
             // make an Arrow pointing to {uSum,vSum}, showing the overall direction of the chain of source Arrows
             return new Arrow(uSum, vSum, period)
         }
-        */
+    
 
         // Process the sampleData so that we can work out the eccentricity of this Ellipse. Although already
-        // a rolling sum of seven readings, differentiation amplifes noise, so for stability, we apply an 
+        // a rolling sum of seven readings, differentiation will amplify noise, so for stability we apply an 
         // additional 7-point Gaussian smoothing as we track the first derivative (the slope).
-        // We look for inflections in the slope which occur as we pass the Ellipse's axes, 
-        // selecting the longest radius as the majorAxis and the shortest as the minorAxis Arrows.
-
-
-            /* We pass each axis twice per Spin-circle revolution, so an eccentric Ellipse will produce neatly alternating
-                candidates with "opposite" angles. Noisy readings mean that a more-nearly circular Ellipse may generate 
-                alternating clusters of candidates as we pass each end of each axis. An almost circular Ellipse has no
-                meaningful axes, but will generate multiple spurious candidates. 
-                We are trying to find the tilt of the Ellipse's major-axis.  We could simply nominate the last 
-                major / minor axis-candidates detected, but, more robustly, we (carefully!) average their angles. 
-            */ 
-            
-            extractAxes() {
-            let arrows: Arrow[] = [] // rolling set of 7 Arrows
-            // minimum & maximum radii lengths signify minor and major ellipse axes
-            let longest = 0
-            let shortest = 99999
-            // to detect rotations we'll be chaining all major-axis candidates together as added vectors
-            let uSum = 0
-            let vSum = 0
-
-            let flipped = false
-            let slope: number = 99999 // marker for "first time round"
+        // We look for inflections in the slope, which occur as we pass local peaks and troughs at the Ellipse's 
+        // axes, and push candidate values onto the majors[] or minors[] axis-lists.
+        // These lists are then processed to set the Ellipse's average majorAxis and minorAxis Arrows.
+        extractAxes() {
+            let arrows: Arrow[] = [] // rolling set of 7 Arrows, holding 7 adjacent samples
 
             // get first Gaussian sum
             for (let i = 0; i < 7; i++) {
                 arrows.push(new Arrow(scanData[i][this.uDim], scanData[i][this.vDim], scanTimes[i]))
             }
+            let slope: number = 99999 // marker for "first time round"
             let slopeWas: number
             let smooth = this.gaussianAverage(arrows)
-            // smooth now contains a smoothed (w.r.t its neighbours) version of the third Arrow in this View
+            // smooth now contains a smoothed (w.r.t its neighbours) version of the 4th sample in this View
             let smoothWas: Arrow
+            let peak = 0 // (a marker, just for debug trace)
 
             // now work through remaining samples...
             for (let i = 7; i < scanTimes.length; i++) {
                 smoothWas = smooth
-                arrows.shift() // drop the earliest arrow & append the next one
+                arrows.shift() // drop the earliest sample & append the next one
                 arrows.push(new Arrow(scanData[i][this.uDim], scanData[i][this.vDim], scanTimes[i]))
                 smooth = this.gaussianAverage(arrows)
-                // check whether this Arrow extends or shortens our chain
-                
                 slopeWas = slope
                 // differentiate to get ongoing slope
                 slope = (smooth.size - smoothWas.size) / (smooth.time - smoothWas.time)
@@ -231,50 +214,45 @@ namespace heading {
                 if (slopeWas == 99999) slopeWas = slope
                 // look for peaks & troughs, where the slope crosses zero
                 if ((slopeWas > 0) && (slope <= 0)) {
-                    // We are passing a major axis....
-                    if (smooth.size > longest) {
-                        this.majorAxis = smooth.cloneMe() // copy the major axis we are passing
-                        longest = smooth.size
-
-
-
-                        if (logging) {
-                            datalogger.log(
-                                datalogger.createCV("i", i - 4), // (the centre of our 7-sample neighbourhood)
-                                datalogger.createCV("coarse", arrows[3].size),
-                                datalogger.createCV("smooth", smooth.size),
-                                datalogger.createCV("slope", slope),
-                                datalogger.createCV("peak?", 200))
-                        }
-                    }
+                    this.majors.push(smooth.cloneMe()) // copy the major axis we are passing
+                    peak = 200
                 }
                 if ((slopeWas < 0) && (slope >= 0)) {
-                    // We are passing a minor axis....
-                    if (smooth.size < shortest) {
-                        this.minorAxis = smooth.cloneMe() // copy the minor axis we are passing
-                        shortest = smooth.size
-
-
-
-                        if (logging) {
-                            datalogger.log(
-                                datalogger.createCV("i", i - 4), // (the centre of our 7-sample neighbourhood)
-                                datalogger.createCV("coarse", arrows[3].size),
-                                datalogger.createCV("smooth", smooth.size),
-                                datalogger.createCV("slope", slope),
-                                datalogger.createCV("peak?", 100))
-                        }
-                    }
+                    this.minors.push(smooth.cloneMe()) // copy the minor axis we are passing
+                    peak = 100
                 }
 
+                if (logging) {
+                    datalogger.log(
+                        datalogger.createCV("i", i - 4), // (the centre of our 7-sample neighbourhood)
+                        datalogger.createCV("coarse", arrows[i - 4].size),
+                        datalogger.createCV("smooth", smooth.size),
+                        datalogger.createCV("slope", slope),
+                        datalogger.createCV("peak?", peak))
+                }
+                peak = 0
             }
 
-           
-            //this.majorAxis = this.formAverageAxis(this.majors)
-            //this.minorAxis = this.formAverageAxis(this.minors)
+            /* We pass each axis twice per Spin-circle revolution, so an eccentric Ellipse will produce neatly alternating
+                candidates with "opposite" angles. Noisy readings mean that a more-nearly circular Ellipse may generate 
+                alternating clusters of candidates as we pass each end of each axis. An almost circular Ellipse has no
+                meaningful axes, but will generate multiple spurious candidates. 
+                We are trying to find the tilt of the Ellipse's major-axis.  We could simply nominate the last 
+                major / minor axis-candidates detected, but, more robustly, we average them (carefully!). 
+            */
 
-            // The ratio of the axis lengths gives the eccentricity: the V-axis scaling-factor that would stretch
-            // the Ellipse back into a circle.
+            this.majorAxis = this.formAverageAxis(this.majors)
+            this.minorAxis = this.formAverageAxis(this.minors)
+
+
+            // Sanity check:
+            if (this.minorAxis.size > this.majorAxis.size) {
+                let swap = this.minorAxis.cloneMe()
+                this.majorAxis = this.minorAxis
+                this.minorAxis = swap
+            }
+
+            // The ratio of the axis lengths gives the eccentricity of this Ellipse
             this.eccentricity = this.majorAxis.size / this.minorAxis.size
     
             // Pre-set some rotation factors
@@ -286,7 +264,7 @@ namespace heading {
             // take the average of the two period estimates
             this.period = (this.majorAxis.time + this.minorAxis.time) / 2
 
-            // Readings taken from a circular Ellipse won't be fore-shortened, so will need no correction!
+            // Readings taken from a "circular" Ellipse won't be fore-shortened, so will need no correction!
             this.isCircular = (this.eccentricity < Circular) 
         
             if (logging) {
@@ -296,6 +274,7 @@ namespace heading {
                     datalogger.createCV("period", round2(rad2deg(this.period))),
                     datalogger.createCV("eccent.", round2(this.eccentricity)))
             }
+        
         }
 
         // Form an Arrow holding a new reading's raw bearing (with no regard to the registered North) 
