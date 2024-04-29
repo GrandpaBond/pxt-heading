@@ -71,7 +71,6 @@ namespace heading {
         vDim: number; // vertical axis of this View
         uOff: number; // horizontal offset needed to re-centre this Ellipse along the U-axis
         vOff: number; // vertical offset needed to re-centre this Ellipse along the V-axise circular again
-        //toNorth: number; // the angle registered as North in this View (in radians anticlockwise from the U-Axis).
     
         // calibration characteristics
         majors: Arrow[] = [] // set of detected major-axis candidates
@@ -277,28 +276,30 @@ namespace heading {
         
         }
 
-        // Form an Arrow holding a new reading's raw bearing (with no regard to the registered North) 
-        // Unless Ellipse.isCircular, the {u,v} reading will be foreshortened and so needs correction
-        // to place it correctly on the Spin-Circle.
-        getArrowFor(uRaw: number, vRaw: number): Arrow {
+        // Reaturn the true angle (in radians anticlockwise from the U-axis) for a new raw reading.
+        // Unless Ellipse.isCircular, the {u,v} reading will be foreshortened in this View and will need
+        // correcting to place it correctly on the Spin-Circle.
+        correctedAngleTo(uRaw: number, vRaw: number): number {
             // First shift the point into a vector from the origin (a point on the re-centred Ellipse)
             let u = uRaw - this.uOff
             let v = vRaw - this.vOff
-            let a:Arrow
-            if (this.isCircular) {
-                a = new Arrow(u,v,0)
-            } else {
-                // rotate **clockwise** by theta, so realigning the Ellipse minor-axis angle with the V-axis
+            let angle:number
+            if (!this.isCircular) {
+                angle = Math.atan2(v, u)
+            } else { // needs correcting
+                // first rotate **clockwise** by theta, to lay the Ellipse on its side,
+                // --so realigning the Ellipse minor-axis angle with the V-axis
                 let uNew = u * this.cosTheta - v * this.sinTheta
                 let vNew = u * this.sinTheta + v * this.cosTheta
                 u = uNew 
-                // scale up V to match U, balancing the axes and making the Ellipse circular
+                // Now scale up vertically, re-balancing the axes and making the Ellipse circular
                 v = vNew * this.eccentricity
-                a = new Arrow(u,v,0)
-                // undo the rotation by theta (radians go anticlockwise!)
-                a.adjustBy(this.theta)
+                // get the adjusted angle to the corrected {u,v}
+                angle = Math.atan2(v,u)
+                // undo the rotation by theta (radians go anticlockwise!)   
+                angle += this.theta
             }
-            return a
+            return angle
         }
     }
 
@@ -311,7 +312,7 @@ namespace heading {
     let bestView = -1
     let uDim = -1 // the "horizontal" axis (called U) for the best View
     let vDim = -1 // the "vertical" axis (called V) for the best View
-    let north: Arrow // pointer to the registered "North" direction
+    let north: number // angle registered as "North", in radians counter-clockwise from U-axis
     let strength = 0 // the average magnetic field-strength observed by the magnetometer
     let fromBelow = false // set "true" if orientation means readings project backwards
 
@@ -551,7 +552,7 @@ namespace heading {
 
         // get the projection angle of the [uRaw,vRaw] vector on the Spin-Circle, 
         // and remember this as the (global) fixed bias to North
-        let toNorth = views[bestView].getArrowFor(uRaw, vRaw)
+        north = views[bestView].correctedAngleTo(uRaw, vRaw)
 
 
         if (logging) {
@@ -566,7 +567,7 @@ namespace heading {
                 datalogger.createCV("thetaDegrees", round2(views[bestView].thetaBearing)),
                 datalogger.createCV("scale", round2(views[bestView].eccentricity)),
                 datalogger.createCV("period", round2(views[bestView].period)),
-                datalogger.createCV("toNorthDegrees", round2(toNorth.bearing)),
+                datalogger.createCV("north", round2(north)),
                 datalogger.createCV("strength", round2(strength)))
         }
         // SUCCESS!
@@ -605,18 +606,18 @@ namespace heading {
 
         // convert the raw {u,v} readings into a compass-needle Arrow
         
-        let needle = views[bestView].getArrowFor(uRaw, vRaw)
+        let needle = views[bestView].correctedAngleTo(uRaw, vRaw)
 
-        // make Arrow direction read relative to our registered North
-        needle.adjustBy(north.angle)
+        // make needle read clockwise relative to our registered North
+        needle = north - needle
 
         if (logging) {
             datalogger.log(
                 datalogger.createCV("uRaw", round2(uRaw)),
                 datalogger.createCV("vRaw", round2(vRaw)),
-                datalogger.createCV("value", Math.round(needle.bearing)))
+                datalogger.createCV("needle", Math.round(needle)))
         }
-        return needle.bearing
+        return needle
     }
 
     /**
