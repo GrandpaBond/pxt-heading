@@ -144,25 +144,24 @@ namespace heading {
             let count = arrows.length
             if (count > 0) {
                 // the first candidate fixes which "end" of this axis we're choosing
+                let front = arrows[0].bearing
                 uSum = arrows[0].u
                 vSum = arrows[0].v
                 let startTime = arrows[0].time
                 for (let i = 1; i < count; i++) {
-                    // add the next arrow to the chain
-                    let uNew = uSum + arrows[i].u
-                    let vNew = uSum + arrows[i].v
-                    // ensure we are always extending (never shrinking) our resultant vector
-                    if ((uNew * uNew + vNew * vNew) > (uSum * uSum + vSum * vSum)) {
-                        // no need to flip this one
-                        uSum = uNew
-                        vSum = vNew
+                    // get angle difference, as +/- 180 degrees
+                    let deviate = ((540 + arrows[i].bearing - front) % 360) - 180
+                    if (Math.abs(deviate) < 90) {
+                        // add the next arrow to the chain( no need to flip this one
+                        uSum += arrows[i].u
+                        vSum += arrows[i].v
                         // the first unflipped Arrow after one or more flipped ones clocks a new revolution
                         if (flipped) {
                             flipped = false
-                            turns++ 
+                            turns++
                             endTime = arrows[i].time // one more completed revolution
                         }
-                    } else { // flip this arrow before chaining it, as it's pointing the "wrong" way
+                    } else { //  this arrow before chaining it, as it's pointing the "wrong" way
                         flipped = true
                         uSum -= arrows[i].u
                         vSum -= arrows[i].v
@@ -478,7 +477,7 @@ namespace heading {
         let xField = (xhi - xlo) / 2
         let yField = (yhi - ylo) / 2
         let zField = (zhi - zlo) / 2
-        strength = Math.sqrt(xField * xField) + (yField * yField) + (zField * zField)
+        strength = Math.sqrt((xField * xField) + (yField * yField) + (zField * zField))
         if (strength < MarginalField) {
             return -2 // "FIELD STRENGTH TOO WEAK"
         }
