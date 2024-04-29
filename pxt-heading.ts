@@ -225,7 +225,7 @@ namespace heading {
                 if (logging) {
                     datalogger.log(
                         datalogger.createCV("i", i - 4), // (the centre of our 7-sample neighbourhood)
-                        datalogger.createCV("coarse", arrows[i - 4].size),
+                        datalogger.createCV("coarse", arrows[3].size),
                         datalogger.createCV("smooth", smooth.size),
                         datalogger.createCV("slope", slope),
                         datalogger.createCV("peak?", peak))
@@ -604,6 +604,7 @@ namespace heading {
         }
 
         // convert the raw {u,v} readings into a compass-needle Arrow
+        
         let needle = views[bestView].getArrowFor(uRaw, vRaw)
 
         // make Arrow direction read relative to our registered North
