@@ -129,7 +129,7 @@ namespace heading {
             return new Arrow(uBlend, vBlend, arrows[3].time) // use the timestamp of the central Arrow
         }
 
-        /* This method does two jobs:
+        // This method does two jobs:
         // 1. Finds the consensus of a set of axis-candidate Arrow angles (reversing "opposite"
         // ones, so they all point to the same end of the axis as the very first candidate).
         // 2. Hijacks the "time" property of the returned Arrow to report the average rotation period detected.
@@ -178,43 +178,25 @@ namespace heading {
             // make an Arrow pointing to {uSum,vSum}, showing the overall direction of the chain of source Arrows
             return new Arrow(uSum, vSum, period)
         }
-        */
 
-        // Process the sampleData so that we can work out the eccentricity of this Ellipse. Although already
-        // a rolling sum of seven readings, differentiation amplifes noise, so for stability, we apply an 
-        // additional 7-point Gaussian smoothing as we track the first derivative (the slope).
-        // We look for inflections in the slope which occur as we pass the Ellipse's axes, 
-        // selecting the longest radius as the majorAxis and the shortest as the minorAxis Arrows.
-
-
-            /* We pass each axis twice per Spin-circle revolution, so an eccentric Ellipse will produce neatly alternating
-                candidates with "opposite" angles. Noisy readings mean that a more-nearly circular Ellipse may generate 
-                alternating clusters of candidates as we pass each end of each axis. An almost circular Ellipse has no
-                meaningful axes, but will generate multiple spurious candidates. 
-                We are trying to find the tilt of the Ellipse's major-axis.  We could simply nominate the last 
-                major / minor axis-candidates detected, but, more robustly, we (carefully!) average their angles. 
-            */ 
-            
-            extractAxes() {
+        // Process the sampleData so that we can work out the eccentricity of this Ellipse.
+        // We apply 7-point Gaussian smoothing, while simultaneously tracking the first derivative (the slope).
+        // We look for inflections in the slope which occur as we pass the Ellipse's axes, and push
+        // candidate values onto the majors[] or minors[] axis-lists.
+        // These lists are then processed to set the Ellipse's average majorAxis and minorAxis Arrows.
+        extractAxes() {
             let arrows: Arrow[] = [] // rolling set of 7 Arrows
-            // minimum & maximum radii lengths signify minor and major ellipse axes
-            let longest = 0
-            let shortest = 99999
-            // to detect rotations we'll be chaining all major-axis candidates together as added vectors
-            let uSum = 0
-            let vSum = 0
-
-            let flipped = false
-            let slope: number = 99999 // marker for "first time round"
 
             // get first Gaussian sum
             for (let i = 0; i < 7; i++) {
                 arrows.push(new Arrow(scanData[i][this.uDim], scanData[i][this.vDim], scanTimes[i]))
             }
+            let slope: number = 99999 // marker for "first time round"
             let slopeWas: number
             let smooth = this.gaussianAverage(arrows)
             // smooth now contains a smoothed (w.r.t its neighbours) version of the third Arrow in this View
             let smoothWas: Arrow
+            let peak = 0 // (just for debug trace)
 
             // now work through remaining samples...
             for (let i = 7; i < scanTimes.length; i++) {
@@ -222,8 +204,6 @@ namespace heading {
                 arrows.shift() // drop the earliest arrow & append the next one
                 arrows.push(new Arrow(scanData[i][this.uDim], scanData[i][this.vDim], scanTimes[i]))
                 smooth = this.gaussianAverage(arrows)
-                // check whether this Arrow extends or shortens our chain
-                
                 slopeWas = slope
                 // differentiate to get ongoing slope
                 slope = (smooth.size - smoothWas.size) / (smooth.time - smoothWas.time)
@@ -231,47 +211,34 @@ namespace heading {
                 if (slopeWas == 99999) slopeWas = slope
                 // look for peaks & troughs, where the slope crosses zero
                 if ((slopeWas > 0) && (slope <= 0)) {
-                    // We are passing a major axis....
-                    if (smooth.size > longest) {
-                        this.majorAxis = smooth.cloneMe() // copy the major axis we are passing
-                        longest = smooth.size
-
-
-
-                        if (logging) {
-                            datalogger.log(
-                                datalogger.createCV("i", i - 4), // (the centre of our 7-sample neighbourhood)
-                                datalogger.createCV("coarse", arrows[3].size),
-                                datalogger.createCV("smooth", smooth.size),
-                                datalogger.createCV("slope", slope),
-                                datalogger.createCV("peak?", 200))
-                        }
-                    }
+                    this.majors.push(smooth.cloneMe()) // copy the major axis we are passing
+                    peak = 200
                 }
                 if ((slopeWas < 0) && (slope >= 0)) {
-                    // We are passing a minor axis....
-                    if (smooth.size < shortest) {
-                        this.minorAxis = smooth.cloneMe() // copy the minor axis we are passing
-                        shortest = smooth.size
-
-
-
-                        if (logging) {
-                            datalogger.log(
-                                datalogger.createCV("i", i - 4), // (the centre of our 7-sample neighbourhood)
-                                datalogger.createCV("coarse", arrows[3].size),
-                                datalogger.createCV("smooth", smooth.size),
-                                datalogger.createCV("slope", slope),
-                                datalogger.createCV("peak?", 100))
-                        }
-                    }
+                    this.minors.push(smooth.cloneMe()) // copy the minor axis we are passing
+                    peak = 100
                 }
 
+                if (logging) {
+                    datalogger.log(
+                        datalogger.createCV("i", i-4), // (the centre of our 7-sample neighbourhood)
+                        datalogger.createCV("coarse", arrows[i-4].size),
+                        datalogger.createCV("smooth", smooth.size),
+                        datalogger.createCV("slope", slope),
+                        datalogger.createCV("peak?", peak))
+                }
+                peak = 0
             }
 
-           
-            //this.majorAxis = this.formAverageAxis(this.majors)
-            //this.minorAxis = this.formAverageAxis(this.minors)
+            /* We pass each axis twice per Spin-circle revolution, so an eccentric Ellipse will produce neatly alternating
+                candidates with "opposite" angles. Noisy readings mean that a more-nearly circular Ellipse may generate 
+                alternating clusters of candidates as we pass each end of each axis. An almost circular Ellipse has no
+                meaningful axes, but will generate multiple spurious candidates. 
+                We are trying to find the tilt of the Ellipse's major-axis.  We could simply nominate the last 
+                major / minor axis-candidates detected, but, more robustly, we (carefully!) average their angles. 
+            */    
+            this.majorAxis = this.formAverageAxis(this.majors)
+            this.minorAxis = this.formAverageAxis(this.minors)
 
             // The ratio of the axis lengths gives the eccentricity: the V-axis scaling-factor that would stretch
             // the Ellipse back into a circle.
@@ -294,13 +261,13 @@ namespace heading {
                     datalogger.createCV("view", this.plane),
                     datalogger.createCV("thetaBearing", round2(this.thetaBearing)),
                     datalogger.createCV("period", round2(rad2deg(this.period))),
-                    datalogger.createCV("eccent.", round2(this.eccentricity)))
+                    datalogger.createCV("ecc.", round2(this.eccentricity)))
             }
         }
 
         // Form an Arrow holding a new reading's raw bearing (with no regard to the registered North) 
-        // Unless Ellipse.isCircular, the {u,v} reading will be foreshortened and so needs correction
-        // to place it correctly on the Spin-Circle.
+        // Unless Ellipse.isCircular, the {u,v} reading will be foreshortened and needs correction
+        // to place it on the Spin-Circle.
         getArrowFor(uRaw: number, vRaw: number): Arrow {
             // First shift the point into a vector from the origin (a point on the re-centred Ellipse)
             let u = uRaw - this.uOff
@@ -332,14 +299,14 @@ namespace heading {
     let bestView = -1
     let uDim = -1 // the "horizontal" axis (called U) for the best View
     let vDim = -1 // the "vertical" axis (called V) for the best View
-    let north: Arrow // pointer to the registered "North" direction
+    let toNorth: Arrow // pointer to the registered "North" direction
     let strength = 0 // the average magnetic field-strength observed by the magnetometer
     let fromBelow = false // set "true" if orientation means readings project backwards
 
     let logging = true  // logging mode flag
     let debugging = false  // test mode flag
     let dataset: string = "NONE" // test dataset to use
-    let test = 0 // incremental selector for test cases
+    let test = 0 // selector for test cases
     let uData: number[] = [] // U values for test cases
     let vData: number[] = [] // V values for test cases
 
@@ -362,8 +329,6 @@ namespace heading {
         // Every 25-30 ms over the specified duration (generally a couple of seconds),
         // magnetometer readings are sampled and a new [X,Y,Z] triple added to the scanData[] array.
         // A timestamp for each sample is also recorded in the scanTimes[] array.
-        // To smooth out jitter, each reading is always a rolling sum of SEVEN consecutive readings
-        // so the dynamic field range due to the Earth is extended seven-fold to about +/- 350 microTeslas
         scanTimes = []
         scanData = []
 
@@ -376,6 +341,7 @@ namespace heading {
             basic.pause(ms)
         } else {
             
+            // (To smooth out jitter, each reading is always a rolling sum of SEVEN consecutive readings!)
             let index = 0
             let xRoll: number[] = []
             let yRoll: number[] = []
@@ -421,8 +387,8 @@ namespace heading {
                 now = input.runningTime()
                 scanTimes.push(now) 
                 x -= xRoll.shift()
-                y -= yRoll.shift()
-                z -= zRoll.shift()
+                y -= xRoll.shift()
+                z -= xRoll.shift()
                 basic.pause(20)                
             }
         }
@@ -628,7 +594,7 @@ namespace heading {
         let needle = views[bestView].getArrowFor(uRaw, vRaw)
 
         // make Arrow direction read relative to our registered North
-        needle.adjustBy(north.angle)
+        needle.adjustBy(toNorth.angle)
 
         if (logging) {
             datalogger.log(
