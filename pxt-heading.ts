@@ -32,14 +32,15 @@ namespace heading {
     // CLASSES
 
     // An Arrow is an object holding a directed vector {u,v} in both cartesian and polar coordinates. 
-    // It also carries a time field and (for convenience) the angle expressed as a compass-bearing
+    // <<<It also carries a time field and (for convenience) the angle expressed in degrees
+    // It is used to hold a 2D magnetometer measurement, (either raw or corrected) 
  
     class Arrow {
         u: number; // horizontal component
         v: number; // vertical component
         size: number; // polar magnitude of vector
         angle: number; // polar angle (radians anticlockwise from East)
-        bearing: number; // equivalent compass-bearing (degrees clockwise from North)
+        //degrees: number; // equivalent (degrees aclockwise from North)
         time: number; // (for scan samples) timestamp when this was collected
 
         constructor(u: number, v: number, t: number) { 
@@ -47,7 +48,7 @@ namespace heading {
             this.v = v
             this.size = Math.sqrt((u * u) + (v * v))
             this.angle = Math.atan2(v, u)
-            this.bearing = asBearing(this.angle)
+            //this.degrees = asBearing(this.angle)
             this.time = t
         }
         // cloning method
@@ -144,13 +145,13 @@ namespace heading {
             let count = arrows.length
             if (count > 0) {
                 // the first candidate fixes which "end" of this axis we're choosing
-                let front = arrows[0].bearing
+                let front = arrows[0].degrees
                 uSum = arrows[0].u
                 vSum = arrows[0].v
                 let startTime = arrows[0].time
                 for (let i = 1; i < count; i++) {
                     // get angle difference, as +/- 180 degrees
-                    let deviate = ((540 + arrows[i].bearing - front) % 360) - 180
+                    let deviate = ((540 + arrows[i].degrees - front) % 360) - 180
                     if (Math.abs(deviate) < 90) {
                         // add the next arrow to the chain( no need to flip this one
                         uSum += arrows[i].u
@@ -256,7 +257,7 @@ namespace heading {
     
             // Pre-set some rotation factors
             this.theta = this.majorAxis.angle // the rotation (in radians) that aligns the major-axis clockwise with the U-axis
-            this.thetaBearing = this.majorAxis.bearing // (just for debug)
+            this.thetaBearing = this.majorAxis.degrees // (just for debug)
             this.cosTheta = Math.cos(this.theta)
             this.sinTheta = Math.sin(this.theta)
 
@@ -344,8 +345,10 @@ namespace heading {
         // Every 25-30 ms over the specified duration (generally a couple of seconds),
         // magnetometer readings are sampled and a new [X,Y,Z] triple added to the scanData[] array.
         // A timestamp for each sample is also recorded in the scanTimes[] array.
-        // To smooth out jitter, each reading is always a rolling sum of SEVEN consecutive readings
-        // so the dynamic field range due to the Earth is extended seven-fold to about +/- 350 microTeslas
+
+        // NOTE: to smooth out jitter, each reading is always a rolling sum of SEVEN consecutive
+        // readings, effectively amplifying the dynamic field range due to the Earth seven-fold 
+        //(to about +/- 350 microTeslas)
         scanTimes = []
         scanData = []
 
@@ -487,7 +490,7 @@ namespace heading {
         let yOff = (yhi + ylo) / 2
         let zOff = (zhi + zlo) / 2
 
-        // apply normalisation to re-centre all of the scan Data 
+        // apply normalisation to re-centre all of the scanData samples
         for (let i = 0; i < nSamples; i++) {
             scanData[i][Dim.X] -= xOff
             scanData[i][Dim.Y] -= yOff
@@ -499,7 +502,7 @@ namespace heading {
         views.push(new Ellipse("YZ", Dim.Y, Dim.Z, yOff, zOff))
         views.push(new Ellipse("ZX", Dim.Z, Dim.X, zOff, xOff))
 
-        // perform the analysis of Ellipse tilt-angle and eccentricity in each View
+        // For each View, perform the analysis of eccentricity and Ellipse tilt-angle
         views[View.XY].extractAxes()
         views[View.YZ].extractAxes()
         views[View.ZX].extractAxes()
@@ -525,36 +528,47 @@ namespace heading {
         // Check polarity of revolution:
         fromBelow = (views[bestView].period < -1)
 
-        //uDim = views[bestView].uDim
-        //vDim = views[bestView].vDim
+        // for brevity:
+        uDim = views[bestView].uDim
+        vDim = views[bestView].vDim
+        uOff = views[bestView].uOff
+        vOff = views[bestView].vOff
 
 
         // we've now finished with the scanning data, so release its memory
         scanTimes = []
         scanData = []
 
+        // -------------------------------------------------------------------------
 
         // We have successfully set up the projection parameters. Now we need to relate them to "North".
         // Take the average of seven new readings to get a stable fix on the current heading
-        let uRaw = 0
-        let vRaw = 0
+        let u = 0
+        let v = 0
         if (debugging) { // arbitrarily choose first test-data reading as "North"
-            uRaw = uData[0]
-            vRaw = vData[0]
+            u = uData[0]
+            v = vData[0]
         } else {
-            // get a new position as the sum of seven readings
-            uRaw = input.magneticForce(uDim)
-            vRaw = input.magneticForce(vDim)
+            // get a new sample as the sum of seven readings
+            u = input.magneticForce(uDim)
+            v = input.magneticForce(vDim)
             for (let i = 0; i < 6; i++) {
                 basic.pause(5)
-                uRaw += input.magneticForce(uDim)
-                vRaw += input.magneticForce(vDim)
+                u += input.magneticForce(uDim)
+                v += input.magneticForce(vDim)
             }
         }
 
+        // Shift the point into a vector from the origin (a point on the re-centred Ellipse)
+        let u = u - views[bestView].uOff
+        let v = v - views[bestView].vOff
+        let angle: number
+        if (!this.isCircular) {
+            angle = Math.atan2(v, u)
+
         // get the projection angle of the [uRaw,vRaw] vector on the Spin-Circle, 
         // and remember this as the (global) fixed bias to North
-        north = views[bestView].correctedAngleTo(uRaw, vRaw)
+        north = views[bestView].correctedAngleTo(u, v)
 
 
         if (logging) {
