@@ -145,24 +145,25 @@ namespace heading {
             let count = arrows.length
             if (count > 0) {
                 // the first candidate fixes which "end" of this axis we're choosing
-                let front = arrows[0].degrees
+                let front = arrows[0].angle
                 uSum = arrows[0].u
                 vSum = arrows[0].v
                 let startTime = arrows[0].time
                 for (let i = 1; i < count; i++) {
-                    // get angle difference, as +/- 180 degrees
-                    let deviate = ((540 + arrows[i].degrees - front) % 360) - 180
-                    if (Math.abs(deviate) < 90) {
-                        // add the next arrow to the chain( no need to flip this one
+                    // get angle difference, as +/- 2pi
+                    let deviate = ((3 * Math.PI + arrows[i].angle - front) % TwoPi) - Math.PI
+                    // does it point mostly to the front or the back?
+                    if (Math.abs(deviate) < (Math.PI/2)) {
+                        // add the next arrow to the chain (no need to flip this one)
                         uSum += arrows[i].u
                         vSum += arrows[i].v
                         // the first unflipped Arrow after one or more flipped ones clocks a new revolution
                         if (flipped) {
                             flipped = false
                             turns++
-                            endTime = arrows[i].time // one more completed revolution
+                            endTime = arrows[i].time
                         }
-                    } else { //  this arrow before chaining it, as it's pointing the "wrong" way
+                    } else { // flip this arrow before chaining it, as it's pointing the "wrong" way
                         flipped = true
                         uSum -= arrows[i].u
                         vSum -= arrows[i].v
@@ -257,7 +258,6 @@ namespace heading {
     
             // Pre-set some rotation factors
             this.theta = this.majorAxis.angle // the rotation (in radians) that aligns the major-axis clockwise with the U-axis
-            this.thetaBearing = this.majorAxis.degrees // (just for debug)
             this.cosTheta = Math.cos(this.theta)
             this.sinTheta = Math.sin(this.theta)
 
@@ -277,29 +277,24 @@ namespace heading {
         
         }
 
-        // Reaturn the true angle (in radians anticlockwise from the U-axis) for a new raw reading.
-        // Unless Ellipse.isCircular, the {u,v} reading will be foreshortened in this View and will need
-        // correcting to place it correctly on the Spin-Circle.
-        correctedAngleTo(uRaw: number, vRaw: number): number {
-            // First shift the point into a vector from the origin (a point on the re-centred Ellipse)
-            let u = uRaw - this.uOff
-            let v = vRaw - this.vOff
-            let angle:number
-            if (!this.isCircular) {
-                angle = Math.atan2(v, u)
-            } else { // needs correcting
-                // first rotate **clockwise** by theta, to lay the Ellipse on its side,
-                // --so realigning the Ellipse minor-axis angle with the V-axis
-                let uNew = u * this.cosTheta - v * this.sinTheta
-                let vNew = u * this.sinTheta + v * this.cosTheta
-                u = uNew 
-                // Now scale up vertically, re-balancing the axes and making the Ellipse circular
-                v = vNew * this.eccentricity
-                // get the adjusted angle to the corrected {u,v}
-                angle = Math.atan2(v,u)
-                // undo the rotation by theta (radians go anticlockwise!)   
-                angle += this.theta
-            }
+        // Unless Ellipse.isCircular, any {u,v} reading will be foreshortened in this View.
+        // Stretch it along the Ellipse minor-axis, to place it correctly on the Spin-Circle,
+        // and return its adjusted angle
+        fixedAngle(reading: Arrow): number {
+            // First normalise the point w.r.t the Ellipse Centre
+            let u = reading.u - this.uOff
+            let v = reading.v - this.vOff
+            // first rotate **clockwise** by theta, to lay the Ellipse on its side,
+            // --so realigning the Ellipse minor-axis angle with the V-axis
+            let uNew = u * this.cosTheta - v * this.sinTheta
+            let vNew = u * this.sinTheta + v * this.cosTheta
+            u = uNew 
+            // Now scale up vertically, re-balancing the axes and making the Ellipse circular
+            v = vNew * this.eccentricity
+            // get the adjusted angle to the corrected {u,v}
+            let angle = Math.atan2(v,u)
+            // undo the rotation by theta (radians go anticlockwise!)   
+            angle += this.theta
             return angle
         }
     }
@@ -531,8 +526,8 @@ namespace heading {
         // for brevity:
         uDim = views[bestView].uDim
         vDim = views[bestView].vDim
-        uOff = views[bestView].uOff
-        vOff = views[bestView].vOff
+        //uOff = views[bestView].uOff
+        //vOff = views[bestView].vOff
 
 
         // we've now finished with the scanning data, so release its memory
@@ -542,7 +537,7 @@ namespace heading {
         // -------------------------------------------------------------------------
 
         // We have successfully set up the projection parameters. Now we need to relate them to "North".
-        // Take the average of seven new readings to get a stable fix on the current heading
+        // in the bestView, take the average of seven new readings to get a stable fix on the current heading
         let u = 0
         let v = 0
         if (debugging) { // arbitrarily choose first test-data reading as "North"
@@ -559,17 +554,20 @@ namespace heading {
             }
         }
 
-        // Shift the point into a vector from the origin (a point on the re-centred Ellipse)
-        let u = u - views[bestView].uOff
-        let v = v - views[bestView].vOff
-        let angle: number
-        if (!this.isCircular) {
-            angle = Math.atan2(v, u)
+        // normalise the point w.r.t our Ellipse origin
+        u = u - views[bestView].uOff
+        v = v - views[bestView].vOff
 
-        // get the projection angle of the [uRaw,vRaw] vector on the Spin-Circle, 
-        // and remember this as the (global) fixed bias to North
-        north = views[bestView].correctedAngleTo(u, v)
+        let needle = new Arrow(u,v,0) // Form into a vector
+        
+        if (views[bestView].isCircular) {
+            north = needle.angle
+        } else {
+        // need to correct for foreshortening
+            north = views[bestView].fixedAngle(needle)
+        }
 
+        // "North" is the (global) fixed bias to be subtracted from new readings
 
         if (logging) {
             datalogger.setColumnTitles("uDim", "vDim", "uOff", "vOff",
@@ -620,20 +618,30 @@ namespace heading {
             }
         }
 
-        // convert the raw {u,v} readings into a compass-needle Arrow
-        
-        let needle = views[bestView].correctedAngleTo(uRaw, vRaw)
 
-        // make needle read clockwise relative to our registered North
-        needle = north - needle
+        // normalise the point w.r.t our Ellipse origin
+        let u = uRaw - views[bestView].uOff
+        let v = vRaw - views[bestView].vOff
+
+        // convert the {u,v} readings into a compass-needle Arrow
+        let needle = new Arrow(u, v, 0) // Form into a vector
+        let angle: number
+        if (views[bestView].isCircular) {
+            angle = needle.angle
+        } else {
+            // need to correct for foreshortening
+            angle = views[bestView].fixedAngle(needle)
+        }
+
+        let compass = asBearing(angle - north)
 
         if (logging) {
             datalogger.log(
                 datalogger.createCV("uRaw", round2(uRaw)),
                 datalogger.createCV("vRaw", round2(vRaw)),
-                datalogger.createCV("needle", Math.round(needle)))
+                datalogger.createCV("compass", Math.round(compass)))
         }
-        return needle
+        return compass
     }
 
     /**
