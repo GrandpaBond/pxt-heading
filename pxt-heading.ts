@@ -26,21 +26,21 @@ namespace heading {
     const TwoPi = 2 * Math.PI
     const RadianDegrees = 360 / TwoPi
     const EnoughScanTime = 1800 // minimum acceptable scan-time
+    const EnoughSamples = 70 // fewest acceptable scan samples
     const MarginalField = 30 // minimum acceptable field-strength for magnetometer readings
     const Circular = 1.03 // maximum eccentricity to consider an Ellipse as "circular"
 
     // CLASSES
 
-    // An Arrow is an object holding a directed vector {u,v} in both cartesian and polar coordinates. 
-    // <<<It also carries a time field and (for convenience) the angle expressed in degrees
-    // It is used to hold a 2D magnetometer measurement, (either raw or corrected) 
+    // An Arrow is an object holding a directed vector {u,v} in both Cartesian and Polar coordinates. 
+    // It also carries a time field, used to timestamp scanned samples.
+    // It is used to hold a magnetometer measurement as a normalised 2D vector 
  
     class Arrow {
         u: number; // horizontal component
         v: number; // vertical component
         size: number; // polar magnitude of vector
         angle: number; // polar angle (radians anticlockwise from East)
-        //degrees: number; // equivalent (degrees aclockwise from North)
         time: number; // (for scan samples) timestamp when this was collected
 
         constructor(u: number, v: number, t: number) { 
@@ -55,15 +55,6 @@ namespace heading {
         cloneMe():Arrow {
             return new Arrow(this.u, this.v, this.time)
         }
-        // angle adjustment method
-       /* adjustBy(radians:number) {
-            this.angle += radians
-            this.u = this.size*Math.cos(this.angle)
-            this.v = this.size*Math.sin(this.angle)
-            this.bearing = asBearing(this.angle)
-        }
-        */
-
     }
 
     // An Ellipse is an object holding the characteristics of the (typically) elliptical
@@ -239,7 +230,7 @@ namespace heading {
                 alternating clusters of candidates as we pass each end of each axis. An almost circular Ellipse has no
                 meaningful axes, but will generate multiple spurious candidates. 
                 We are trying to find the tilt of the Ellipse's major-axis.  We could simply nominate the last 
-                major / minor axis-candidates detected, but, more robustly, we average them (carefully!). 
+                major / minor axis-candidates detected, but (more robustly), we average them (but carefully!). 
             */
 
             this.majorAxis = this.formAverageAxis(this.majors)
@@ -256,15 +247,16 @@ namespace heading {
             // The ratio of the axis lengths gives the eccentricity of this Ellipse
             this.eccentricity = this.majorAxis.size / this.minorAxis.size
     
-            // Pre-set some rotation factors
+            // For efficiency, pre-set some rotation factors
             this.theta = this.majorAxis.angle // the rotation (in radians) that aligns the major-axis clockwise with the U-axis
+            this.thetaBearing = asBearing(this.theta) // (for debug)
             this.cosTheta = Math.cos(this.theta)
             this.sinTheta = Math.sin(this.theta)
 
             // take the average of the two period estimates
             this.period = (this.majorAxis.time + this.minorAxis.time) / 2
 
-            // Readings taken from a "circular" Ellipse won't be fore-shortened, so will need no correction!
+            // Readings taken from a "circular" Ellipse won't be fore-shortened, so can skip correction!
             this.isCircular = (this.eccentricity < Circular) 
         
             if (logging) {
@@ -276,26 +268,53 @@ namespace heading {
             }
         
         }
+    
+        // Take the sum of seven new readings to get a stable fix on the current heading
+        takeSingleReading():number {  
+            let u = 0
+            let v = 0
+            let reading = 0
+            if (debugging) { // just choose the next test-data value
+                u = uData[test]
+                v = vData[test]
+                test = (test+1) % uData.length
+            } else {
+                // get a new sample as the sum of seven readings
+                u = input.magneticForce(this.uDim)
+                v = input.magneticForce(this.vDim)
+                for (let i = 0; i < 6; i++) {
+                    basic.pause(5)
+                    u += input.magneticForce(this.uDim)
+                    v += input.magneticForce(this.vDim)
+                }
+            }
+            // normalise the point w.r.t our Ellipse origin
+            u = u - this.uOff
+            v = v - this.vOff
+            if (this.isCircular) {
+                reading = Math.atan2(v, u)
+            } else {
+            // Unless this Ellipse.isCircular, any {u,v} reading will be foreshortened in this View.
+            // We must stretch it along the Ellipse minor-axis, to place it correctly on the Spin-Circle
+                // first rotate clockwise by theta, aligning the Ellipse minor-axis angle with the V-axis
+                let uNew = u * this.cosTheta - v * this.sinTheta
+                let vNew = u * this.sinTheta + v * this.cosTheta
+                u = uNew
+                // Now scale up vertically, re-balancing the axes to make the Ellipse circular
+                v = vNew * this.eccentricity
+                // get the adjusted angle to this corrected {u,v}
+                reading = Math.atan2(v, u)
+                // finally, undo the rotation by theta
+                reading += this.theta
+            }
 
-        // Unless Ellipse.isCircular, any {u,v} reading will be foreshortened in this View.
-        // Stretch it along the Ellipse minor-axis, to place it correctly on the Spin-Circle,
-        // and return its adjusted angle
-        fixedAngle(reading: Arrow): number {
-            // First normalise the point w.r.t the Ellipse Centre
-            let u = reading.u - this.uOff
-            let v = reading.v - this.vOff
-            // first rotate **clockwise** by theta, to lay the Ellipse on its side,
-            // --so realigning the Ellipse minor-axis angle with the V-axis
-            let uNew = u * this.cosTheta - v * this.sinTheta
-            let vNew = u * this.sinTheta + v * this.cosTheta
-            u = uNew 
-            // Now scale up vertically, re-balancing the axes and making the Ellipse circular
-            v = vNew * this.eccentricity
-            // get the adjusted angle to the corrected {u,v}
-            let angle = Math.atan2(v,u)
-            // undo the rotation by theta (radians go anticlockwise!)   
-            angle += this.theta
-            return angle
+            if (logging) {
+                datalogger.log(
+                    datalogger.createCV("u", round2(u)),
+                    datalogger.createCV("v", round2(v)),
+                    datalogger.createCV("reading", Math.round(asBearing(reading))))
+            }
+            return reading
         }
     }
 
@@ -317,9 +336,10 @@ namespace heading {
     let logging = true  // logging mode flag
     let debugging = false  // test mode flag
     let dataset: string = "NONE" // test dataset to use
-    let test = 0 // incremental selector for test cases
+    let test = 0 // global selector for test-cases
     let uData: number[] = [] // U values for test cases
     let vData: number[] = [] // V values for test cases
+    let northBearing = 0 // (for debug)
 
     // EXPORTED USER INTERFACES   
 
@@ -407,8 +427,6 @@ namespace heading {
             }
         }
 
-
-
         if (logging && !debugging) {
 
             datalogger.setColumnTitles("index", "t", "x", "y", "z")
@@ -426,9 +444,10 @@ namespace heading {
 
 
     /**
-     * Analyse the scanned data to prepare for reading compass-headings.
+     * Analyse the scanned data to prepare for reading compass-bearings.
      * Then read the magnetometer and register the buggy's current direction as "North",
      * (i.e. the direction that will in future return zero as its heading).
+     * 
      * The actual direction the buggy is pointing when this function is called could be
      * Magnetic North; or True North (compensating for local declination); or any convenient
      * direction from which to measure subsequent heading angles.
@@ -450,10 +469,10 @@ namespace heading {
         // we'll typically need about a couple of second's worth of scanned readings...
         let nSamples = scanTimes.length
         scanTime = scanTimes[nSamples - 1] - scanTimes[0]
-        if (scanTime < EnoughScanTime) {
+        if ((nSamples < EnoughSamples) || (scanTime < EnoughScanTime)) {
             return -1 // "NOT ENOUGH SCAN DATA"
         }
-        // Each dimension should track  a sinusoidal wave of values (generally not centred on zero).
+        // Each dimension should track a sinusoidal wave of values (generally not centred on zero).
         // The first pass finds the ranges for each axis 
         let xlo = 999
         let ylo = 999
@@ -523,65 +542,29 @@ namespace heading {
         // Check polarity of revolution:
         fromBelow = (views[bestView].period < -1)
 
-        // for brevity:
-        uDim = views[bestView].uDim
-        vDim = views[bestView].vDim
-        //uOff = views[bestView].uOff
-        //vOff = views[bestView].vOff
-
-
         // we've now finished with the scanning data, so release its memory
         scanTimes = []
         scanData = []
 
-        // -------------------------------------------------------------------------
-
-        // We have successfully set up the projection parameters. Now we need to relate them to "North".
-        // in the bestView, take the average of seven new readings to get a stable fix on the current heading
-        let u = 0
-        let v = 0
-        if (debugging) { // arbitrarily choose first test-data reading as "North"
-            u = uData[0]
-            v = vData[0]
-        } else {
-            // get a new sample as the sum of seven readings
-            u = input.magneticForce(uDim)
-            v = input.magneticForce(vDim)
-            for (let i = 0; i < 6; i++) {
-                basic.pause(5)
-                u += input.magneticForce(uDim)
-                v += input.magneticForce(vDim)
-            }
-        }
-
-        // normalise the point w.r.t our Ellipse origin
-        u = u - views[bestView].uOff
-        v = v - views[bestView].vOff
-
-        let needle = new Arrow(u,v,0) // Form into a vector
-        
-        if (views[bestView].isCircular) {
-            north = needle.angle
-        } else {
-        // need to correct for foreshortening
-            north = views[bestView].fixedAngle(needle)
-        }
-
-        // "North" is the (global) fixed bias to be subtracted from new readings
+        // Having successfully set up the projection parameters, in the bestView get a stable fix 
+        // on the current heading, which we will then designate as "North", 
+        // This is the global fixed bias to be subtracted from all further readings
+        north = views[bestView].takeSingleReading()
+        northBearing = asBearing(north) // (for debug)
 
         if (logging) {
             datalogger.setColumnTitles("uDim", "vDim", "uOff", "vOff",
-                "thetaDegrees", "scale", "period", "toNorthDegrees", "strength")
+                "theta", "eccen.", "period", "north", "strength")
 
             datalogger.log(
-                datalogger.createCV("uDim", uDim),
-                datalogger.createCV("vDim", vDim),
+                datalogger.createCV("uDim", views[bestView].uDim),
+                datalogger.createCV("vDim", views[bestView].vDim),
                 datalogger.createCV("uOff", round2(views[bestView].uOff)),
                 datalogger.createCV("vOff", round2(views[bestView].vOff)),
-                datalogger.createCV("thetaDegrees", round2(views[bestView].thetaBearing)),
-                datalogger.createCV("scale", round2(views[bestView].eccentricity)),
+                datalogger.createCV("theta", round2(views[bestView].thetaBearing)),
+                datalogger.createCV("eccen.", round2(views[bestView].eccentricity)),
                 datalogger.createCV("period", round2(views[bestView].period)),
-                datalogger.createCV("north", round2(north)),
+                datalogger.createCV("north", round2(northBearing)),
                 datalogger.createCV("strength", round2(strength)))
         }
         // SUCCESS!
@@ -600,47 +583,8 @@ namespace heading {
     //% inlineInputMode=inline 
     //% weight=70
     export function degrees(): number {
-        // read the magnetometer (seven times) and return the current heading in degrees from North
-        let uRaw = 0
-        let vRaw = 0
-        if (debugging) {
-            uRaw = uData[test]
-            vRaw = vData[test]
-            test = (test + 1) % uData.length
-        } else {
-            // get the new position as the sum of seven readings
-            uRaw = input.magneticForce(uDim)
-            vRaw = input.magneticForce(vDim)
-            for (let i = 0; i < 6; i++) {
-                basic.pause(5)
-                uRaw += input.magneticForce(uDim)
-                vRaw += input.magneticForce(vDim)
-            }
-        }
-
-
-        // normalise the point w.r.t our Ellipse origin
-        let u = uRaw - views[bestView].uOff
-        let v = vRaw - views[bestView].vOff
-
-        // convert the {u,v} readings into a compass-needle Arrow
-        let needle = new Arrow(u, v, 0) // Form into a vector
-        let angle: number
-        if (views[bestView].isCircular) {
-            angle = needle.angle
-        } else {
-            // need to correct for foreshortening
-            angle = views[bestView].fixedAngle(needle)
-        }
-
+        let angle = views[bestView].takeSingleReading()
         let compass = asBearing(angle - north)
-
-        if (logging) {
-            datalogger.log(
-                datalogger.createCV("uRaw", round2(uRaw)),
-                datalogger.createCV("vRaw", round2(vRaw)),
-                datalogger.createCV("compass", Math.round(compass)))
-        }
         return compass
     }
 
