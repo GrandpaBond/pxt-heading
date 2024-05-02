@@ -71,7 +71,7 @@ namespace heading {
         minors: Arrow[] = [] // set of detected minor-axis candidates
         majorAxis: Arrow; // averaged major axis 
         minorAxis: Arrow; // averaged minor axis
-        turns: number; // scan revolution-counter
+        //turns: number; // scan revolution-counter
         period: number; // this View's assessment of average rotation time
 
         // correction parameters for future readings
