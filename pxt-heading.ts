@@ -529,9 +529,9 @@ namespace heading {
         }
 
         // create an Ellipse instance for analysing each possible view
-        views.push(new Ellipse("XY", Dim.X, Dim.Y, xOff, yOff))
-        views.push(new Ellipse("YZ", Dim.Y, Dim.Z, yOff, zOff))
-        views.push(new Ellipse("ZX", Dim.Z, Dim.X, zOff, xOff))
+        views.push(new Ellipse("XY", Dim.X, Dim.Y, xOff, yOff, xField, yField))
+        views.push(new Ellipse("YZ", Dim.Y, Dim.Z, yOff, zOff, yField, zField))
+        views.push(new Ellipse("ZX", Dim.Z, Dim.X, zOff, xOff, zField, xField))
 
         // For each View, perform the analysis of eccentricity and Ellipse tilt-angle
         views[View.XY].extractAxes()
