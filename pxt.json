@@ -14,6 +14,7 @@
         "pxt-heading.ts"
     ],
     "testFiles": [
+        "main.ts",
         "test.ts"
     ],
     "targetVersions": {
