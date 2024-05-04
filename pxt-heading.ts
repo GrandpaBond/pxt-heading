@@ -65,8 +65,8 @@ namespace heading {
         vDim: number; // vertical axis of this View
         uOff: number; // horizontal offset needed to re-centre this Ellipse along the U-axis
         vOff: number; // vertical offset needed to re-centre this Ellipse along the V-axise circular again
-        uField: number; // horizontal average field-strength
-        vField: number; // vertical average field-strength
+        //uField: number; // horizontal average field-strength
+        //vField: number; // vertical average field-strength
         
     
         // calibration characteristics
@@ -87,15 +87,12 @@ namespace heading {
         fromBelow: boolean; // rotation reversal flag, reflecting this Ellipse's view of the clockwise scan
 
 
-        constructor(plane: string, uDim: number, vDim: number, 
-            uOff: number, vOff: number, uField: number, vField: number) {
+        constructor(plane: string, uDim: number, vDim: number, uOff: number, vOff: number) {
             this.plane = plane // (as a DEBUG aid)
             this.uDim = uDim
             this.vDim = vDim 
             this.uOff = uOff 
             this.vOff = vOff
-            this.uField = uField
-            this.vField = vField
             this.isCircular = false // until proved otherwise!
             this.period = -1
         }
@@ -207,8 +204,6 @@ namespace heading {
             // smooth now contains a smoothed (w.r.t its neighbours) version of the 4th sample in this View
             let smoothWas: Arrow
             let peak = 0 // (a marker, just for debug trace)
-            let averageRadius = Math.sqrt((this.uField * this.uField) + (this.vField * this.vField))
-
             // now work through remaining samples...
             for (let i = 7; i < scanTimes.length; i++) {
                 smoothWas = smooth
@@ -221,14 +216,25 @@ namespace heading {
                 // ensure the first two slopes always match
                 if (slopeWas == 99999) slopeWas = slope
                 // look for peaks & troughs, where the slope crosses zero, but only in the correct zone...
-                if ((smooth.size > averageRadius) && (slopeWas > 0) && (slope <= 0)) {
+                if ((slopeWas > 0) && (slope <= 0)) {
                     this.majors.push(smooth.cloneMe()) // copy the major axis we are passing
                     peak = 200
                 }
-                if ((smooth.size < averageRadius) && (slopeWas < 0) && (slope >= 0)) {
+                if ((slopeWas < 0) && (slope >= 0)) {
                     this.minors.push(smooth.cloneMe()) // copy the minor axis we are passing
                     peak = 100
                 }
+
+                // calculate eccentricity, and weed out false peaks from the majors
+                let longest = 0
+                for (let i = 0; i < this.majors.length; i++){
+                    longest = Math.max(longest, this.majors[i].size)
+                }
+                let shortest = 99999
+                for (let i = 0; i < this.minors.length; i++) {
+                    shortest = Math.min(shortest, this.minors[i].size)
+                }
+                this.eccentricity = longest/shortest
 
                 if (logging) {
                     datalogger.log(
@@ -529,9 +535,9 @@ namespace heading {
         }
 
         // create an Ellipse instance for analysing each possible view
-        views.push(new Ellipse("XY", Dim.X, Dim.Y, xOff, yOff, xField, yField))
-        views.push(new Ellipse("YZ", Dim.Y, Dim.Z, yOff, zOff, yField, zField))
-        views.push(new Ellipse("ZX", Dim.Z, Dim.X, zOff, xOff, zField, xField))
+        views.push(new Ellipse("XY", Dim.X, Dim.Y, xOff, yOff))
+        views.push(new Ellipse("YZ", Dim.Y, Dim.Z, yOff, zOff))
+        views.push(new Ellipse("ZX", Dim.Z, Dim.X, zOff, xOff))
 
         // For each View, perform the analysis of eccentricity and Ellipse tilt-angle
         views[View.XY].extractAxes()
