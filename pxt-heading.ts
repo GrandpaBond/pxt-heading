@@ -70,15 +70,10 @@ namespace heading {
         // calibration characteristics
         majorAxis: Arrow; // averaged major axis 
         period: number; // this View's assessment of average rotation time
-
-        // correction parameters for future readings
-        isCircular: boolean; // flag saying this "Ellipse" View is almost circular, simplifying future handling
-        theta: number; // major-axis tilt angle (in radians anticlockwise from the U-axis)
-        cosTheta: number; // saved for efficiency
-        sinTheta: number; // ditto 
-        thetaBearing: number; // (helpful for testing)
         eccentricity: number; // ratio of major-axis to minor-axis magnitudes for this Ellipse
+        isCircular: boolean; // flag saying this "Ellipse" View is almost circular, simplifying future handling
         fromBelow: boolean; // rotation reversal flag, reflecting this Ellipse's view of the clockwise scan
+
 
 
         constructor(plane: string, uDim: number, vDim: number, uOff: number, vOff: number) {
@@ -234,76 +229,20 @@ namespace heading {
     We could simply nominate the longest one detected, but while analysing rotation we average them. 
 */        
             this.majorAxis = this.combine(majors)
-    
-            // For efficiency, pre-set some rotation factors
-            this.theta = this.majorAxis.angle // the rotation (in radians) that aligns the major-axis clockwise with the U-axis
-            this.thetaBearing = asBearing(this.theta) // (for debug)
-            this.cosTheta = Math.cos(this.theta)
-            this.sinTheta = Math.sin(this.theta)
-
             this.period = this.majorAxis.time
 
         
             if (logging) {
                 datalogger.log(
                     datalogger.createCV("view", this.plane),
-                    datalogger.createCV("thetaBearing", round2(this.thetaBearing)),
+                    datalogger.createCV("thetaBearing", round2(thetaBearing)),
                     datalogger.createCV("period", round2(rad2deg(this.period))),
                     datalogger.createCV("eccent.", round2(this.eccentricity)))
             }
         
         }
     
-        // Take the sum of seven new readings to get a stable fix on the current heading
-        takeSingleReading():number {  
-            let u = 0
-            let v = 0
-            let reading = 0
-            if (debugging) { // just choose the next test-data value
-                u = uData[test]
-                v = vData[test]
-                test = (test+1) % uData.length
-            } else {
-                // get a new sample as the sum of seven readings
-                u = input.magneticForce(this.uDim)
-                v = input.magneticForce(this.vDim)
-                for (let i = 0; i < 6; i++) {
-                    basic.pause(5)
-                    u += input.magneticForce(this.uDim)
-                    v += input.magneticForce(this.vDim)
-                }
-            }
-            // normalise the point w.r.t our Ellipse origin
-            u = u - this.uOff
-            v = v - this.vOff
-
-            // Unless this Ellipse.isCircular, any {u,v} reading will be foreshortened in this View, and
-            // must stretched along the Ellipse minor-axis, to place it correctly on the Spin-Circle.
-            if (this.isCircular) {
-                reading = Math.atan2(v, u)
-            } else {
-
-            // First rotate clockwise by theta, aligning the Ellipse minor-axis angle with the V-axis
-                let uNew = u * this.cosTheta - v * this.sinTheta
-                let vNew = u * this.sinTheta + v * this.cosTheta
-                u = uNew
-                // Now scale up vertically, re-balancing the axes to make the Ellipse circular
-                v = vNew * this.eccentricity
-                // get the adjusted angle for this corrected {u,v}
-                reading = Math.atan2(v, u)
-                // finally, undo the rotation by theta
-                reading += this.theta
-            }
-
-            if (logging) {
-                datalogger.log(
-                    datalogger.createCV("u", round2(u)),
-                    datalogger.createCV("v", round2(v)),
-                    datalogger.createCV("reading", Math.round(asBearing(reading))))
-            }
-            return reading
-        }
-    }
+           }
 
     // GLOBALS
 
@@ -318,7 +257,18 @@ namespace heading {
     let strength = 0 // the average magnetic field-strength observed by the magnetometer
     let fromBelow = false // set "true" if orientation means readings project backwards
     let period: number // overall assessment of average rotation time
-    let rpm: number // the equivalent rotation rate in revs-per-minute
+    let rpm: number // the equivalent rotation rate in revs-per-minutetheta: number; 
+
+    // correction parameters for future readings on bestView Ellipse
+    let needsFixing: boolean // true, unless bestView Ellipse is circular
+    let uOff: number // horizontal origin offset
+    let vOff: number // horizontal origin offset
+    let theta: number  // major-axis tilt angle (in radians anticlockwise from the U-axis)
+    let thetaBearing: number; // (helpful while debugging)
+    let cosTheta: number; // saved for efficiency
+    let sinTheta: number; //      ditto
+    let scale: number // stretch-factor for correcting foreshortened readings (= eccentricity)
+
 
     let logging = true  // logging mode flag
     let debugging = false  // test mode flag
@@ -530,6 +480,15 @@ namespace heading {
         // Check polarity of revolution:
         fromBelow = (views[bestView].period < -1)
 
+        // For efficiency, extract various characteristics from the bestView Ellipse
+        uOff = views[bestView].uOff
+        vOff = views[bestView].vOff
+        scale = views[bestView].eccentricity
+        theta = views[bestView].majorAxis.angle // the rotation (in radians) that aligns the major-axis clockwise with the U-axis
+        thetaBearing = asBearing(theta) // (for debug)
+        cosTheta = Math.cos(theta)
+        sinTheta = Math.sin(theta)
+        needsFixing = !views[bestView].isCircular
         // we've now finished with the scanning data, so release its memory
         scanTimes = []
         scanData = []
@@ -537,7 +496,7 @@ namespace heading {
         // Having successfully set up the projection parameters, in the bestView get a stable fix 
         // on the current heading, which we will then designate as "North", 
         // This is the global fixed bias to be subtracted from all further readings
-        north = views[bestView].takeSingleReading()
+        north = takeSingleReading()
         northBearing = asBearing(north) // (for debug)
 
         if (logging) {
@@ -549,7 +508,7 @@ namespace heading {
                 datalogger.createCV("vDim", views[bestView].vDim),
                 datalogger.createCV("uOff", round2(views[bestView].uOff)),
                 datalogger.createCV("vOff", round2(views[bestView].vOff)),
-                datalogger.createCV("theta", round2(views[bestView].thetaBearing)),
+                datalogger.createCV("thetaBearing", round2(thetaBearing)),
                 datalogger.createCV("eccen.", round2(views[bestView].eccentricity)),
                 datalogger.createCV("period", round2(views[bestView].period)),
                 datalogger.createCV("north", round2(northBearing)),
@@ -558,8 +517,6 @@ namespace heading {
         // SUCCESS!
         return 0
     }
-
-
 
 
     /**
@@ -571,9 +528,7 @@ namespace heading {
     //% inlineInputMode=inline 
     //% weight=70
     export function degrees(): number {
-        let angle = views[bestView].takeSingleReading()
-        let compass = asBearing(angle - north)
-        return compass
+        return asBearing(takeSingleReading() - north)
     }
 
     /**
@@ -651,6 +606,56 @@ namespace heading {
 
 
     // UTILITY FUNCTIONS
+    // Take the sum of seven new readings to get a stable fix on the current heading
+    function takeSingleReading(): number {
+        let u = 0
+        let v = 0
+        let reading = 0
+        if (debugging) { // just choose the next test-data value
+            u = uData[test]
+            v = vData[test]
+            test = (test + 1) % uData.length
+        } else {
+            // get a new sample as the sum of seven readings
+            u = input.magneticForce(uDim)
+            v = input.magneticForce(vDim)
+            for (let i = 0; i < 6; i++) {
+                basic.pause(5)
+                u += input.magneticForce(uDim)
+                v += input.magneticForce(vDim)
+            }
+        }
+        // normalise the point w.r.t our Ellipse origin
+        u = u - uOff
+        v = v - vOff
+
+        // Unless this Ellipse.isCircular, any {u,v} reading will be foreshortened in this View, and
+        // must stretched along the Ellipse minor-axis, to place it correctly on the Spin-Circle.
+        if (needsFixing) {
+
+            // First rotate clockwise by theta, aligning the Ellipse minor-axis angle with the V-axis
+            let uNew = u * cosTheta - v * sinTheta
+            let vNew = u * sinTheta + v * cosTheta
+            let uFixed = uNew
+            // Now scale up vertically, re-balancing the axes to make the Ellipse circular
+            let vFixed = vNew * scale
+            // get the adjusted angle for this corrected {u,v}
+            reading = Math.atan2(vFixed, uFixed)
+            // finally, undo the rotation by theta
+            reading += theta
+        } else {
+            reading = Math.atan2(v, u)
+        }
+
+        if (logging) {
+            datalogger.log(
+                datalogger.createCV("u", round2(u)),
+                datalogger.createCV("v", round2(v)),
+                datalogger.createCV("reading", Math.round(asBearing(reading))))
+        }
+        return reading
+    }
+
 
     // convert angle from radians to degrees in the range 0..360
     function rad2deg(radians: number): number {
@@ -721,8 +726,9 @@ namespace heading {
                 xData = [-202.95, -205.35, -207.45, -210.3, -211.35, -212.55, -214.2, -216.9, -219.15, -222.45, -224.55, -226.65, -229.2, -231, -231.6, -232.5, -232.8, -233.4, -234.15, -234.15, -235.05, -235.05, -234.6, -234.3, -233.25, -230.85, -229.2, -226.65, -224.55, -222.15, -219.15, -216.15, -214.05, -211.2, -207.45, -203.25, -198.3, -193.2, -189, -184.2, -178.35, -174.3, -169.95, -165.75, -161.55, -157.5, -153, -148.95, -143.25, -137.25, -133.2, -128.7, -122.25, -117.3, -111.45, -106.2, -102.15, -96.75, -90.6, -86.55, -81.15, -77.25, -73.05, -67.95, -63.6, -61.5, -57.15, -54.3, -50.4, -46.65, -44.7, -40.8, -36.15, -34.05, -31.2, -29.4, -27.45, -24.6, -23.55, -22.95, -21.9, -20.1, -18.6, -18.15, -16.95, -16.35, -16.2, -16.05, -16.65, -16.95, -17.7, -20.25, -20.85, -22.05, -24, -24.6, -27.15, -28.35, -29.85, -32.7, -35.25, -36.9, -41.4, -43.95, -47.7, -51, -54.75, -58.8, -64.65, -69.75, -76.05, -82.65, -89.1, -95.25, -101.4, -106.65, -111.15, -115.05, -120.75, -125.55, -130.95, -134.7, -139.35, -144.3, -148.8, -151.8, -154.95, -159.6, -164.25, -167.7, -171.3, -176.1, -179.85, -184.05, -186.9, -190.05, -194.1, -197.4, -199.5, -202.5, -206.25, -208.95, -211.8, -213.3, -216.15, -219, -220.95, -222.6, -224.7, -226.05, -228.6, -229.8, -231.3, -232.5, -232.65, -232.5, -232.5, -232.5, -231.6, -231.45, -231.6, -231.3, -229.65, -228.6, -225.45, -223.8, -220.2, -216.75, -212.85, -210.6, -206.85, -204, -199.8, -196.5, -191.85, -188.4, -183.45, -179.1, -173.85, -169.5, -164.4, -160.65, -155.55, -151.05, -146.1, -141.75, -138, -133.95, -129.6, -126, -121.65, -118.05, -113.85, -109.05, -105, -100.05, -95.55, -90.45, -85.65, -81.9, -77.7, -73.05, -68.4, -63.9, -60.3, -57.45, -52.95, -49.2, -45.3, -43.2, -40.2, -37.95, -34.65, -31.8, -30.15, -27.45, -24.75, -22.05, -20.25, -17.7, -17.4, -15.15, -15.6, -14.7, -13.8, -13.5, -14.4, -14.25, -15, -15.45, -16.65, -18.3, -19.8, -21.15, -21.75, -22.5, -23.85, -25.05, -27.45, -29.25, -30.75, -34.35]
                 yData = [230.4, 233.55, 236.55, 239.55, 242.1, 245.25, 247.8, 251.4, 254.4, 258, 262.2, 267.45, 272.25, 277.65, 282.3, 288, 292.65, 298.35, 301.8, 307.05, 311.85, 316.8, 321.3, 325.95, 329.85, 334.2, 338.25, 342.3, 347.25, 350.85, 355.2, 358.95, 364.5, 367.2, 370.8, 372.45, 376.8, 379.95, 382.35, 383.85, 387.15, 388.8, 391.65, 391.8, 392.4, 392.55, 393.45, 393.45, 394.8, 394.35, 394.05, 393.9, 393.15, 392.4, 391.35, 388.2, 386.7, 385.35, 383.1, 381.75, 378.75, 376.5, 374.4, 371.25, 369.3, 366, 363, 359.85, 356.4, 353.85, 350.25, 344.55, 341.4, 336.45, 331.8, 326.85, 321.75, 317.55, 313.8, 309, 304.5, 300.3, 295.8, 291.15, 286.05, 281.4, 275.7, 271.05, 265.8, 261.75, 256.95, 252.3, 248.4, 244.5, 241.2, 237.45, 232.95, 228.75, 225.45, 221.55, 218.55, 215.25, 212.1, 208.8, 206.4, 203.1, 200.1, 197.7, 194.55, 193.05, 191.55, 189.9, 188.85, 187.5, 187.2, 187.65, 186.75, 187.65, 188.55, 189.3, 190.2, 190.5, 191.4, 192.9, 194.4, 195.15, 196.65, 198.6, 200.4, 202.95, 205.05, 206.55, 209.7, 212.4, 215.7, 219.3, 220.2, 223.8, 226.5, 228.3, 231.6, 234, 235.8, 240.6, 243.6, 247.8, 253.05, 257.1, 262.5, 267.9, 272.25, 278.4, 283.5, 287.7, 293.7, 298.95, 304.8, 310.95, 316.8, 322.95, 329.25, 333.3, 337.35, 342.3, 346.05, 348.9, 352.65, 357.3, 361.5, 365.85, 369.3, 372.45, 375.75, 378.45, 380.25, 382.95, 385.65, 387.3, 390, 391.65, 393.45, 394.65, 396.3, 397.2, 398.25, 398.1, 398.4, 398.1, 397.8, 397.35, 395.55, 394.05, 393.6, 393.15, 390.9, 388.65, 386.1, 384.45, 382.65, 379.95, 377.25, 375.15, 373.2, 369.6, 366.15, 363.3, 360.15, 356.25, 351.75, 348.15, 345.45, 342.15, 337.2, 333.3, 330, 326.85, 322.05, 317.25, 312.3, 308.55, 303.3, 297.9, 292.95, 289.2, 284.55, 280.65, 275.55, 272.25, 267.3, 264.3, 259.05, 255.15, 250.8, 247.35, 242.85, 239.7, 235.35, 232.5, 229.2, 226.05, 223.2, 220.2]
                 zData = [456.6, 457.2, 456.45, 456.15, 456.75, 456.6, 455.55, 455.85, 454.35, 453.6, 450.6, 448.5, 445.35, 443.85, 441.9, 439.05, 436.5, 436.2, 433.65, 431.7, 428.85, 426, 423.9, 421.2, 417, 413.25, 410.1, 407.7, 405.45, 402.6, 399.3, 396.9, 394.05, 391.65, 387.9, 383.85, 382.2, 379.35, 376.5, 373.8, 371.25, 369, 366.9, 363.15, 359.7, 357.3, 355.35, 352.95, 350.85, 348.3, 347.25, 346.65, 344.25, 342.45, 340.35, 338.55, 338.25, 336.45, 334.5, 333.45, 331.2, 330.45, 330.9, 329.85, 329.55, 330.15, 330.75, 332.25, 332.25, 331.65, 332.1, 332.25, 332.85, 333.6, 335.1, 336.15, 337.5, 338.7, 340.05, 342.45, 344.7, 347.85, 350.85, 353.4, 356.55, 359.4, 360.3, 362.4, 363.45, 366.15, 368.7, 371.7, 374.25, 377.25, 379.8, 382.35, 385.05, 388.05, 389.85, 393.3, 397.95, 401.7, 404.25, 406.35, 409.2, 412.65, 415.5, 416.7, 419.25, 423, 427.05, 430.5, 433.5, 436.2, 439.65, 442.5, 445.05, 446.1, 446.7, 447.9, 449.7, 451.2, 451.8, 453.45, 455.1, 455.4, 455.85, 455.4, 456.3, 456.3, 455.1, 456.6, 458.85, 459.45, 459.45, 459.15, 459.9, 460.2, 458.4, 457.95, 457.05, 457.2, 455.85, 454.5, 454.05, 452.55, 450.6, 450.45, 448.8, 448.05, 447, 444.3, 443.55, 442.35, 439.8, 437.25, 434.1, 431.1, 428.7, 425.55, 422.25, 418.8, 415.5, 411.9, 408.3, 404.7, 401.55, 398.7, 396, 394.35, 392.1, 389.25, 387.6, 384.6, 381.3, 377.4, 373.35, 370.8, 367.8, 363.3, 360.9, 357.9, 355.95, 354.45, 351.9, 350.1, 349.05, 346.65, 344.55, 343.2, 341.7, 340.2, 338.4, 337.95, 336.15, 335.7, 335.1, 334.05, 332.85, 332.7, 331.35, 332.25, 331.2, 329.85, 329.55, 330.6, 330.9, 331.65, 331.95, 333.6, 335.1, 336.3, 336.9, 338.4, 339, 340.2, 340.5, 341.85, 343.2, 344.85, 346.2, 348.45, 349.8, 351.3, 354.15, 355.95, 357.45, 359.7, 362.55, 365.4, 370.05, 371.55, 373.65, 376.2, 378.45, 380.25, 382.35, 383.55, 386.85, 389.55, 391.8, 393.9]
-                uData = [-39.62, -95.16, -96.26, -42.48, 38.39, 99.34, 91.15, 38.9, -41.58]
-                vData = [-100.34, -30.23, 58.43, 117.24, 101.59, 26.65, -58.81, -109.77, -99.53]
+                uData = [-163.9, -219.44, -220.54, -166.76, -85.89, -24.94, -33.13, -85.38, -165.86]
+                vData = [192.23, 262.34, 351, 409.81, 394.16, 319.22, 233.76, 182.8, 193.04]
+                
                 break
 
             default: // tetrahedral: spin-axis 45 degrees to X, Y & Z
