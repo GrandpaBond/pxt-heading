@@ -634,8 +634,8 @@ namespace heading {
         if (needsFixing) {
 
             // First rotate clockwise by theta, aligning the Ellipse minor-axis angle with the V-axis
-            let uNew = u * cosTheta - v * sinTheta
-            let vNew = u * sinTheta + v * cosTheta
+            let uNew = u * cosTheta + v * sinTheta
+            let vNew = v * cosTheta - u * sinTheta
             let uFixed = uNew
             // Now scale up vertically, re-balancing the axes to make the Ellipse circular
             let vFixed = vNew * scale
