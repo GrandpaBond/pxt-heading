@@ -4,6 +4,13 @@
  * See the README for a detailed description of the approach, methods and algorithms.
  */
 
+// OPERATIONAL MODES 
+enum Mode {
+    Normal, // Normal usage, mounted in a buggy
+    Capture, // Acquire a new test dataset, using a special rotating jig
+    Debug, // Test & debug (dataset selection is preset in code below)
+}
+
 //% color=#6080e0 weight=40 icon="\uf14e" block="Heading" 
 namespace heading {
 
@@ -232,7 +239,7 @@ namespace heading {
             this.period = this.majorAxis.time
 
 
-            if (logging) {
+            if (mode == Mode.Debug) {
                 datalogger.log(
                     datalogger.createCV("view", this.plane),
                     datalogger.createCV("thetaBearing", round2(thetaBearing)),
@@ -269,10 +276,10 @@ namespace heading {
     let sinTheta: number; //      ditto
     let scale: number // stretch-factor for correcting foreshortened readings (= eccentricity)
 
-
-    let logging = true  // logging mode flag
-    let capturing = false // data capturing mode
-    let debugging = false  // test mode flag
+    let mode:Mode = Mode.Debug // mode switch for logging
+    //let logging = true  // logging mode flag
+    //let capturing = false // data capturing mode
+    //let debugging = false  // test mode flag
     let dataset: string = "NONE" // test dataset to use
     let testData: number[][] = [] //[X,Y,Z] magnetometer values for test cases
     let test = 0 // global selector for test-cases
@@ -304,11 +311,9 @@ namespace heading {
         scanTimes = []
         scanData = []
 
-        if (logging) {
+        if (mode == Mode.Capture) {
             datalogger.deleteLog()
             datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
-        }
-        if (debugging) {
             simulateScan(dataset)
             basic.pause(ms)
         } else {
@@ -364,7 +369,7 @@ namespace heading {
             }
         }
 
-        if (logging && !debugging) {
+        if (mode == Mode.Capture) {
 
             datalogger.setColumnTitles("index", "t", "x", "y", "z")
             for (let i = 0; i < scanTimes.length; i++) {
@@ -499,7 +504,7 @@ namespace heading {
         north = takeSingleReading()
         northBearing = asBearing(north) // (for debug)
 
-        if (logging) {
+        if (mode == Mode.Debug) {
             datalogger.setColumnTitles("uDim", "vDim", "uOff", "vOff",
                 "theta", "eccen.", "period", "north", "strength")
 
@@ -580,26 +585,19 @@ namespace heading {
         }
     }
 
-    /**
-      * Choose a test dataset to use (or "NONE")
-      */
-    //% block="test with: $name"
-    //% inlineInputMode=inline 
-    //% weight=20
-    export function testDataset(name: string) {
-        dataset = name
-        debugging = (name.toUpperCase() != "NONE")
-    }
+  
 
     /**
-     * Choose whether to use Data Logger to grab a new test dataset into MY_DATA,
-     * or to debug processing
+     * Choose mode: whether to run normally,
+     *  - or to use Data Logger to grab a new test dataset into MY_DATA,
+     *  - or to debug processing using a named test dataset
      */
-    //% block="set grab mode $on"
+    //% block="set mode $mode"
     //% inlineInputMode=inline 
     //% weight=10
-    export function setLogMode(on: boolean) {
-        logging = on
+    export function setMode(newMode:Mode, name: string) {
+        mode = newMode
+        dataset = name
     }
 
 
@@ -623,7 +621,7 @@ namespace heading {
         let vFix = 0
 
         let reading = 0
-        if (debugging) { // just choose the next test-data value
+        if (mode == Mode.Debug) { // just choose the next test-data value
             uRaw = testData[test][uDim]
             vRaw = testData[test][vDim]
             test = (test + 1) % testData.length
@@ -642,7 +640,7 @@ namespace heading {
                 xyz[2] += input.magneticForce(2)
             }
 
-            if (capturing) {
+            if (mode == Mode.Capture) {
                 datalogger.log(
                     datalogger.createCV("index", test),
                     datalogger.createCV("x", round2(xyz[0])),
@@ -678,7 +676,7 @@ namespace heading {
             reading = Math.atan2(v, u)
         }
 
-        if (debugging) {
+        if (mode == Mode.Debug) {
             datalogger.log(
                 datalogger.createCV("u", round2(u)),
                 datalogger.createCV("v", round2(v)),

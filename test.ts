@@ -10,6 +10,7 @@ enum Task {
     Measure
 }
 
+const dataset = "angled"
 
 input.onButtonPressed(Button.A, function () {
     performSetup()
@@ -24,20 +25,17 @@ function performSetup() {
             basic.pause(1000)
             switch (config) {
                 case Config.Buggy:
-                    heading.testDataset("NONE")
+                    heading.setMode(Mode.Normal,"")
                     Kitronik_Move_Motor.spin(Kitronik_Move_Motor.SpinDirections.Right, 30)
                     heading.scan(6000)
                     Kitronik_Move_Motor.stop()
                     break
-                case Config.Debug:            
-                    // heading.testDataset("Xup70") // X-Axis upwards; round X-Axis; 70-degreee dip
-                    // heading.testDataset("Yup70") // Y-Axis upwards; round Y-Axis; 70-degreee dip
-                    // heading.testDataset("Zdn70") // Z-Axis downwards; round Z-Axis; 70-degreee dip
-                    heading.testDataset("angled") // No axis aligned with vertical rotation;  70-degreee dip
+                case Config.Debug:
+                    heading.setMode(Mode.Debug, dataset)
                     heading.scan(1000)
                     break
                 case Config.Jig:
-                    heading.testDataset("NONE")
+                    heading.setMode(Mode.Capture, "")
                     basic.showString("?") // manually rotate jig (SMOOOOTHLY!)
                     heading.scan(7000)
                     basic.pause(1000)
@@ -155,18 +153,18 @@ function nextConfig() {
     basic.clearScreen()
     switch(config) {
         case Config.Buggy:
-            config = Config.Debug
+            heading.setMode(Mode.Debug, dataset)
             basic.showString("D") // use sample data while debugging...
             break
         case Config.Debug:
             config = Config.Jig
             basic.showString("J") // no buggy, but use live magnetometer
-            heading.testDataset("NONE")
+            heading.setMode(Mode.Normal, "")
             break
         case Config.Jig:
             config = Config.Buggy
             basic.showString("B")  // normal live operation
-            heading.testDataset("NONE")
+            heading.setMode(Mode.Capture, "")
             break
     }
     basic.pause(1000)
@@ -177,9 +175,8 @@ function nextConfig() {
 }
 
 
-heading.setLogMode(true)
 let nextTask: Task
 let config = Config.Buggy
-nextConfig() // start with Config.Debug ...until it all works!
+nextConfig() // always start with Config.Debug ...until it all works!
 let spinRPM = 0
 let turn45 = 0
