@@ -12,9 +12,6 @@ enum Task {
 
 const dataset = "angled"
 
-input.onButtonPressed(Button.A, function () {
-    performSetup()
-})
 
 function performSetup() {
     let result = 0
@@ -96,10 +93,6 @@ function performSetup() {
 
 }
 
-input.onButtonPressed(Button.B, function () {
-    measure()
-})
-
 function measure() {
     switch (nextTask) {
         // ? sequence error?
@@ -142,10 +135,6 @@ function measure() {
 
 }
 
-input.onButtonPressed(Button.AB, function () {
-    nextConfig()
-})
-
 // rotate three-state configuration 
 function nextConfig() {
     basic.showIcon(IconNames.No)
@@ -153,18 +142,19 @@ function nextConfig() {
     basic.clearScreen()
     switch(config) {
         case Config.Buggy:
+            config = Config.Debug
             heading.setMode(Mode.Debug, dataset)
             basic.showString("D") // use sample data while debugging...
             break
         case Config.Debug:
             config = Config.Jig
             basic.showString("J") // no buggy, but use live magnetometer
-            heading.setMode(Mode.Normal, "")
+            heading.setMode(Mode.Capture, "")
             break
         case Config.Jig:
             config = Config.Buggy
             basic.showString("B")  // normal live operation
-            heading.setMode(Mode.Capture, "")
+            heading.setMode(Mode.Normal, "")
             break
     }
     basic.pause(1000)
@@ -174,6 +164,17 @@ function nextConfig() {
     basic.showArrow(ArrowNames.West)
 }
 
+
+input.onButtonPressed(Button.A, function () {
+    performSetup()
+})
+
+input.onButtonPressed(Button.B, function () {
+    measure()
+})
+input.onButtonPressed(Button.AB, function () {
+    nextConfig()
+})
 
 let nextTask: Task
 let config = Config.Buggy

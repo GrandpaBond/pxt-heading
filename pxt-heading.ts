@@ -311,13 +311,15 @@ namespace heading {
         scanTimes = []
         scanData = []
 
-        if (mode == Mode.Capture) {
+        if (mode != Mode.Normal) {
             datalogger.deleteLog()
             datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
+        }
+
+        if (mode == Mode.Debug) {
             simulateScan(dataset)
             basic.pause(ms)
         } else {
-
             let index = 0
             let xRoll: number[] = []
             let yRoll: number[] = []
@@ -370,7 +372,6 @@ namespace heading {
         }
 
         if (mode == Mode.Capture) {
-
             datalogger.setColumnTitles("index", "t", "x", "y", "z")
             for (let i = 0; i < scanTimes.length; i++) {
                 datalogger.log(
