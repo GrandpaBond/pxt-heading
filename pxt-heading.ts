@@ -196,28 +196,28 @@ namespace heading {
             for (let i = 0; i < 7; i++) {
                 arrows.push(new Arrow(scanData[i][this.uDim], scanData[i][this.vDim], scanTimes[i]))
             }
-            let slope: number = 99999 // marker for "first time round"
-            let slopeWas: number
+            let step: number = 99999 // marker for "first time round"
+            let stepWas: number
             let smooth = this.gaussianAverage(arrows)
 
             // "smooth" now contains a smoothed (w.r.t its neighbours) version of the 4th sample in this View
-            let smoothWas: Arrow
+            let smoothWas = 0
             // now work through remaining samples...
             for (let i = 7; i < scanTimes.length; i++) {
-                smoothWas = smooth
+                smoothWas = smooth.size
                 arrows.shift() // drop the earliest sample & append the next one
                 arrows.push(new Arrow(scanData[i][this.uDim], scanData[i][this.vDim], scanTimes[i]))
                 smooth = this.gaussianAverage(arrows)
                 longest = Math.max(longest, smooth.size)
                 shortest = Math.min(shortest, smooth.size)
                 // now collect candidates for the major-axis angle   
-                slopeWas = slope
-                // differentiate to get ongoing slope
-               ***** slope = (smooth.size - smoothWas.size) / (smooth.time - smoothWas.time)
-                // ensure the first two slopes always match
-                if (slopeWas == 99999) slopeWas = slope
-                // look for peaks where we switch from rising to falling size
-                if ((slopeWas > 0) && (slope <= 0)) {
+                stepWas = step
+                // is radius growing or shrinking?
+                step = smooth.size - smoothWas
+                // ensure the first two steps always match
+                if (stepWas == 99999) stepWas = step
+                // look for peaks where we switch from growing to shrinking
+                if ((stepWas > 0) && (step <= 0)) {
                     majors.push(smooth.cloneMe()) // copy the major axis we are passing
                     if (mode == Mode.Debug) {
                         datalogger.log(
@@ -231,10 +231,17 @@ namespace heading {
 
             // The ratio of the axis lengths gives the eccentricity of this Ellipse
             this.eccentricity = longest / shortest
-            // Readings taken from a near-circular Ellipse won't be fore-shortened, so can skip correction!
+            // Readings taken from a near-circular Ellipse won't be fore-shortened, so we can skip correction!
             this.isCircular = (this.eccentricity < Circular)
 
-            // some collected "peaks" are only local maxima, so we must purge any whose vector length is too short
+            /* We are trying to find a good approximation to the tilt of the Ellipse's major-axis.  
+            We could simply nominate the longest one detected, but instead we average the candidates. 
+            Passing the major-axis twice per Spin-circle revolution, an eccentric Ellipse will produce neatly
+            alternating candidates with "opposite" angles. Noisy readings mean that a more-nearly circular
+            Ellipse may generate alternating clusters of candidates as we pass each end of the axis.
+            An almost circular Ellipse has no meaningful axes, and will generate multiple spurious candidates. 
+            */
+            // purge local maxima any whose vector length is too short
             let long = longest * LongEnough
             for (let i = 0; i < majors.length; i++) {
                 if (majors[i].size < long) {
@@ -242,13 +249,6 @@ namespace heading {
                 }
             }
 
-            /* We passed each axis twice per Spin-circle revolution, so an eccentric Ellipse will produce neatly alternating
-                candidates with "opposite" angles. Noisy readings mean that a more-nearly circular Ellipse may generate 
-                alternating clusters of candidates as we pass each end of each axis. An almost circular Ellipse has no
-                meaningful axes, but will generate multiple spurious candidates. 
-                We are trying to find a good approximation to the tilt of the Ellipse's major-axis.  
-                We could simply nominate the longest one detected, but while analysing rotation we average them. 
-            */
             this.majorAxis = this.combine(majors)
             this.period = this.majorAxis.time
 
