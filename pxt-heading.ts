@@ -213,7 +213,7 @@ namespace heading {
                 // now collect candidates for the major-axis angle   
                 slopeWas = slope
                 // differentiate to get ongoing slope
-                slope = (smooth.size - smoothWas.size) / (smooth.time - smoothWas.time)
+               ***** slope = (smooth.size - smoothWas.size) / (smooth.time - smoothWas.time)
                 // ensure the first two slopes always match
                 if (slopeWas == 99999) slopeWas = slope
                 // look for peaks where we switch from rising to falling size
