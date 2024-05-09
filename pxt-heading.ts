@@ -493,7 +493,9 @@ namespace heading {
         bestView = View.XY
         if (views[View.YZ].eccentricity < views[bestView].eccentricity) bestView = View.YZ
         if (views[View.ZX].eccentricity < views[bestView].eccentricity) bestView = View.ZX
-
+        
+/*        bestView = View.ZX  // while debugging, force use of this view!
+*/
         // periodicity is unreliable in the best View: average just the other two Views' measurements
         period = (views[0].period + views[1].period + views[2].period - views[bestView].period) / 2
         rpm = 60000 / period
@@ -504,6 +506,8 @@ namespace heading {
         fromBelow = (views[bestView].period < -1)
 
         // For efficiency, extract various characteristics from the bestView Ellipse
+        uDim = views[bestView].uDim
+        vDim = views[bestView].vDim
         uOff = views[bestView].uOff
         vOff = views[bestView].vOff
         scale = views[bestView].eccentricity
@@ -626,6 +630,7 @@ namespace heading {
 
     /* Although eventually we'd only need [uDim, vDim], we sum and log all three dims.
        This will allow us, while testing, to override automatic choice of bestView
+       and check out more severe levels of correction!
     */
 
     function takeSingleReading(): number {
@@ -684,7 +689,7 @@ namespace heading {
             uNew = u * cosTheta + v * sinTheta
             vNew = v * cosTheta - u * sinTheta
             uFix = uNew
-            // Now scale up vertically, re-balancing the axes to make the Ellipse circular
+            // Now scale up along V, re-balancing the axes to make the Ellipse circular
             vFix = vNew * scale
             // get the adjusted angle for this corrected {u,v}
             reading = Math.atan2(vFix, uFix)
@@ -702,7 +707,7 @@ namespace heading {
                 datalogger.createCV("vNew", round2(vNew)),
                 datalogger.createCV("uFix", round2(uFix)),
                 datalogger.createCV("vFix", round2(vFix)),
-                datalogger.createCV("reading", Math.round(reading)),
+                datalogger.createCV("reading", round2(reading)),
                 datalogger.createCV("bearing", Math.round(asBearing(reading)))
             )
         }
