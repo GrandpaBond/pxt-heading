@@ -93,7 +93,7 @@ namespace heading {
             this.period = -1
         }
 
-        // Method to find the average of a set of adjacent Arrow angles (coping with cyclic angle roll-round)
+        /* Method to find the average of a set of adjacent Arrow angles (coping with cyclic angle roll-round)
         averageAngle(arrows: Arrow[]): number {
             let uSum = 0
             let vSum = 0
@@ -105,6 +105,7 @@ namespace heading {
             // the resultant vector then shows the overall direction of the chain of Arrows
             return Math.atan2(vSum, uSum)
         }
+        */
 
         // Method to reduce an array of seven adjacent Arrows to its central average by applying
         // the Gaussian smoothing kernel {a + 6b + 15c + 20d + 15e + 6f + g}.
@@ -134,7 +135,7 @@ namespace heading {
             let period = -1
             let count = arrows.length
             if (count > 0) {
-                // the first candidate fixes which "end" of this axis we're choosing
+                // the first candidate fixes which "end" of the axis we're choosing
                 let front = arrows[0].angle
                 uSum = arrows[0].u
                 vSum = arrows[0].v
@@ -162,6 +163,7 @@ namespace heading {
                         datalogger.log(
                             datalogger.createCV("time", arrows[i].time),
                             datalogger.createCV("angle", round2(arrows[i].angle)),
+                            datalogger.createCV("bearing", round2(asBearing(arrows[i].angle))),
                             datalogger.createCV("uSum", round2(uSum)),
                             datalogger.createCV("vSum", round2(vSum)),
                             datalogger.createCV("turns", turns))
@@ -181,30 +183,29 @@ namespace heading {
 
 
         // By comparing the longest and shortest radii, this method works out the eccentricity of this Ellipse.
-        // It also collects possible candidates for the Ellipse major axis into this.majors[]
+        // It also collects possible candidates for the Ellipse major-axis into this.majors[]
         // Although samples are already a rolling sum of seven readings, differentiation will amplify noise,
-        // so for stability we apply an additional 7-point Gaussian smoothing as we track the first derivative.
-        // We look for inflections in the slope, which occur as we pass local peaks, and push candidate values 
+        // so for stability we apply an additional 7-point Gaussian smoothing as we track the first-derivative.
+        // We look for inflections in the slope, which occur as we pass local peaks; then push candidate values 
         // onto the majors[] axis-list for later averaging and timing analysis.
         extractAxes() {
             let arrows: Arrow[] = [] // rolling set of 7 Arrows, holding 7 adjacent samples
             let majors: Arrow[] = [] // candidate directions for major axis of Ellipse
-            let longest = 0
-            let shortest = 99999
             let peak = 0 // (a marker, just for debug trace)
             // collect 7 samples as Arrows and get first Gaussian sum
             for (let i = 0; i < 7; i++) {
                 arrows.push(new Arrow(scanData[i][this.uDim], scanData[i][this.vDim], scanTimes[i]))
             }
+            let smooth = this.gaussianAverage(arrows)
+            let longest = smooth.size
+            let shortest = smooth.size
+            let sizeWas: number
             let step: number = 99999 // marker for "first time round"
             let stepWas: number
-            let smooth = this.gaussianAverage(arrows)
-
-            // "smooth" now contains a smoothed (w.r.t its neighbours) version of the 4th sample in this View
-            let smoothWas = 0
+            // "smooth" contains a smoothed (w.r.t its neighbours) version of the 4th sample in this View
             // now work through remaining samples...
             for (let i = 7; i < scanTimes.length; i++) {
-                smoothWas = smooth.size
+                sizeWas = smooth.size
                 arrows.shift() // drop the earliest sample & append the next one
                 arrows.push(new Arrow(scanData[i][this.uDim], scanData[i][this.vDim], scanTimes[i]))
                 smooth = this.gaussianAverage(arrows)
@@ -213,7 +214,7 @@ namespace heading {
                 // now collect candidates for the major-axis angle   
                 stepWas = step
                 // is radius growing or shrinking?
-                step = smooth.size - smoothWas
+                step = smooth.size - sizeWas
                 // ensure the first two steps always match
                 if (stepWas == 99999) stepWas = step
                 // look for peaks where we switch from growing to shrinking
@@ -228,7 +229,6 @@ namespace heading {
                     }
                 }
             }
-
             // The ratio of the axis lengths gives the eccentricity of this Ellipse
             this.eccentricity = longest / shortest
             // Readings taken from a near-circular Ellipse won't be fore-shortened, so we can skip correction!
@@ -241,11 +241,12 @@ namespace heading {
             Ellipse may generate alternating clusters of candidates as we pass each end of the axis.
             An almost circular Ellipse has no meaningful axes, and will generate multiple spurious candidates. 
             */
-            // purge local maxima any whose vector length is too short
+            // purge any local maximum whose vector length is too short --it's nowhere near the major-axis
             let long = longest * LongEnough
             for (let i = 0; i < majors.length; i++) {
                 if (majors[i].size < long) {
                     majors.splice(i, 1)  // disqualified!
+                    i-- // (all subsequent candidates shuffle up by one place!)
                 }
             }
 
