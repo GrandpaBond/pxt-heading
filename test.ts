@@ -10,7 +10,7 @@ enum Task {
     Measure
 }
 
-const dataset = "zdown70"
+const dataset = "angled"
 
 
 function performSetup() {

@@ -2,13 +2,17 @@
  * An extension providing a compass-bearing for a buggy located anywhere on the globe 
  * (except at the magnetic poles!), with any arbitrary mounting orientation for its microbit.
  * See the README for a detailed description of the approach, methods and algorithms.
+ * 
+ * TODO? No use is yet made of the accelerometer. Although helpful to compensate for static tilt,
+ * on a moving buggy dynamic sideways accelerations confound the measurement of "down", so 
+ * applying tilt-compensation could actually make compass-heading accuracy worse!
  */
 
-// OPERATIONAL MODES 
+// OPERATIONAL MODES (controlling data-logging)
 enum Mode {
     Normal, // Normal usage, mounted in a buggy
     Capture, // Acquire a new test dataset, using a special rotating jig
-    Debug, // Test & debug (dataset selection is preset in code below)
+    Debug, // Test & debug (NOTE: test-dataset selection is hard-coded below)
 }
 
 //% color=#6080e0 weight=40 icon="\uf14e" block="Heading" 
@@ -31,6 +35,8 @@ namespace heading {
     // CONSTANTS
 
     const TwoPi = 2 * Math.PI
+    const ThreePi = 3 * Math.PI
+    const HalfPi = Math.PI / 2
     const RadianDegrees = 360 / TwoPi
     const EnoughScanTime = 1800 // minimum acceptable scan-time
     const EnoughSamples = 70 // fewest acceptable scan samples
@@ -38,18 +44,18 @@ namespace heading {
     const Circular = 1.03 // maximum eccentricity to consider an Ellipse as "circular"
     const LongEnough = 0.9 // for major-axis candidates, qualifying fraction of longest 
 
-    // CLASSES
+    // SUPPORTING CLASSES
 
     // An Arrow is an object holding a directed vector {u,v} in both Cartesian and Polar coordinates. 
     // It also carries a time field, used to timestamp scanned samples.
-    // It is used to hold a magnetometer measurement as a normalised 2D vector 
+    // It is used to hold a 2D magnetometer measurement as a normalised vector.
 
     class Arrow {
         u: number; // horizontal component
         v: number; // vertical component
         size: number; // polar magnitude of vector
         angle: number; // polar angle (radians anticlockwise from East)
-        time: number; // (for scan samples) timestamp when this was collected
+        time: number; // for scan samples, timestamp of when this was collected
 
         constructor(u: number, v: number, t: number) {
             this.u = u
@@ -66,7 +72,7 @@ namespace heading {
     }
 
     // An Ellipse is an object holding the characteristics of the (typically) elliptical
-    // view formed when projecting the scan Spin-Circle onto a 2-axis View plane.
+    // view formed when projecting the scan Spin-Circle onto a 2-axis View-plane.
     class Ellipse {
         plane: string; // View name (just for debug)
         uDim: number; // horizontal axis of this View
@@ -76,12 +82,10 @@ namespace heading {
 
         // calibration characteristics
         majorAxis: Arrow; // averaged major axis 
-        period: number; // this View's assessment of average rotation time
+        period: number; // this View's assessment of average scan-rotation time
         eccentricity: number; // ratio of major-axis to minor-axis magnitudes for this Ellipse
         isCircular: boolean; // flag saying this "Ellipse" View is almost circular, simplifying future handling
         fromBelow: boolean; // rotation reversal flag, reflecting this Ellipse's view of the clockwise scan
-
-
 
         constructor(plane: string, uDim: number, vDim: number, uOff: number, vOff: number) {
             this.plane = plane // (as a DEBUG aid)
@@ -105,7 +109,7 @@ namespace heading {
             // the resultant vector then shows the overall direction of the chain of Arrows
             return Math.atan2(vSum, uSum)
         }
-        */
+        
 
         // Method to reduce an array of seven adjacent Arrows to its central average by applying
         // the Gaussian smoothing kernel {a + 6b + 15c + 20d + 15e + 6f + g}.
@@ -120,6 +124,7 @@ namespace heading {
                 + 20 * arrows[3].v) / 64
             return new Arrow(uBlend, vBlend, arrows[3].time) // use the timestamp of the central Arrow
         }
+        */
 
         /// This method does two jobs:
         // 1. Finds the consensus of a set of axis-candidate Arrow angles (reversing the "opposite"
@@ -142,9 +147,9 @@ namespace heading {
                 let startTime = arrows[0].time
                 for (let i = 1; i < count; i++) {
                     // get angle difference, as +/- 2pi
-                    let deviate = ((3 * Math.PI + arrows[i].angle - front) % TwoPi) - Math.PI
-                    // does it point mostly to the front? or to the back?
-                    if (Math.abs(deviate) < (Math.PI / 2)) {
+                    let deviate = ((ThreePi + arrows[i].angle - front) % TwoPi) - Math.PI
+                    // does it point mostly to the front? ...or to the back?
+                    if (Math.abs(deviate) < HalfPi) {
                         // add the next arrow directly to the chain (no need to flip this one)
                         uSum += arrows[i].u
                         vSum += arrows[i].v
@@ -183,12 +188,90 @@ namespace heading {
 
 
         // By comparing the longest and shortest radii, this method works out the eccentricity of this Ellipse.
+        // It also collects possible candidates for the Ellipse major-axis by looking for inflections in the 
+        // slope that occur as we pass local peaks; candidate values are pushed onto this.majors[] axis-list
+        // for later averaging and timing analysis.
+        extractAxes() {
+            let majors: Arrow[] = [] // candidate directions for major axis of Ellipse
+            let peak = 0 // (a marker, just for debug trace)
+
+            let trial = new Arrow(scanData[0][this.uDim], scanData[0][this.vDim], scanTimes[0])
+            let longest = trial.size
+            let shortest = trial.size
+            if (mode == Mode.Debug) {
+                datalogger.log(
+                    datalogger.createCV("time", trial.time),
+                    datalogger.createCV("size", round2(trial.size)),
+                    datalogger.createCV("bearing", round2(asBearing(trial.angle))),
+                    datalogger.createCV("longest", round2(longest)))
+            }
+            let sizeWas: number
+            let step: number = 99999 // marker for "first time round"
+            let stepWas: number
+            // compare first with remaining samples
+            for (let i = 1; i < scanTimes.length; i++) {
+                sizeWas = trial.size
+                trial = new Arrow(scanData[i][this.uDim], scanData[i][this.vDim], scanTimes[i])
+                longest = Math.max(longest, trial.size)
+                shortest = Math.min(shortest, trial.size)
+                // now collect candidates for the major-axis angle   
+                stepWas = step
+                step = trial.size - sizeWas // is radius growing or shrinking?
+                // ensure the first two steps will always match
+                if (stepWas == 99999) stepWas = step
+                // look for peaks where we switch from growing to shrinking
+                if ((stepWas > 0) && (step <= 0)) {
+                    majors.push(trial.cloneMe()) // copy the major axis we are passing
+                    if (mode == Mode.Debug) {
+                        datalogger.log(
+                            datalogger.createCV("time", trial.time),
+                            datalogger.createCV("size", round2(trial.size)),
+                            datalogger.createCV("bearing", round2(asBearing(trial.angle))),
+                            datalogger.createCV("longest", round2(longest)))
+                    }
+                }
+            }
+
+            // The ratio of the axis lengths gives the eccentricity of this Ellipse
+            this.eccentricity = longest / shortest
+            // Readings taken from a near-circular Ellipse won't be fore-shortened, so we can skip correction!
+            this.isCircular = (this.eccentricity < Circular)
+
+            /* We are trying to find a good approximation to the tilt of the Ellipse's major-axis.  
+            We could simply nominate the longest one detected, but instead we average the candidates. 
+            Passing the major-axis twice per Spin-circle revolution, an eccentric Ellipse will produce neatly
+            alternating candidates with "opposite" angles. Noisy readings mean that a more-nearly circular
+            Ellipse may generate alternating clusters of candidates as we pass each end of the axis.
+            An almost circular Ellipse has no meaningful axis, and will generate multiple spurious candidates. 
+            */
+            // purge any local maximum whose vector length is too short --it's nowhere near the major-axis
+            let long = longest * LongEnough
+            for (let i = 0; i < majors.length; i++) {
+                if (majors[i].size < long) {
+                    majors.splice(i, 1)  // disqualified!
+                    i-- // (all subsequent candidates shuffle up by one place!)
+                }
+            }
+            this.majorAxis = this.combine(majors)  // form a consensus 
+            this.period = this.majorAxis.time 
+
+            if (mode == Mode.Debug) {
+                let theta = this.majorAxis.angle
+                datalogger.log(
+                    datalogger.createCV("view", this.plane),
+                    datalogger.createCV("theta", round2(theta)),
+                    datalogger.createCV("bearing", round2(asBearing(theta))),
+                    datalogger.createCV("period", round2(this.period)),
+                    datalogger.createCV("eccent.", round2(this.eccentricity)))
+            }
+        }
+        // By comparing the longest and shortest radii, this method works out the eccentricity of this Ellipse.
         // It also collects possible candidates for the Ellipse major-axis into this.majors[]
-        // Although samples are already a rolling sum of seven readings, differentiation will amplify noise,
-        // so for stability we apply an additional 7-point Gaussian smoothing as we track the first-derivative.
+        // XXX Although samples are already a rolling sum of seven readings, differentiation will amplify noise,
+        // XXX so for stability we apply an additional 7-point Gaussian smoothing as we track the first-derivative.
         // We look for inflections in the slope, which occur as we pass local peaks; then push candidate values 
         // onto the majors[] axis-list for later averaging and timing analysis.
-        extractAxes() {
+        extractAxesWas() {
             let arrows: Arrow[] = [] // rolling set of 7 Arrows, holding 7 adjacent samples
             let majors: Arrow[] = [] // candidate directions for major axis of Ellipse
             let peak = 0 // (a marker, just for debug trace)
@@ -196,7 +279,9 @@ namespace heading {
             for (let i = 0; i < 7; i++) {
                 arrows.push(new Arrow(scanData[i][this.uDim], scanData[i][this.vDim], scanTimes[i]))
             }
-            let smooth = this.gaussianAverage(arrows)
+            // let smooth = this.gaussianAverage(arrows)
+            let smooth = arrows[3] // try unsmoothed
+
             let longest = smooth.size
             let shortest = smooth.size
             let sizeWas: number
@@ -208,7 +293,8 @@ namespace heading {
                 sizeWas = smooth.size
                 arrows.shift() // drop the earliest sample & append the next one
                 arrows.push(new Arrow(scanData[i][this.uDim], scanData[i][this.vDim], scanTimes[i]))
-                smooth = this.gaussianAverage(arrows)
+                // smooth = this.gaussianAverage(arrows)
+                smooth = arrows[3]
                 longest = Math.max(longest, smooth.size)
                 shortest = Math.min(shortest, smooth.size)
                 // now collect candidates for the major-axis angle   
@@ -260,7 +346,7 @@ namespace heading {
                     datalogger.createCV("view", this.plane),
                     datalogger.createCV("theta", round2(theta)),
                     datalogger.createCV("bearing", round2(asBearing(theta))),
-                    datalogger.createCV("period", round2(rad2deg(this.period))),
+                    datalogger.createCV("period", round2(this.period)),
                     datalogger.createCV("eccent.", round2(this.eccentricity)))
             }
         }
