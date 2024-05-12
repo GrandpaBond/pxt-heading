@@ -42,6 +42,7 @@ namespace heading {
     const EnoughSamples = 70 // fewest acceptable scan samples
     const MarginalField = 30 // minimum acceptable field-strength for magnetometer readings
     const Circular = 1.03 // maximum eccentricity to consider an Ellipse as "circular"
+    //const Circular = 1.5 // silly test value
     const LongEnough = 0.9 // for major-axis candidates, qualifying fraction of longest 
 
     // SUPPORTING CLASSES
