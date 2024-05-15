@@ -364,10 +364,10 @@ namespace heading {
     let bestView = -1
     let uDim = -1 // the "horizontal" axis (called U) for the best View
     let vDim = -1 // the "vertical" axis (called V) for the best View
-    let north: number // angle registered as "North", in radians counter-clockwise from U-axis
+    let north = 0 // angle registered as "North", in radians counter-clockwise from U-axis
     let strength = 0 // the average magnetic field-strength observed by the magnetometer
     let fromBelow = false // set "true" if orientation means readings project backwards
-    let period: number // overall assessment of average rotation time
+    let period = -1 // overall assessment of average rotation time
     let rpm: number // the equivalent rotation rate in revs-per-minutetheta: number; 
 
     // correction parameters for future readings on bestView Ellipse
@@ -575,14 +575,14 @@ namespace heading {
             && (views[View.ZX].period == -1)) {
             return -3 // "NOT ENOUGH SCAN ROTATION"
         }
-
+/*
         // Choose the "roundest" Ellipse  --the one with lowest eccentricity.
         bestView = View.XY
         if (views[View.YZ].eccentricity < views[bestView].eccentricity) bestView = View.YZ
         if (views[View.ZX].eccentricity < views[bestView].eccentricity) bestView = View.ZX
-        
-/*        bestView = View.ZX  // while debugging, force use of this view!
-*/
+ */       
+        bestView = View.XY  // while debugging, force use of this view!
+
         // periodicity is unreliable in the best View: average just the other two Views' measurements
         period = (views[0].period + views[1].period + views[2].period - views[bestView].period) / 2
         rpm = 60000 / period
@@ -666,7 +666,7 @@ namespace heading {
     //% inlineInputMode=inline 
     //% weight=50 
     export function spinRPM(): number {
-        if (views[bestView].period <= 0) {
+        if ((views.length == 0)||(views[bestView].period <= 0)) {
             return -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
         } else {
             return 60000 / views[bestView].period
@@ -687,7 +687,7 @@ namespace heading {
     //% inlineInputMode=inline 
     //% weight=50 
     export function speedUsing(wheelDiameter: number, axleLength: number, spinRate: number): number {
-        if (views[bestView].period <= 0) {
+        if ((views.length == 0) || (views[bestView].period <= 0)) {
             return -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
         } else {
             return 99999999
@@ -700,11 +700,25 @@ namespace heading {
      * Choose mode: whether to run normally,
      *  - or to use Data Logger to grab a new test dataset into MY_DATA,
      *  - or to debug processing using a named test dataset
+     * 
      */
     //% block="set mode $mode"
     //% inlineInputMode=inline 
     //% weight=10
     export function setMode(newMode:Mode, name: string) {
+        // reinitialise key data
+        scanTimes = []
+        scanData = []
+        views = []
+        bestView = -1
+        uDim = -1
+        vDim = -1
+        period = -1
+        north = 0
+        northBearing = 0
+        testData = []
+        test = 0
+        // adopt new mode
         mode = newMode
         dataset = name
     }
@@ -787,6 +801,9 @@ namespace heading {
         }
 
         if (mode == Mode.Debug) {
+            // (show the coordinates after reversing the rotation by theta)
+            let uFinal = uFix * cosTheta - vFix * sinTheta
+            let vFinal = vFix * cosTheta + uFix * sinTheta
             datalogger.log(
                 datalogger.createCV("u", round2(u)),
                 datalogger.createCV("v", round2(v)),
@@ -795,7 +812,8 @@ namespace heading {
                 datalogger.createCV("uFix", round2(uFix)),
                 datalogger.createCV("vFix", round2(vFix)),
                 datalogger.createCV("reading", round2(reading)),
-                datalogger.createCV("bearing", Math.round(asBearing(reading)))
+                datalogger.createCV("degrees", Math.round(asBearing(reading))),
+                datalogger.createCV("compass", Math.round(asBearing(reading - north)))
             )
         }
         return reading

@@ -15,7 +15,6 @@ const dataset = "angled"
 
 function performSetup() {
     let result = 0
-    //checkLogging()
     switch (nextTask) {
         case Task.Scan:
             basic.showString("S")
