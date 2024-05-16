@@ -226,16 +226,14 @@ namespace heading {
     let uOff: number // horizontal origin offset
     let vOff: number // horizontal origin offset
     let theta: number  // major-axis tilt angle (in radians anticlockwise from the U-axis)
-    let thetaBearing: number; // (helpful while debugging)
     let cosTheta: number; // saved for efficiency
     let sinTheta: number; //      ditto
     let scale: number // stretch-factor for correcting foreshortened readings (= eccentricity)
 
     let mode:Mode = Mode.Debug // mode switch for logging
-    let dataset: string = "NONE" // test dataset to use
+    let dataset: string = "" // test dataset to use
     let testData: number[][] = [] //[X,Y,Z] magnetometer values for test cases
     let test = 0 // global selector for test-cases
-    let northBearing = 0 // (for debug)
 
     // EXPORTED USER INTERFACES   
 
@@ -445,7 +443,6 @@ namespace heading {
         vOff = views[bestView].vOff
         scale = views[bestView].eccentricity
         theta = views[bestView].majorAxis.angle // the rotation (in radians) that aligns the major-axis clockwise with the U-axis
-        thetaBearing = asBearing(theta) // (for debug)
         cosTheta = Math.cos(theta)
         sinTheta = Math.sin(theta)
         needsFixing = !views[bestView].isCircular
@@ -456,26 +453,21 @@ namespace heading {
         scanTimes = []
         scanData = []
 
-        // Having successfully set up the projection parameters, in the bestView get a stable fix 
-        // on the current heading, which we will then designate as "North", 
-        // This is the global fixed bias to be subtracted from all further readings
+        // Having successfully set up the projection parameters for the bestView, get a
+        // stable fix on the current heading, which we will then designate as "North".
+        // (This is the global fixed bias to be subtracted from all further readings)
         north = takeSingleReading()
-        northBearing = asBearing(north) // (for debug)
 
-        if (mode == Mode.Debug) {
-            datalogger.setColumnTitles("uDim", "vDim", "uOff", "vOff",
-                "theta", "eccen.", "period", "north", "strength")
-
+        if ((mode == Mode.Debug) || (mode == Mode.Normal)) {
             datalogger.log(
-                datalogger.createCV("uDim", views[bestView].uDim),
-                datalogger.createCV("vDim", views[bestView].vDim),
-                datalogger.createCV("uOff", round2(views[bestView].uOff)),
-                datalogger.createCV("vOff", round2(views[bestView].vOff)),
-                datalogger.createCV("thetaBearing", round2(thetaBearing)),
-                datalogger.createCV("eccen.", round2(views[bestView].eccentricity)),
-                datalogger.createCV("period", round2(views[bestView].period)),
-                datalogger.createCV("north", round2(northBearing)),
-                datalogger.createCV("strength", round2(strength)))
+                datalogger.createCV("view", views[bestView].plane),
+                datalogger.createCV("scale", round2(scale)),
+                datalogger.createCV("fix?", needsFixing),
+                datalogger.createCV("theta", round2(theta)),
+                datalogger.createCV("(theta)", Math.round(asBearing(theta))),
+                datalogger.createCV("north", round2(north)),
+                datalogger.createCV("(north)", Math.round(asBearing(north)))
+            )
         }
         // SUCCESS!
         return 0
@@ -491,7 +483,7 @@ namespace heading {
     //% inlineInputMode=inline 
     //% weight=70
     export function degrees(): number {
-        return asBearing(takeSingleReading() - north)
+        return asBearing(takeSingleReading())
     }
 
     /**
@@ -564,7 +556,6 @@ namespace heading {
         vDim = -1
         period = -1
         north = 0
-        northBearing = 0
         testData = []
         test = 0
         // adopt new mode
@@ -645,14 +636,17 @@ namespace heading {
             reading = Math.atan2(vFix, uFix)
             // finally, undo the rotation by theta
             reading += theta
-        } else {
+        } else {  // no need to stretch
             reading = Math.atan2(v, u)
         }
-
+        // make relative to North 
+        //(NOTE: north = 0, before setNorth() calls this function to set it!)
+        reading -= north
+        
         if ((mode == Mode.Debug)||(mode == Mode.Normal)) {
-            // (show the coordinates after reversing the rotation by theta)
-            let uFinal = uFix * cosTheta - vFix * sinTheta
-            let vFinal = vFix * cosTheta + uFix * sinTheta
+            // just for debug, show coordinates of "stretched" reading after undoing rotation
+            let uStretch = uFix * cosTheta - vFix * sinTheta
+            let vStretch = vFix * cosTheta + uFix * sinTheta
             datalogger.log(
                 datalogger.createCV("u", round2(u)),
                 datalogger.createCV("v", round2(v)),
@@ -660,9 +654,10 @@ namespace heading {
                 datalogger.createCV("vNew", round2(vNew)),
                 datalogger.createCV("uFix", round2(uFix)),
                 datalogger.createCV("vFix", round2(vFix)),
+                datalogger.createCV("uStretch", round2(uStretch)),
+                datalogger.createCV("vStretch", round2(vStretch)),
                 datalogger.createCV("reading", round2(reading)),
-                datalogger.createCV("degrees", Math.round(asBearing(reading))),
-                datalogger.createCV("compass", Math.round(asBearing(reading - north)))
+                datalogger.createCV("(reading)", Math.round(asBearing(reading)))
             )
         }
         return reading
