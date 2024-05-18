@@ -88,9 +88,8 @@ namespace heading {
         majorAxis: Arrow; // direction of major axis 
         eccentricity: number; // ratio of major-axis to minor-axis magnitudes for this Ellipse
         isCircular: boolean; // flag saying this "Ellipse" View is almost circular, simplifying future handling
-        fromBelow: boolean; // rotation reversal flag, reflecting this Ellipse's view of the clockwise scan
+        sense: number; // rotation reversal sign = +/-1, reflecting this Ellipse's view of the clockwise scan
         period: number; // scan-rotation time (as twice average time between passing the ellipse major-axis)
-        //period2: number; // scan-rotation time (as total spin angle / total time)
 
         constructor(plane: string, uDim: number, vDim: number, uOff: number, vOff: number) {
             this.plane = plane // (as a DEBUG aid)
@@ -146,12 +145,14 @@ namespace heading {
                     majors.push(trial.cloneMe()) // copy the major axis we are passing
                 }
             }
-            // During a clockwise Spin-Circle the projection of the Field should appear to rotate
-            // anticlockwise if viewed from above, or clockwise if from below.
-            this.fromBelow = (spin < 0) // (clockwise implies radians reducing, so sum will be negative)
-            /* NOTE: Depending where on the Ellipse the scan starts and ends, the accumulated spin-angle
-             may be quite inaccurate (due to fore-shortening). We cannot therefore use "spin" to calculate 
-             the rotation-period. The only dependable angles occur as we pass the major-axis (see below)
+            // During a clockwise Spin-Circle the projection of the Field would appear to rotate
+            // anticlockwise if viewed from above, or clockwise if from below. 
+            // The sign of the accumulated spin is recorded in this.sense, to govern final bearing direction
+            this.sense = spin/Math.abs(spin) // (if anticlockwise, radians increase, so sum will be negative)
+
+            /* PERIODICITY: Depending where on the Ellipse the scan starts and ends, the accumulated spin-angle
+             may be quite inaccurate (due to fore-shortening). We do not therefore use "spin" to calculate 
+             the rotation-period: the only dependable angles occur just as we pass the major-axis (see below).
             */
             // The ratio of the extreme axis lengths gives the eccentricity of this Ellipse
             this.eccentricity = longest / shortest
@@ -238,7 +239,7 @@ namespace heading {
     let rpm: number // the equivalent rotation rate in revs-per-minutetheta: number; 
 
     // correction parameters adopted from bestView Ellipse for future readings
-    let fromBelow = false // set "true" if orientation means scanned readings proceed clockwise
+    let sense = 1 // set to -1 if orientation means field-vector projection is "from below"
     let needsFixing: boolean // true, unless bestView Ellipse is circular
     let uOff: number // horizontal origin offset
     let vOff: number // horizontal origin offset
@@ -459,7 +460,7 @@ namespace heading {
         cosTheta = Math.cos(theta)
         sinTheta = Math.sin(theta)
         needsFixing = !views[bestView].isCircular
-        fromBelow = views[bestView].fromBelow
+        sense = views[bestView].sense
 
 
         // Having successfully set up the projection parameters for the bestView, get a
@@ -473,7 +474,7 @@ namespace heading {
                 datalogger.createCV("scale", round2(scale)),
                 datalogger.createCV("fix?", needsFixing),
                 datalogger.createCV("theta", round2(theta)),
-                datalogger.createCV("[theta]", Math.round(asBearing(theta, fromBelow))),
+                datalogger.createCV("[theta]", Math.round(asDegrees(theta))),
                 datalogger.createCV("north", round2(north))
             )
         }
@@ -496,7 +497,7 @@ namespace heading {
     //% inlineInputMode=inline 
     //% weight=70
     export function degrees(): number {
-        return asBearing(takeSingleReading() - north, fromBelow)
+        return asDegrees((takeSingleReading() - north)*sense)
     }
 
     /**
@@ -665,7 +666,7 @@ namespace heading {
                 datalogger.createCV("uStretch", round2(uStretch)),
                 datalogger.createCV("vStretch", round2(vStretch)),
                 datalogger.createCV("reading", round2(reading)),
-                datalogger.createCV("(reading)", Math.round(asBearing(reading, fromBelow)))
+                datalogger.createCV("(reading)", Math.round(asDegrees(reading)*sense))
             )
         }
         return reading
@@ -677,18 +678,12 @@ namespace heading {
     }
 
 
-    // Convert angle measured in radians anticlockwise from the horizontal U-axis
-    // to a bearing in degrees measured clockwise from the vertical V-axis.
+    // Convert angle measured in radians degrees.
     // Depending on mounting orientation, the bestView might possibly be seeing the 
     // Spin-Circle from "underneath" (effectively experiencing an anti-clockwise scan) with the
-    // field-vector appearing to move clockwise. In this case all angles must be negated.
-    function asBearing(angle: number, fromBelow: boolean): number {
-        let a = angle
-        if (fromBelow) { 
-            a = -a 
-        }
-        // effectively subtract the angle from 90 degrees...
-        return  ((450 - (a * RadianDegrees)) + 360) % 360
+    // field-vector appearing to move clockwise. In this the rotation "sense" will be negative.
+    function asDegrees(angle: number): number {
+        return  ((angle * RadianDegrees * sense) + 360) % 360
     }
 
     // While debugging, it is necessary to re-use predictable sample data for a variety of use-cases 
