@@ -90,7 +90,7 @@ namespace heading {
         isCircular: boolean; // flag saying this "Ellipse" View is almost circular, simplifying future handling
         fromBelow: boolean; // rotation reversal flag, reflecting this Ellipse's view of the clockwise scan
         period: number; // scan-rotation time (as twice average time between passing the ellipse major-axis)
-        period2: number; // scan-rotation time (as total spin angle / total time)
+        //period2: number; // scan-rotation time (as total spin angle / total time)
 
         constructor(plane: string, uDim: number, vDim: number, uOff: number, vOff: number) {
             this.plane = plane // (as a DEBUG aid)
@@ -111,16 +111,13 @@ namespace heading {
         //    radius peaks; candidate values are pushed onto the list of Arrows: this.majors[]
         // 3) It then finds the consensus angle of the axis-candidates (reversing "opposite"
         //    ones, so they all point to the same end of the axis as the first candidate).
-        // 4) Best final algorithm for periodicity yet to be decided...
-        // 4a) Work out the average rotation period by clocking each time we pass one major-axis end. 
-        // 4b) Alternatively, divide the total angle turned-through by the total time taken
+        // 4) Work out the average rotation period by clocking each time we pass one major-axis end. 
         
         analyseView() {
             let majors: Arrow[] = [] // candidate directions for major axis of Ellipse
             let trial = new Arrow(scanData[0][this.uDim], scanData[0][this.vDim], scanTimes[0])
             let longest = trial.size
             let shortest = trial.size
-            let start = trial.time
             let spin = 0
             let sizeWas: number
             let angleWas: number
@@ -133,7 +130,7 @@ namespace heading {
                 trial = new Arrow(scanData[i][this.uDim], scanData[i][this.vDim], scanTimes[i])
                 longest = Math.max(longest, trial.size)
                 shortest = Math.min(shortest, trial.size)
-                // accumulate gradual rotation...
+                // accumulate gradual rotation of the projected field-vector...
                 let delta = trial.angle - angleWas
                 spin += delta
                 // fix roll-rounds in either direction
@@ -152,8 +149,10 @@ namespace heading {
             // During a clockwise Spin-Circle the projection of the Field should appear to rotate
             // anticlockwise if viewed from above, or clockwise if from below.
             this.fromBelow = (spin < 0) // (clockwise implies radians reducing, so sum will be negative)
-            // calulate period
-            this.period2 = (trial.time - start) * TwoPi / spin
+            /* NOTE: Depending where on the Ellipse the scan starts and ends, the accumulated spin-angle
+             may be quite inaccurate (due to fore-shortening). We cannot therefore use "spin" to calculate 
+             the rotation-period. The only dependable angles occur as we pass the major-axis (see below)
+            */
             // The ratio of the extreme axis lengths gives the eccentricity of this Ellipse
             this.eccentricity = longest / shortest
             // Readings taken from a near-circular Ellipse won't be fore-shortened, so we can skip correction!
@@ -210,7 +209,7 @@ namespace heading {
                 // re-normalise the resultant's vector coordinates
                 uSum /= count
                 vSum /= count
-                // compute the average rotation time (as long as we've made at least one complete revolution)
+                // compute the average rotation time (so long as we've made at least one complete revolution)
                 if (endTime > 0) {
                     this.period = (endTime - startTime) / turns
                 } else {
@@ -233,13 +232,13 @@ namespace heading {
     let bestView = -1
     let uDim = -1 // the "horizontal" axis (called U) for the best View
     let vDim = -1 // the "vertical" axis (called V) for the best View
-    let northDegrees = 0 // offset to registered "North", in clockwise degrees
+    let north = 0 // reading registered as "North"
     let strength = 0 // the average magnetic field-strength observed by the magnetometer
-    let fromBelow = false // set "true" if orientation means scanned readings proceed clockwise
     let period = -1 // overall assessment of average rotation time
     let rpm: number // the equivalent rotation rate in revs-per-minutetheta: number; 
 
-    // correction parameters for future readings on bestView Ellipse
+    // correction parameters adopted from bestView Ellipse for future readings
+    let fromBelow = false // set "true" if orientation means scanned readings proceed clockwise
     let needsFixing: boolean // true, unless bestView Ellipse is circular
     let uOff: number // horizontal origin offset
     let vOff: number // horizontal origin offset
@@ -262,13 +261,13 @@ namespace heading {
      * @param ms scanning-time in millisecs (long enough for more than one full rotation)    
      */
 
-    //% block="scan for (ms) $ms" 
+    //% block="scan clockwise for (ms) $ms" 
     //% inlineInputMode=inline 
     //% ms.shadow="timePicker" 
     //% ms.defl=0 
     //% weight=90 
 
-    export function scan(ms: number) {
+    export function scanClockwise(ms: number) {
         // Every 25-30 ms over the specified duration (generally a couple of seconds),
         // magnetometer readings are sampled and a new [X,Y,Z] triple added to the scanData[] array.
         // A timestamp for each sample is also recorded in the scanTimes[] array.
@@ -450,7 +449,7 @@ namespace heading {
         rpm = 60000 / period
 
         
-        // For efficiency, extract various characteristics from the bestView Ellipse
+        // For efficiency, extract various characteristics from the adopted bestView Ellipse
         uDim = views[bestView].uDim
         vDim = views[bestView].vDim
         uOff = views[bestView].uOff
@@ -466,7 +465,7 @@ namespace heading {
         // Having successfully set up the projection parameters for the bestView, get a
         // stable fix on the current heading, which we will then designate as "North".
         // (This is the global fixed bias to be subtracted from all future readings)
-        northDegrees = asBearing(takeSingleReading(), fromBelow)
+        north = takeSingleReading()
 
         if ((mode == Mode.Debug) || (mode == Mode.Normal)) {
             datalogger.log(
@@ -474,8 +473,8 @@ namespace heading {
                 datalogger.createCV("scale", round2(scale)),
                 datalogger.createCV("fix?", needsFixing),
                 datalogger.createCV("theta", round2(theta)),
-                datalogger.createCV("(theta)", Math.round(asBearing(theta, fromBelow))),
-                datalogger.createCV("north", round2(northDegrees))
+                datalogger.createCV("[theta]", Math.round(asBearing(theta, fromBelow))),
+                datalogger.createCV("north", round2(north))
             )
         }
         /* we've now finished with the scanning data and Ellipse objects, so release their memory
@@ -491,13 +490,13 @@ namespace heading {
     /**
      * Read the magnetometer
      * 
-     * $returns : the current heading of the buggy (in degrees relative to "North")
+     * $returns : the current heading of the buggy (in degrees clockwise relative to "North")
      */
     //% block="degrees" 
     //% inlineInputMode=inline 
     //% weight=70
     export function degrees(): number {
-        return rolledDegrees(asBearing(takeSingleReading(), fromBelow) - northDegrees)
+        return asBearing(takeSingleReading() - north, fromBelow)
     }
 
     /**
@@ -530,18 +529,17 @@ namespace heading {
 
     /**
      * For scanning, wheels are rotated in opposite directions, giving a spin-rate for the 
-     * selected power setting. Based on the wheel-diameter, axle-length and spin-rate, this 
+     * selected power setting. Based on the axle-length and spin-rate, this 
      * function estimates the forward speed to be expected using that power setting.
      * (NOTE that tyre-friction when turning may make this a fairly inaccurate estimate!)
      * 
-     * @param wheeelDiameter : width of wheels (in mm)
      * @param axleLength : distance betweeen mid-lines of tyres (in mm)
      * @param spinRate : the spin rotation rate reported by heading.spinRPM() for latest scan
      */
-    //% block="speed using $wheelDiameter (mm), axleLength (mm) at $spinRate (RPM)" 
+    //% block="speed using axleLength (mm) when spin RPM = $spinRate" 
     //% inlineInputMode=inline 
     //% weight=50 
-    export function speedUsing(wheelDiameter: number, axleLength: number, spinRate: number): number {
+    export function speedUsing(axleLength: number, spinRate: number): number {
         if ((views.length == 0) || (views[bestView].period <= 0)) {
             return -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
         } else {
@@ -569,7 +567,7 @@ namespace heading {
         uDim = -1
         vDim = -1
         period = -1
-        northDegrees = 0
+        north = 0
         testData = []
         test = 0
         // adopt new mode
@@ -577,13 +575,11 @@ namespace heading {
         dataset = name
     }
 
-
-
-
     // UTILITY FUNCTIONS
+
     // Take the sum of seven new readings to get a stable fix on the current heading.
-    // Returns the projected angle of the magnetic field-vector in radians 
-    // anticlockwise from the horizontal U-axis
+    // Returns the projected angle of the magnetic field-vector in radians anticlockwise
+    // from the horizontal U-axis
 
     /* Although eventually we'd only need [uDim, vDim], we'll sum and log all three Dims.
        This will allow us, while testing, to override automatic choice of bestView
@@ -651,7 +647,7 @@ namespace heading {
             reading = Math.atan2(vFix, uFix)
             // finally, undo the rotation by theta
             reading += theta
-        } else {  // no need to stretch this
+        } else {  // no need to stretch this one
             reading = Math.atan2(v, u)
         }
         
@@ -680,17 +676,12 @@ namespace heading {
         return (Math.round(100 * v) / 100)
     }
 
-    // roll any signed angle in degrees down into the range 0..360
-    function rolledDegrees(degrees: number): number {
-        return (degrees + 720)  % 360
-    }
-
 
     // Convert angle measured in radians anticlockwise from the horizontal U-axis
     // to a bearing in degrees measured clockwise from the vertical V-axis.
     // Depending on mounting orientation, the bestView might possibly be seeing the 
-    // Spin-Circle from "underneath", effectively experiencing an anti-clockwise scan, with the
-    // field-vector appearing to move clockwise. In this case angles must be negated.
+    // Spin-Circle from "underneath" (effectively experiencing an anti-clockwise scan) with the
+    // field-vector appearing to move clockwise. In this case all angles must be negated.
     function asBearing(angle: number, fromBelow: boolean): number {
         let a = angle
         if (fromBelow) { 
@@ -763,7 +754,7 @@ namespace heading {
             xyz.push(zData[n])
             scanData.push(xyz)
         }
-        // do the same fo the test cases
+        // do the same for the test cases
         for (let n = 0; n < xTest.length; n++) {
             let xyz = []
             xyz.push(xTest[n])

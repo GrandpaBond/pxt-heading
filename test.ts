@@ -23,17 +23,17 @@ function performSetup() {
                 case Config.Buggy:
                     heading.setMode(Mode.Normal,"")
                     Kitronik_Move_Motor.spin(Kitronik_Move_Motor.SpinDirections.Right, 30)
-                    heading.scan(6000)
+                    heading.scanClockwise(6000)
                     Kitronik_Move_Motor.stop()
                     break
                 case Config.Debug:
                     heading.setMode(Mode.Debug, dataset)
-                    heading.scan(1000)
+                    heading.scanClockwise(1000)
                     break
                 case Config.Jig:
                     heading.setMode(Mode.Capture, "")
                     basic.showString("?") // manually rotate jig (SMOOOOTHLY!)
-                    heading.scan(7000)
+                    heading.scanClockwise(7000)
                     basic.pause(1000)
                     break
             }
