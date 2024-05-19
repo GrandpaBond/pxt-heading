@@ -88,7 +88,7 @@ namespace heading {
         majorAxis: Arrow; // direction of major axis 
         eccentricity: number; // ratio of major-axis to minor-axis magnitudes for this Ellipse
         isCircular: boolean; // flag saying this "Ellipse" View is almost circular, simplifying future handling
-        sense: number; // rotation reversal sign = +/-1, reflecting this Ellipse's view of the clockwise scan
+        rotationSense: number; // rotation reversal sign = +/-1, reflecting this Ellipse's view of the clockwise scan
         period: number; // scan-rotation time (as twice average time between passing the ellipse major-axis)
 
         constructor(plane: string, uDim: number, vDim: number, uOff: number, vOff: number) {
@@ -110,7 +110,7 @@ namespace heading {
         //    radius peaks; candidate values are pushed onto the list of Arrows: this.majors[]
         // 3) It then finds the consensus angle of the axis-candidates (reversing "opposite"
         //    ones, so they all point to the same end of the axis as the first candidate).
-        // 4) Work out the average rotation period by clocking each time we pass one major-axis end. 
+        // 4) Work out the average rotation period by clocking each time we pass the first major-axis end. 
         
         analyseView() {
             let majors: Arrow[] = [] // candidate directions for major axis of Ellipse
@@ -145,25 +145,28 @@ namespace heading {
                     majors.push(trial.cloneMe()) // copy the major axis we are passing
                 }
             }
-            // During a clockwise Spin-Circle the projection of the Field would appear to rotate
-            // anticlockwise if viewed from above, or clockwise if from below. 
-            // The sign of the accumulated spin is recorded in this.sense, to govern final bearing direction
-            this.sense = spin/Math.abs(spin) // (if anticlockwise, radians increase, so sum will be negative)
+            // During a clockwise scan, the projection-angle of the field-vector as viewed from above 
+            // will appear to rotate anticlockwise (increasing radians) from the perspective of the Buggy. 
+            // If we find it rotates clockwise (decreasing radians) then this projection-plane must be 
+            // viewing the field-vector from below.
+            this.rotationSense = spin/Math.abs(spin) // == -1 if viewing from below
 
-            /* PERIODICITY: Depending where on the Ellipse the scan starts and ends, the accumulated spin-angle
-             may be quite inaccurate (due to fore-shortening). We do not therefore use "spin" to calculate 
-             the rotation-period: the only dependable angles occur just as we pass the major-axis (see below).
+            /* PERIODICITY FROM SPIN?
+             We don't use the accumulated spin-angle and time-span to calculate the rotation-period,
+             because the arbitrary start and end angles may be subject to fore-shortening, and hence
+             quite inaccurate! The only dependable angles occur whenever we pass the major-axis (see below).
             */
+
             // The ratio of the extreme axis lengths gives the eccentricity of this Ellipse
             this.eccentricity = longest / shortest
-            // Readings taken from a near-circular Ellipse won't be fore-shortened, so we can skip correction!
+            // Readings on a near-circular Ellipse won't ever be fore-shortened, so we can skip correction!
             this.isCircular = (this.eccentricity < Circular)
 
             /* We are trying to find a good approximation to the tilt of the Ellipse's major-axis.  
-            We could simply nominate the longest candidate detected, but instead we average them. 
+            We could simply nominate the longest candidate detected, but instead we will average them. 
             Passing the major-axis twice per Spin-circle revolution, an eccentric Ellipse will produce neatly
             alternating candidates with "opposite" angles. Noisy readings mean that a more-nearly circular
-            Ellipse may generate alternating clusters of candidates as we pass each end of the axis.
+            Ellipse may generate alternating clusters of local maxima as we pass each end of the axis.
             An almost circular Ellipse has no meaningful axis, and will generate multiple spurious candidates. 
             */
             // purge any local maximum whose vector length is too short --it's nowhere near the major-axis!
@@ -174,7 +177,7 @@ namespace heading {
                     i-- // (all subsequent candidates now shuffle up by one place!)
                 }
             }
-            // Now form a consensus by vector addition
+            // A simple way to form a consensus angle is to use vector addition
             let turns = 0 
             let endTime = 0
             let flipped = false
@@ -192,7 +195,7 @@ namespace heading {
                     let deviate = ((ThreePi + majors[i].angle - front) % TwoPi) - Math.PI
                     // does it point mostly to the front? ...or to the back?
                     if (Math.abs(deviate) < HalfPi) {
-                        // add the next arrow directly to the chain (no need to flip this one)
+                        // add this next arrow directly to the chain (no need to flip)
                         uSum += majors[i].u
                         vSum += majors[i].v
                         // the first unflipped Arrow after one or more flipped ones clocks a new revolution
@@ -207,7 +210,7 @@ namespace heading {
                         vSum -= majors[i].v
                     }
                 }
-                // re-re-centre the resultant's vector coordinates
+                // normalise the resultant's vector coordinates
                 uSum /= count
                 vSum /= count
                 // compute the average rotation time (so long as we've made at least one complete revolution)
@@ -217,7 +220,7 @@ namespace heading {
                     this.period = -1
                 }
             } // else uSum & vSum remain at zero
-            // return Arrow pointing to {uSum,vSum}, showing the overall direction of the chain of source Arrows
+            // return Arrow pointing to {uSum,vSum}, showing the overall direction of the chained source Arrows
             this.majorAxis = new Arrow(uSum, vSum, 0)
         }
     }
@@ -239,7 +242,7 @@ namespace heading {
     let rpm: number // the equivalent rotation rate in revs-per-minutetheta: number; 
 
     // correction parameters adopted from bestView Ellipse for future readings
-    let sense = 1 // set to -1 if orientation means field-vector projection is "from below"
+    let rotationSense = 1 // set to -1 if orientation means field-vector projection is "from below"
     let isCircular: boolean // if bestView Ellipse is circular, no correction is needed
     let uOff: number // horizontal origin offset
     let vOff: number // horizontal origin offset
@@ -460,7 +463,7 @@ namespace heading {
         cosTheta = Math.cos(theta)
         sinTheta = Math.sin(theta)
         isCircular = views[bestView].isCircular
-        sense = views[bestView].sense
+        rotationSense = views[bestView].rotationSense
 
 
         // Having successfully set up the projection parameters for the bestView, get a
@@ -472,7 +475,8 @@ namespace heading {
             datalogger.log(
                 datalogger.createCV("view", views[bestView].plane),
                 datalogger.createCV("scale", round2(scale)),
-                datalogger.createCV("fix?", isCircular),
+                datalogger.createCV("circular?", isCircular),
+                datalogger.createCV("sense?", rotationSense),
                 datalogger.createCV("theta", round2(theta)),
                 datalogger.createCV("[theta]", Math.round(asDegrees(theta))),
                 datalogger.createCV("north", round2(north))
@@ -497,7 +501,10 @@ namespace heading {
     //% inlineInputMode=inline 
     //% weight=70
     export function degrees(): number {
-        return asDegrees((takeSingleReading() - north)*sense)
+    // Depending on mounting orientation, the bestView might possibly be seeing the
+    // Spin-Circle from "underneath" (effectively experiencing an anti-clockwise scan) with the
+    // field-vector appearing to move clockwise. In this case the rotationSense will be negative.
+        return asDegrees((takeSingleReading() - north) * rotationSense)
     }
 
     /**
@@ -666,7 +673,7 @@ namespace heading {
                 datalogger.createCV("uStretch", round2(uStretch)),
                 datalogger.createCV("vStretch", round2(vStretch)),
                 datalogger.createCV("reading", round2(reading)),
-                datalogger.createCV("[reading]", Math.round(asDegrees(reading)*sense))
+                datalogger.createCV("[reading]", Math.round(asDegrees(reading) * rotationSense))
             )
         }
         return reading
@@ -679,11 +686,8 @@ namespace heading {
 
 
     // Convert angle measured in radians degrees.
-    // Depending on mounting orientation, the bestView might possibly be seeing the 
-    // Spin-Circle from "underneath" (effectively experiencing an anti-clockwise scan) with the
-    // field-vector appearing to move clockwise. In this the rotation "sense" will be negative.
     function asDegrees(angle: number): number {
-        return  ((angle * RadianDegrees * sense) + 360) % 360
+        return ((angle * RadianDegrees) + 360) % 360
     }
 
     // While debugging, it is necessary to re-use predictable sample data for a variety of use-cases 
