@@ -3,9 +3,9 @@
  * (except at the magnetic poles!), with any arbitrary mounting orientation for its microbit.
  * See the README for a detailed description of the approach, methods and algorithms.
  * 
- * TODO? No use is yet made of the accelerometer. Although helpful to compensate for static tilt,
- * on a moving buggy dynamic sideways accelerations confound the measurement of "down", so 
- * applying tilt-compensation could actually make compass-heading accuracy worse!
+ * TODO? No use is yet made of the accelerometer. Although seemingly helpful to compensate for
+ * static tilt, on a moving buggy dynamic sideways accelerations confound the measurement of "down",
+ * so applying tilt-compensation could actually make compass-heading accuracy worse!
  */
 
 // OPERATIONAL MODES (controlling data-logging)
@@ -13,7 +13,7 @@ enum Mode {
     Normal, // Normal usage, mounted in a buggy
     Capture, // Acquire a new test dataset, using a special rotating jig
     Debug, // Test & debug (NOTE: test-dataset selection is hard-coded below)
-    Never // (switched-off trace)
+    Silent // (switched-off trace)
 }
 
 //% color=#6080e0 weight=40 icon="\uf14e" block="Heading" 
@@ -35,9 +35,9 @@ namespace heading {
 
     // CONSTANTS
 
+    const HalfPi = Math.PI / 2
     const TwoPi = 2 * Math.PI
     const ThreePi = 3 * Math.PI
-    const HalfPi = Math.PI / 2
     const RadianDegrees = 360 / TwoPi
     const EnoughScanTime = 1800 // minimum acceptable scan-time
     const EnoughSamples = 70 // fewest acceptable scan samples
@@ -50,7 +50,7 @@ namespace heading {
 
     // An Arrow is an object holding a directed vector {u,v} in both Cartesian and Polar coordinates. 
     // It also carries a time-field, used to timestamp scanned samples.
-    // It is used to hold a 2D magnetometer measurement as a normalised vector.
+    // It is used to hold a 2D magnetometer measurement as a re-centred vector.
 
     class Arrow {
         u: number; // horizontal component
@@ -207,7 +207,7 @@ namespace heading {
                         vSum -= majors[i].v
                     }
                 }
-                // re-normalise the resultant's vector coordinates
+                // re-re-centre the resultant's vector coordinates
                 uSum /= count
                 vSum /= count
                 // compute the average rotation time (so long as we've made at least one complete revolution)
@@ -240,7 +240,7 @@ namespace heading {
 
     // correction parameters adopted from bestView Ellipse for future readings
     let sense = 1 // set to -1 if orientation means field-vector projection is "from below"
-    let needsFixing: boolean // true, unless bestView Ellipse is circular
+    let isCircular: boolean // if bestView Ellipse is circular, no correction is needed
     let uOff: number // horizontal origin offset
     let vOff: number // horizontal origin offset
     let theta: number  // major-axis tilt angle (in radians anticlockwise from the U-axis)
@@ -405,27 +405,27 @@ namespace heading {
         let xField = (xhi - xlo) / 2
         let yField = (yhi - ylo) / 2
         let zField = (zhi - zlo) / 2
+        // get RMS field-strength
         strength = Math.sqrt((xField * xField) + (yField * yField) + (zField * zField))
         if (strength < MarginalField) {
             return -2 // "FIELD STRENGTH TOO WEAK"
         }
-        // Use the mean of these extremes as normalisation offsets
+        // The means of the extremes gives the central offsets
         let xOff = (xhi + xlo) / 2
         let yOff = (yhi + ylo) / 2
         let zOff = (zhi + zlo) / 2
 
-        // apply normalisation to re-centre all of the scanData samples
+        // re-centre all of the scanData samples, to eliminate "hard-iron" magnetic effects
         for (let i = 0; i < nSamples; i++) {
             scanData[i][Dim.X] -= xOff
             scanData[i][Dim.Y] -= yOff
             scanData[i][Dim.Z] -= zOff
         }
 
-        // create an Ellipse instance for analysing each possible view
+        // create three Ellipse instances, for analysing each possible view
         views.push(new Ellipse("XY", Dim.X, Dim.Y, xOff, yOff))
         views.push(new Ellipse("YZ", Dim.Y, Dim.Z, yOff, zOff))
         views.push(new Ellipse("ZX", Dim.Z, Dim.X, zOff, xOff))
-
         // For each View, perform the analysis of eccentricity and Ellipse tilt-angle
         views[View.XY].analyseView()
         views[View.YZ].analyseView()
@@ -450,7 +450,7 @@ namespace heading {
         rpm = 60000 / period
 
         
-        // For efficiency, extract various characteristics from the adopted bestView Ellipse
+        // For efficiency, extract various characteristics from the adopted "bestView" Ellipse
         uDim = views[bestView].uDim
         vDim = views[bestView].vDim
         uOff = views[bestView].uOff
@@ -459,7 +459,7 @@ namespace heading {
         theta = views[bestView].majorAxis.angle // the rotation (in radians) that aligns the major-axis clockwise with the U-axis
         cosTheta = Math.cos(theta)
         sinTheta = Math.sin(theta)
-        needsFixing = !views[bestView].isCircular
+        isCircular = views[bestView].isCircular
         sense = views[bestView].sense
 
 
@@ -472,7 +472,7 @@ namespace heading {
             datalogger.log(
                 datalogger.createCV("view", views[bestView].plane),
                 datalogger.createCV("scale", round2(scale)),
-                datalogger.createCV("fix?", needsFixing),
+                datalogger.createCV("fix?", isCircular),
                 datalogger.createCV("theta", round2(theta)),
                 datalogger.createCV("[theta]", Math.round(asDegrees(theta))),
                 datalogger.createCV("north", round2(north))
@@ -631,13 +631,15 @@ namespace heading {
 
             test++ // clock another test sample
         }
-        // normalise the point w.r.t our Ellipse origin
+        // re-centre the point w.r.t our Ellipse origin
         u = uRaw - uOff
         v = vRaw - vOff
 
         // Unless this Ellipse.isCircular, any {u,v} reading will be foreshortened in this View, and
         // must be stretched along the Ellipse minor-axis to place it correctly onto the Spin-Circle.
-        if (needsFixing) {
+        if (isCircular) {
+            reading = Math.atan2(v, u) 
+        } else { 
             // First rotate CLOCKWISE by theta (so aligning the Ellipse minor-axis angle with the V-axis)
             uNew = u * cosTheta + v * sinTheta
             vNew = v * cosTheta - u * sinTheta
@@ -648,8 +650,6 @@ namespace heading {
             reading = Math.atan2(vFix, uFix)
             // finally, undo the rotation by theta
             reading += theta
-        } else {  // no need to stretch this one
-            reading = Math.atan2(v, u)
         }
         
         if ((mode == Mode.Debug)||(mode == Mode.Normal)) {
@@ -666,7 +666,7 @@ namespace heading {
                 datalogger.createCV("uStretch", round2(uStretch)),
                 datalogger.createCV("vStretch", round2(vStretch)),
                 datalogger.createCV("reading", round2(reading)),
-                datalogger.createCV("(reading)", Math.round(asDegrees(reading)*sense))
+                datalogger.createCV("[reading]", Math.round(asDegrees(reading)*sense))
             )
         }
         return reading
