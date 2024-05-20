@@ -10,7 +10,11 @@ enum Task {
     Measure
 }
 
-const dataset = "angled"
+//const dataset = "angled"
+//const dataset = "yup70"
+//const dataset = "zdown70"
+//const dataset = "tldown70"
+const dataset = "tldown0"
 
 
 function performSetup() {
@@ -62,6 +66,7 @@ function performSetup() {
                 spinRPM = heading.spinRPM()
                 basic.showNumber(Math.floor(spinRPM))
                 turn45 = 60000 / (8 * spinRPM) // time needed to turn 45 degrees
+                turn45 += 200 // extra start-up time
                 basic.showIcon(IconNames.Yes)
                 basic.pause(1000)
                 basic.showIcon(IconNames.Yes)
@@ -105,10 +110,10 @@ function measure() {
             break
 
         case Task.Measure: // OK, take a new heading measurement
-            basic.pause(1000)
-            let compass = heading.degrees()
+            basic.pause(200)
             basic.clearScreen()   
-            basic.pause(500)
+            basic.pause(50)
+            let compass = heading.degrees()
             basic.showNumber(Math.floor(compass))
             basic.clearScreen()   
             basic.pause(200)
@@ -119,7 +124,7 @@ function measure() {
                     # . . . #
                     # # . # #
                     `)
-            basic.pause(500)
+            basic.pause(200)
             basic.showArrow(ArrowNames.East)
             // On the live buggy, move 45 degrees to next test angle;
             if (config == Config.Buggy) {  
