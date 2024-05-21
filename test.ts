@@ -13,8 +13,9 @@ enum Task {
 //const dataset = "angled"
 //const dataset = "yup70"
 //const dataset = "zdown70"
+const dataset = "zdown15"
 //const dataset = "tldown70"
-const dataset = "tldown0"
+//const dataset = "tldown0"
 
 
 function performSetup() {
