@@ -1,6 +1,7 @@
 /**
  * An extension providing a compass-bearing for a buggy located anywhere on the globe 
  * (except at the magnetic poles!), with any arbitrary mounting orientation for its microbit.
+ * 
  * See the README for a detailed description of the approach, methods and algorithms.
  * 
  * TODO? No use is yet made of the accelerometer. Although seemingly helpful to compensate for
@@ -12,7 +13,7 @@
 enum Mode {
     Normal, // Normal usage, mounted in a buggy
     Capture, // Acquire a new test dataset, using a special rotating jig
-    Debug, // Test & debug (NOTE: test-dataset selection is hard-coded below)
+    Debug, // Test & debug (NOTE: named sets of test-dataset are hard-coded below)
     Silent // (switched-off trace)
 }
 
@@ -85,7 +86,7 @@ namespace heading {
         vOff: number; // vertical offset needed to re-centre this Ellipse along the V-axis
 
         // calibration characteristics
-        majorAxis: Arrow; // direction of major axis 
+        majorAxis: Arrow; // direction of the major axis 
         eccentricity: number; // ratio of major-axis to minor-axis magnitudes for this Ellipse
         isCircular: boolean; // flag saying this "Ellipse" View is almost circular, simplifying future handling
         rotationSense: number; // rotation reversal sign = +/-1, reflecting this Ellipse's view of the clockwise scan
