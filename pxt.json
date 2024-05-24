@@ -10,7 +10,6 @@
     },
     "files": [
         "README.md",
-        "testdata.ts",
         "pxt-heading.ts"
     ],
     "testFiles": [
