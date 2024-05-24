@@ -13,9 +13,10 @@ enum Task {
 //const dataset = "angled"
 //const dataset = "yup70"
 //const dataset = "zdown70"
-const dataset = "zdown15"
+//const dataset = "zdown15"
 //const dataset = "tldown70"
 //const dataset = "tldown0"
+const dataset = "dashboard70"
 
 
 function performSetup() {
@@ -67,7 +68,7 @@ function performSetup() {
                 spinRPM = heading.spinRPM()
                 basic.showNumber(Math.floor(spinRPM))
                 turn45 = 60000 / (8 * spinRPM) // time needed to turn 45 degrees
-                turn45 += 200 // extra start-up time
+                turn45 += 300 // plus some extra start-up time...
                 basic.showIcon(IconNames.Yes)
                 basic.pause(1000)
                 basic.showIcon(IconNames.Yes)
@@ -116,8 +117,13 @@ function measure() {
             basic.pause(50)
             let compass = heading.degrees()
             basic.showNumber(Math.floor(compass))
+            basic.pause(500)
             basic.clearScreen()   
+            basic.showString("v")  
             basic.pause(200)
+            basic.clearScreen()   
+            basic.showNumber(input.compassHeading())  
+            basic.pause(500)
             basic.showLeds(`
                     # # . # #
                     # . . . #
