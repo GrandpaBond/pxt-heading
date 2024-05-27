@@ -1,7 +1,7 @@
 // tests go here; this will not be compiled when this package is used as an extension.
 enum Config {
-    Buggy, // Normal usage, in a Kitronik Move Motor buggy
-    Jig, // Acquiring new test datasets, using a special rotating jig
+    Live, // Normal usage (but use turntable Jig to pretend it's on a buggy)
+    Capture, // Acquire new test datasets, using turntable Jig
     Debug, // Test & debug (dataset selection is preset in code below)
 }
 enum Task {
@@ -9,7 +9,7 @@ enum Task {
     SetNorth,
     Measure
 }
-
+// NOTe: check in pxt-heading.ts that the required test dataset is not commented-out in simulateScan()!
 //const dataset = "angled"
 //const dataset = "yup70"
 //const dataset = "zdown70"
@@ -23,26 +23,22 @@ function performSetup() {
     let result = 0
     switch (nextTask) {
         case Task.Scan:
+            let scanTime = 6000 // ...to manually rotate turntable jig twice (SMOOOOTHLY!)
             basic.showString("S")
-            basic.pause(1000)
+            basic.pause(1000) 
             switch (config) {
-                case Config.Buggy:
+                case Config.Live:
                     heading.setMode(Mode.Normal,"")
-                    Kitronik_Move_Motor.spin(Kitronik_Move_Motor.SpinDirections.Right, 30)
-                    heading.scanClockwise(6000)
-                    Kitronik_Move_Motor.stop()
                     break
                 case Config.Debug:
                     heading.setMode(Mode.Debug, dataset)
-                    heading.scanClockwise(1000)
+                    scanTime = 500 // don't wait around
                     break
-                case Config.Jig:
+                case Config.Capture:
                     heading.setMode(Mode.Capture, "")
-                    basic.showString("?") // manually rotate jig (SMOOOOTHLY!)
-                    heading.scanClockwise(7000)
-                    basic.pause(1000)
                     break
             }
+            heading.scanClockwise(scanTime)
             basic.showIcon(IconNames.Yes)
             basic.pause(1000)
             basic.clearScreen()
@@ -65,11 +61,8 @@ function performSetup() {
                 basic.showArrow(ArrowNames.West)
                 nextTask = Task.Scan // restart with a fresh scan
             } else {
-                spinRPM = heading.spinRPM()
+                spinRPM = heading.spinRPM() // ...out of interest
                 basic.showNumber(Math.floor(spinRPM))
-                turn45 = 60000 / (8 * spinRPM) // time needed to turn 45 degrees
-                turn45 += 300 // plus some extra start-up time...
-                basic.showIcon(IconNames.Yes)
                 basic.pause(1000)
                 basic.showIcon(IconNames.Yes)
                 basic.pause(500)
@@ -84,7 +77,6 @@ function performSetup() {
                 basic.showArrow(ArrowNames.East)
                 nextTask = Task.Measure
             }
-            
             break
 
         case Task.Measure: // Button A resets everything
@@ -118,12 +110,7 @@ function measure() {
             let compass = heading.degrees()
             basic.showNumber(Math.floor(compass))
             basic.pause(500)
-            basic.clearScreen()   
-            basic.showString("v")  
-            basic.pause(200)
-            basic.clearScreen()   
-            basic.showNumber(input.compassHeading())  
-            basic.pause(500)
+            // now manually move to next test-angle...
             basic.showLeds(`
                     # # . # #
                     # . . . #
@@ -132,15 +119,6 @@ function measure() {
                     # # . # #
                     `)
             basic.pause(200)
-            basic.showArrow(ArrowNames.East)
-            // On the live buggy, move 45 degrees to next test angle;
-            if (config == Config.Buggy) {  
-                basic.pause(1000)
-                Kitronik_Move_Motor.spin(Kitronik_Move_Motor.SpinDirections.Right, 30)
-                basic.pause(turn45) // spin to next angle
-                Kitronik_Move_Motor.stop()
-            } 
-            // else we're simulating; or must manually move Jig to next test-angle...
             break
     }
 
@@ -152,19 +130,19 @@ function nextConfig() {
     basic.pause(500)
     basic.clearScreen()
     switch(config) {
-        case Config.Buggy:
+        case Config.Live:
             config = Config.Debug
             heading.setMode(Mode.Debug, dataset)
             basic.showString("D") // use sample data while debugging...
             break
         case Config.Debug:
-            config = Config.Jig
-            basic.showString("J") // no buggy, but use live magnetometer
+            config = Config.Capture
+            basic.showString("C") // no buggy, but use live magnetometer
             heading.setMode(Mode.Capture, "")
             break
-        case Config.Jig:
-            config = Config.Buggy
-            basic.showString("B")  // normal live operation
+        case Config.Capture:
+            config = Config.Live
+            basic.showString("L")  // normal live operation
             heading.setMode(Mode.Normal, "")
             break
     }
@@ -188,7 +166,6 @@ input.onButtonPressed(Button.AB, function () {
 })
 
 let nextTask: Task
-let config = Config.Buggy
+let config = Config.Live
 nextConfig() // always start with Config.Debug ...until it all works!
 let spinRPM = 0
-let turn45 = 0

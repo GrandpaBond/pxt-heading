@@ -5,8 +5,7 @@
         "core": "*",
         "radio": "*",
         "microphone": "*",
-        "datalogger": "*",
-        "pxt-kitronik-move-motor": "github:kitronikltd/pxt-kitronik-move-motor#v0.4.17"
+        "datalogger": "*"
     },
     "files": [
         "README.md",
