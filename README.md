@@ -118,8 +118,8 @@ this is the function that actually returns the current compass heading in degree
 
 ## rpm2speed(axleLength)
 A utility function to help with motor calibration. This function converts the spin-rate (in RPM) achieved with wheels turning 
-in opposite directions, into the equivalent linear speed (in cm/sec) when both wheels are going forwards. Calculations require 
-knowledge of the axle-length (in cm). 
+in opposite directions, into the equivalent linear speed (in mm/sec) when both wheels are going forwards. Calculations require 
+knowledge of the axle-length (in mm). 
 
 NOTE: It should be noted that motor calibration using this technique can only ever be approximate. 
 For a given power setting, inertial effects and tyre-friction may mean that the wheel-rotation speeds

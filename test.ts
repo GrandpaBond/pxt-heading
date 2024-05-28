@@ -9,7 +9,7 @@ enum Task {
     SetNorth,
     Measure
 }
-// NOTe: check in pxt-heading.ts that the required test dataset is not commented-out in simulateScan()!
+// NOTE: check in "pxt-heading.ts" that the required test dataset is not commented-out in simulateScan()!
 //const dataset = "angled"
 //const dataset = "yup70"
 //const dataset = "zdown70"
@@ -25,14 +25,15 @@ function performSetup() {
         case Task.Scan:
             let scanTime = 6000 // ...to manually rotate turntable jig twice (SMOOOOTHLY!)
             basic.showString("S")
-            basic.pause(1000) 
+            basic.pause(1000)
+            basic.showString("_")
             switch (config) {
                 case Config.Live:
                     heading.setMode(Mode.Normal,"")
                     break
                 case Config.Debug:
                     heading.setMode(Mode.Debug, dataset)
-                    scanTime = 500 // don't wait around
+                    scanTime = 100 // don't wait around
                     break
                 case Config.Capture:
                     heading.setMode(Mode.Capture, "")
@@ -53,7 +54,7 @@ function performSetup() {
             result = heading.setNorth()
 
             if (result < 0) {
-                basic.showIcon(IconNames.Skull) // scan failed 
+                basic.showIcon(IconNames.Skull) // problem with scan data analysis
                 basic.pause(1000)
                 basic.showNumber(result)
                 basic.pause(1000)
@@ -61,7 +62,7 @@ function performSetup() {
                 basic.showArrow(ArrowNames.West)
                 nextTask = Task.Scan // restart with a fresh scan
             } else {
-                spinRPM = heading.spinRPM() // ...out of interest
+                spinRPM = heading.spinRPM() // ...just out of interest
                 basic.showNumber(Math.floor(spinRPM))
                 basic.pause(1000)
                 basic.showIcon(IconNames.Yes)
@@ -85,7 +86,6 @@ function performSetup() {
             basic.clearScreen()
             basic.showArrow(ArrowNames.West)
             nextTask = Task.Scan // restart with a scan
-            datalogger.deleteLog()
             break
     }
 
@@ -114,7 +114,7 @@ function measure() {
             basic.showLeds(`
                     # # . # #
                     # . . . #
-                    . . # . .
+                    . . . . .
                     # . . . #
                     # # . # #
                     `)
@@ -129,6 +129,7 @@ function nextConfig() {
     basic.showIcon(IconNames.No)
     basic.pause(500)
     basic.clearScreen()
+    datalogger.deleteLog() // clear previous log
     switch(config) {
         case Config.Live:
             config = Config.Debug

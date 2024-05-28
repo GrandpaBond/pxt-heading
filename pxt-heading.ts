@@ -14,20 +14,13 @@ enum Mode {
     Normal, // Normal usage, mounted in a buggy
     Capture, // Acquire a new test dataset, using a special rotating jig
     Debug, // Test & debug (NOTE: named sets of test-dataset are hard-coded below)
-    Silent // (switched-off trace)
+    Silent // (switch off all trace)
 }
 
 //% color=#6080e0 weight=40 icon="\uf14e" block="Heading" 
 namespace heading {
 
     // ENUMERATIONS
-
-    enum Dim { // Synonyms for the three magnetometer dimensions (just for brevity!)
-        X = Dimension.X,
-        Y = Dimension.Y,
-        Z = Dimension.Z
-    }
-
     enum View { // the axis-pairs that span the three possible magnetometer projection planes
         XY,
         YZ,
@@ -42,7 +35,7 @@ namespace heading {
     const RadianDegrees = 360 / TwoPi
     const EnoughScanTime = 1800 // minimum acceptable scan-time
     const EnoughSamples = 70 // fewest acceptable scan samples
-    const MarginalField = 30 // minimum acceptable field-strength for magnetometer readings
+    const MarginalField = 30 // minimum acceptable field-strength for 7 magnetometer readings
     const Circular = 1.03 // maximum eccentricity to consider an Ellipse as "circular"
     //const Circular = 1.5 // silly test value
     const LongEnough = 0.9 // for major-axis candidates, qualifying fraction of longest 
@@ -240,13 +233,13 @@ namespace heading {
     let north = 0 // reading registered as "North"
     let strength = 0 // the average magnetic field-strength observed by the magnetometer
     let period = -1 // overall assessment of average rotation time
-    let rpm: number // the equivalent rotation rate in revs-per-minutetheta: number; 
+    let rpm: number // the equivalent rotation rate in revs-per-minute
 
     // correction parameters adopted from bestView Ellipse for future readings
     let rotationSense = 1 // set to -1 if orientation means field-vector projection is "from below"
     let isCircular: boolean // if bestView Ellipse is circular, no correction is needed
     let uOff: number // horizontal origin offset
-    let vOff: number // horizontal origin offset
+    let vOff: number // vertical origin offset
     let theta: number  // major-axis tilt angle (in radians anticlockwise from the U-axis)
     let cosTheta: number; // saved for efficiency
     let sinTheta: number; //      ditto
@@ -278,7 +271,7 @@ namespace heading {
         // A timestamp for each sample is also recorded in the scanTimes[] array.
 
         // NOTE: to smooth out jitter, each reading is always a rolling sum of SEVEN consecutive
-        // readings, effectively amplifying the dynamic field range due to the Earth seven-fold 
+        // readings, effectively amplifying seven-fold the dynamic field range due to the Earth 
         //(to about +/- 350 microTeslas)
         scanTimes = []
         scanData = []
@@ -349,9 +342,9 @@ namespace heading {
                 datalogger.log(
                     datalogger.createCV("index", i),
                     datalogger.createCV("t", scanTimes[i]),
-                    datalogger.createCV("x", round2(scanData[i][Dim.X])),
-                    datalogger.createCV("y", round2(scanData[i][Dim.Y])),
-                    datalogger.createCV("z", round2(scanData[i][Dim.Z])))
+                    datalogger.createCV("x", round2(scanData[i][Dimension.X])),
+                    datalogger.createCV("y", round2(scanData[i][Dimension.Y])),
+                    datalogger.createCV("z", round2(scanData[i][Dimension.Z])))
             }
         }
     }
@@ -396,12 +389,12 @@ namespace heading {
         let yhi = -9999999
         let zhi = -9999999
         for (let i = 0; i < nSamples; i++) {
-            xhi = Math.max(xhi, scanData[i][Dim.X])
-            xlo = Math.min(xlo, scanData[i][Dim.X])
-            yhi = Math.max(yhi, scanData[i][Dim.Y])
-            ylo = Math.min(ylo, scanData[i][Dim.Y])
-            zhi = Math.max(zhi, scanData[i][Dim.Z])
-            zlo = Math.min(zlo, scanData[i][Dim.Z])
+            xhi = Math.max(xhi, scanData[i][Dimension.X])
+            yhi = Math.max(yhi, scanData[i][Dimension.Y])
+            zhi = Math.max(zhi, scanData[i][Dimension.Z])
+            xlo = Math.min(xlo, scanData[i][Dimension.X])
+            ylo = Math.min(ylo, scanData[i][Dimension.Y])
+            zlo = Math.min(zlo, scanData[i][Dimension.Z])
         }
 
         // Bail out early if the scan didn't properly detect the Earth's magnetic field, perhaps due to
@@ -409,27 +402,29 @@ namespace heading {
         let xField = (xhi - xlo) / 2
         let yField = (yhi - ylo) / 2
         let zField = (zhi - zlo) / 2
+
         // get RMS field-strength
         strength = Math.sqrt((xField * xField) + (yField * yField) + (zField * zField))
         if (strength < MarginalField) {
             return -2 // "FIELD STRENGTH TOO WEAK"
         }
-        // The means of the extremes gives the central offsets
+        // The means of the extremes give the central offsets
         let xOff = (xhi + xlo) / 2
         let yOff = (yhi + ylo) / 2
         let zOff = (zhi + zlo) / 2
 
         // re-centre all of the scanData samples, to eliminate "hard-iron" magnetic effects
         for (let i = 0; i < nSamples; i++) {
-            scanData[i][Dim.X] -= xOff
-            scanData[i][Dim.Y] -= yOff
-            scanData[i][Dim.Z] -= zOff
+            scanData[i][Dimension.X] -= xOff
+            scanData[i][Dimension.Y] -= yOff
+            scanData[i][Dimension.Z] -= zOff
         }
 
         // create three Ellipse instances, for analysing each possible view
-        views.push(new Ellipse("XY", Dim.X, Dim.Y, xOff, yOff))
-        views.push(new Ellipse("YZ", Dim.Y, Dim.Z, yOff, zOff))
-        views.push(new Ellipse("ZX", Dim.Z, Dim.X, zOff, xOff))
+        views.push(new Ellipse("XY", Dimension.X, Dimension.Y, xOff, yOff))
+        views.push(new Ellipse("YZ", Dimension.Y, Dimension.Z, yOff, zOff))
+        views.push(new Ellipse("ZX", Dimension.Z, Dimension.X, zOff, xOff))
+
         // For each View, perform the analysis of eccentricity and Ellipse tilt-angle
         views[View.XY].analyseView()
         views[View.YZ].analyseView()
@@ -453,19 +448,17 @@ namespace heading {
         period = (views[0].period + views[1].period + views[2].period - views[bestView].period) / 2
         rpm = 60000 / period
 
-        
         // For efficiency, extract various characteristics from the adopted "bestView" Ellipse
         uDim = views[bestView].uDim
         vDim = views[bestView].vDim
         uOff = views[bestView].uOff
         vOff = views[bestView].vOff
         scale = views[bestView].eccentricity
-        theta = views[bestView].majorAxis.angle // the rotation (in radians) that aligns the major-axis clockwise with the U-axis
+        theta = views[bestView].majorAxis.angle // the rotation (in radians) of the major-axis from the U-axis
         cosTheta = Math.cos(theta)
         sinTheta = Math.sin(theta)
         isCircular = views[bestView].isCircular
         rotationSense = views[bestView].rotationSense
-
 
         // Having successfully set up the projection parameters for the bestView, get a
         // stable fix on the current heading, which we will then designate as "North".
@@ -485,7 +478,7 @@ namespace heading {
                 datalogger.createCV("period", period),
             )
         }
-        /* we've now finished with the scanning data and Ellipse objects, so release their memory
+        /* we've now finished with the scanning data and Ellipse objects, so (eventually) release their memory
         scanTimes = []
         scanData = []
         views = []
@@ -498,14 +491,14 @@ namespace heading {
     /**
      * Read the magnetometer
      * 
-     * $returns : the current heading of the buggy (in degrees clockwise relative to "North")
+     * $returns : the current heading of the buggy (in degrees clockwise, relative to "North")
      */
     //% block="degrees" 
     //% inlineInputMode=inline 
     //% weight=70
     export function degrees(): number {
     // Depending on mounting orientation, the bestView might possibly be seeing the
-    // Spin-Circle from "underneath" (effectively experiencing an anti-clockwise scan) with the
+    // Spin-Circle from "underneath" (effectively experiencing an anti-clockwise scan), with the
     // field-vector appearing to move clockwise. In this case the rotationSense will be negative.
         return asDegrees((takeSingleReading() - north) * rotationSense)
     }
@@ -525,16 +518,19 @@ namespace heading {
     }
 
     /**
-     * Return average RPM of the most recent scan 
+     * Obtain average RPM of the most recent scan 
+     * 
+     * @returns rpm: revs-per-minute, or error value:
+     *      -4 : SUCCESSFUL SCAN IS NEEDED FIRST
      */
     //% block="spinRPM" 
     //% inlineInputMode=inline 
     //% weight=50 
     export function spinRPM(): number {
-        if ((views.length == 0)||(views[bestView].period <= 0)) {
+        if (period == -1) {
             return -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
         } else {
-            return 60000 / views[bestView].period
+            return 60000 / period
         }
     }
 
@@ -545,7 +541,9 @@ namespace heading {
      * (NOTE that tyre-friction when turning may make this a fairly inaccurate estimate!)
      * 
      * @param axleLength : distance betweeen mid-lines of tyres (in mm)
-     * @param spinRate : the spin rotation rate reported by heading.spinRPM() for latest scan
+     * @param spinRate : the spin rotation rate for latest scan, as reported by heading.spinRPM()
+     * @returns speed: mm-per-second, or error value:
+     *      -4 : SUCCESSFUL SCAN IS NEEDED FIRST
      */
     //% block="speed using axleLength (mm) when spin RPM = $spinRate" 
     //% inlineInputMode=inline 
@@ -554,7 +552,9 @@ namespace heading {
         if ((views.length == 0) || (views[bestView].period <= 0)) {
             return -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
         } else {
-            return 99999999
+            // compute tangential speed of wheel-centre in mm/s:
+            // it takes [period] ms to cover [2pi * axleLength/2] mm
+            return (Math.PI * axleLength * 1000 / period)
         }
     }
 
@@ -562,15 +562,15 @@ namespace heading {
 
     /**
      * Choose mode: whether to run normally,
-     *  - or to use Data Logger to grab a new test dataset into MY_DATA,
+     *  - or to use Data Logger to grab a new test dataset,
      *  - or to debug processing using a named test dataset
-     * 
+     * (new datasets need editing externally before compiling into simulateScan)
      */
-    //% block="set mode $mode"
+    //% block="set mode $mode using $name"
     //% inlineInputMode=inline 
     //% weight=10
     export function setMode(newMode:Mode, name: string) {
-        // reinitialise key data
+        // always reinitialise key data
         scanTimes = []
         scanData = []
         views = []
@@ -581,7 +581,7 @@ namespace heading {
         north = 0
         testData = []
         test = 0
-        // adopt new mode
+        // now adopt new mode
         mode = newMode
         dataset = name
     }
@@ -620,7 +620,7 @@ namespace heading {
             xyz[2] = input.magneticForce(2)
 
             for (let i = 0; i < 6; i++) {
-                basic.pause(5)
+                basic.pause(10)
                 xyz[0] += input.magneticForce(0)
                 xyz[1] += input.magneticForce(1)
                 xyz[2] += input.magneticForce(2)
@@ -633,15 +633,16 @@ namespace heading {
                     datalogger.createCV("y", round2(xyz[1])),
                     datalogger.createCV("z", round2(xyz[2])))
             }
-
+            // even in normal operation, keep a history of readings
             testData.push(xyz)
-            // use the test sample we just captured (in our current bestView)
+
+            // use our current bestView's two dimensions
             uRaw = testData[test][uDim]
             vRaw = testData[test][vDim]
 
             test++ // clock another test sample
         }
-        // re-centre the point w.r.t our Ellipse origin
+        // re-centre this latest point w.r.t our Ellipse origin
         u = uRaw - uOff
         v = vRaw - vOff
 
@@ -688,7 +689,7 @@ namespace heading {
     }
 
 
-    // Convert angle measured in radians degrees.
+    // Convert an angle measured in radians to degrees.
     function asDegrees(angle: number): number {
         return ((angle * RadianDegrees) + 360) % 360
     }
@@ -768,7 +769,7 @@ namespace heading {
 
 */ 
             case "dashboard70": // mounted as 45-degree tilted dashboard; dip ~= 70 
-                                // (Field is dominated by adjacent speaker magnet!)
+                // (In this instance Field was dominated by an adjacent speaker magnet!)
                 scanTimes = [16533, 16553, 16573, 16593, 16613, 16633, 16653, 16673, 16693, 16713, 16733, 16753, 16773, 16793, 16813, 16833, 16853, 16873, 16897, 16917, 16937, 16957, 16977, 16997, 17017, 17037, 17057, 17077, 17097, 17117, 17137, 17157, 17177, 17197, 17217, 17237, 17257, 17277, 17297, 17317, 17337, 17357, 17377, 17397, 17417, 17437, 17457, 17477, 17497, 17517, 17537, 17557, 17577, 17597, 17617, 17637, 17657, 17677, 17697, 17717, 17737, 17757, 17777, 17797, 17817, 17841, 17861, 17881, 17901, 17921, 17941, 17961, 17981, 18001, 18021, 18041, 18061, 18081, 18101, 18121, 18141, 18161, 18181, 18201, 18221, 18241, 18261, 18281, 18301, 18321, 18341, 18361, 18381, 18401, 18421, 18441, 18461, 18481, 18501, 18524, 18545, 18565, 18585, 18605, 18625, 18645, 18665, 18685, 18705, 18725, 18745, 18765, 18785, 18805, 18825, 18845, 18865, 18885, 18908, 18929, 18949, 18969, 18989, 19009, 19029, 19049, 19069, 19089, 19109, 19129, 19149, 19169, 19189, 19209, 19229, 19249, 19269, 19289, 19309, 19329, 19352, 19373, 19393, 19413, 19433, 19453, 19473, 19493, 19513, 19533, 19553, 19573, 19593, 19613, 19633, 19653, 19676, 19697, 19717, 19737, 19757, 19777, 19797, 19817, 19837, 19857, 19877, 19897, 19920, 19941, 19961, 19981, 20001, 20021, 20041, 20061, 20081, 20105, 20125, 20145, 20165, 20185, 20205, 20225, 20245, 20265, 20285, 20305, 20325, 20345, 20365, 20385, 20405, 20425, 20445, 20465, 20485, 20505, 20530, 20553, 20573, 20593, 20613, 20633, 20653, 20673, 20693, 20713, 20733, 20753, 20773, 20793, 20813, 20833, 20853, 20873, 20893, 20913, 20933, 20953, 20973, 20993, 21013, 21033, 21053, 21073, 21093, 21113, 21133, 21153, 21173, 21193, 21213, 21233, 21253, 21273, 21293, 21313, 21333, 21353, 21373, 21393, 21413, 21433, 21453, 21473, 21493, 21513, 21533, 21553, 21573, 21593, 21613, 21633, 21653, 21673, 21700, 21721, 21741, 21761, 21781, 21801, 21821, 21841, 21861, 21881, 21901, 21921, 21941, 21961, 21981, 22001, 22021, 22041, 22061, 22081, 22101, 22121, 22141, 22161, 22181, 22201, 22221, 22241, 22261, 22281, 22301, 22321, 22341, 22361, 22381, 22401, 22421, 22441, 22469, 22489, 22509, 22529, 22549, 22569, 22589, 22609, 22629, 22649, 22669, 22689, 22709, 22729, 22749, 22769, 22789, 22809, 22829, 22849, 22869, 22889, 22909, 22929, 22949, 22969, 22989, 23017, 23037, 23057, 23077, 23097, 23117, 23137, 23157, 23177, 23197, 23217, 23237, 23257, 23277, 23297, 23317, 23337, 23364, 23385, 23405]
                 xData = [6355.8, 6352.2, 6348.45, 6344.1, 6339.6, 6334.35, 6330.15, 6326.55, 6322.5, 6319.65, 6316.2, 6312.6, 6309, 6305.85, 6302.25, 6299.25, 6295.05, 6292.05, 6289.05, 6285.6, 6282, 6278.7, 6275.7, 6273.75, 6271.2, 6268.35, 6267.45, 6265.95, 6263.7, 6261.3, 6259.2, 6256.65, 6255.45, 6252.75, 6250.8, 6249.45, 6248.25, 6246, 6244.65, 6242.85, 6240.75, 6239.85, 6239.1, 6237.9, 6236.55, 6235.5, 6233.7, 6233.1, 6231.15, 6229.65, 6227.1, 6226.65, 6225, 6225.75, 6225.15, 6225.15, 6224.7, 6225.6, 6225.6, 6226.35, 6225.15, 6225.3, 6224.55, 6224.55, 6223.95, 6222.45, 6222.6, 6222.9, 6223.05, 6223.05, 6223.2, 6224.25, 6226.05, 6226.8, 6227.25, 6226.8, 6228.15, 6228.9, 6229.2, 6228.6, 6229.05, 6228.9, 6229.95, 6230.7, 6231.9, 6233.4, 6234.45, 6234.45, 6236.7, 6238.2, 6239.1, 6240, 6240.9, 6243.15, 6245.1, 6246.3, 6248.1, 6248.7, 6249.9, 6250.65, 6251.1, 6252.6, 6253.8, 6255.6, 6258.3, 6259.95, 6261, 6262.95, 6264.6, 6266.55, 6267.6, 6269.4, 6271.2, 6273.3, 6275.25, 6277.65, 6279.3, 6280.95, 6282, 6284.25, 6286.95, 6289.35, 6291.45, 6293.85, 6296.55, 6299.85, 6301.8, 6303.6, 6305.4, 6307.35, 6309.9, 6312.3, 6315, 6317.25, 6320.4, 6323.7, 6326.55, 6329.1, 6332.25, 6334.5, 6337.5, 6339.75, 6341.85, 6344.55, 6346.5, 6349.65, 6352.35, 6355.8, 6359.55, 6363, 6366, 6368.55, 6370.65, 6372.9, 6375, 6376.5, 6379.35, 6382.2, 6386.25, 6389.85, 6394.35, 6397.8, 6402.15, 6405.45, 6408, 6411.9, 6414.45, 6417.3, 6421.05, 6424.65, 6427.95, 6432.3, 6434.55, 6437.4, 6439.35, 6442.2, 6445.35, 6448.05, 6450, 6451.5, 6453.75, 6456.3, 6457.8, 6458.1, 6459.15, 6460.05, 6463.05, 6463.95, 6466.2, 6467.7, 6469.35, 6470.7, 6472.65, 6473.85, 6475.5, 6475.8, 6476.85, 6478.2, 6478.65, 6479.55, 6480, 6481.8, 6483, 6483, 6483.6, 6485.25, 6485.25, 6484.95, 6485.4, 6485.25, 6486.15, 6486.6, 6486, 6486.75, 6487.35, 6487.05, 6487.35, 6487.35, 6486.75, 6487.05, 6486.9, 6486.45, 6485.55, 6485.85, 6485.1, 6484.35, 6483.15, 6482.7, 6482.4, 6481.65, 6479.55, 6479.1, 6478.95, 6478.35, 6477, 6475.95, 6474.9, 6474.15, 6472.05, 6470.25, 6468.3, 6465.45, 6462.9, 6460.8, 6458.55, 6457.05, 6455.55, 6455.25, 6454.2, 6453.6, 6452.1, 6450.6, 6448.65, 6445.95, 6444.15, 6442.2, 6439.65, 6437.25, 6435.3, 6433.2, 6431.4, 6428.55, 6426.6, 6424.8, 6424.05, 6422.25, 6420.45, 6419.25, 6417.45, 6415.65, 6412.8, 6409.8, 6406.05, 6403.5, 6400.2, 6396, 6393.15, 6390.6, 6387.3, 6385.35, 6382.35, 6379.5, 6377.4, 6374.85, 6372.75, 6370.35, 6368.1, 6364.8, 6361.8, 6358.5, 6354.75, 6351.6, 6347.85, 6343.65, 6341.1, 6338.1, 6334.8, 6331.65, 6327.45, 6323.85, 6320.7, 6317.85, 6314.55, 6312, 6308.85, 6306.15, 6303.3, 6299.85, 6295.8, 6292.65, 6289.35, 6286.05, 6283.2, 6280.8, 6278.85, 6276.6, 6274.65, 6272.55, 6271.95, 6270.6, 6268.2, 6267.15, 6265.05, 6262.8, 6261.15, 6258.6, 6256.65, 6255.45, 6253.05, 6251.25, 6249.15, 6246.75, 6245.1, 6243.45, 6241.65, 6239.4, 6239.4, 6238.8, 6237.45, 6236.1, 6234.6]
                 yData = [10752.45, 10752, 10751.25, 10750.8, 10751.25, 10750.35, 10750.5, 10749.9, 10751.1, 10752.15, 10752.9, 10753.8, 10754.7, 10754.85, 10755.75, 10755.6, 10755.45, 10754.85, 10754.7, 10755, 10755.3, 10755.3, 10755.15, 10755.75, 10756.35, 10756.8, 10757.85, 10758.6, 10759.95, 10761.3, 10762.35, 10763.25, 10764.75, 10765.05, 10767.15, 10767.75, 10769.25, 10770.75, 10773.3, 10773.9, 10776, 10776.6, 10778.25, 10779.15, 10779.9, 10780.05, 10782.3, 10783.5, 10785.3, 10786.5, 10787.85, 10788.3, 10789.5, 10790.55, 10791.9, 10793.1, 10793.4, 10794.6, 10796.55, 10797.3, 10798.05, 10798.35, 10798.95, 10800.75, 10802.4, 10803.6, 10805.25, 10806.45, 10808.7, 10809.6, 10811.25, 10812.45, 10813.8, 10815, 10815.75, 10816.35, 10818.15, 10818.45, 10818.45, 10819.8, 10821.3, 10822.35, 10823.25, 10824.3, 10825.5, 10826.55, 10827, 10827.75, 10829.55, 10830.45, 10831.2, 10832.4, 10834.5, 10836.15, 10836.9, 10838.1, 10840.2, 10841.1, 10842.15, 10842.75, 10844.25, 10845.3, 10845.45, 10846.05, 10846.65, 10846.8, 10848.75, 10849.2, 10850.4, 10851.6, 10852.5, 10854.3, 10855.8, 10855.05, 10856.4, 10857, 10857.3, 10857.6, 10858.8, 10859.55, 10860.15, 10859.1, 10859.55, 10860.75, 10861.95, 10861.8, 10862.4, 10863.15, 10864.2, 10865.4, 10865.25, 10866.3, 10867.65, 10868.4, 10869.75, 10870.5, 10870.05, 10871.4, 10871.1, 10870.2, 10870.65, 10870.05, 10870.65, 10871.55, 10871.85, 10872.75, 10873.35, 10873.5, 10873.8, 10874.4, 10874.85, 10874.25, 10873.5, 10873.8, 10873.8, 10873.65, 10873.2, 10872.9, 10873.05, 10872.6, 10873.05, 10872.75, 10873.05, 10872.45, 10872, 10871.25, 10871.55, 10870.5, 10869.3, 10868.25, 10867.8, 10866.75, 10867.05, 10865.1, 10864.2, 10863.6, 10863.3, 10861.95, 10861.2, 10860, 10861.2, 10860.15, 10859.55, 10858.95, 10858.5, 10857.45, 10856.85, 10854.3, 10854, 10852.65, 10850.25, 10848.3, 10847.4, 10845.9, 10844.4, 10842.15, 10841.55, 10841.4, 10841.25, 10839.3, 10837.5, 10837.5, 10836.45, 10834.95, 10833.75, 10831.5, 10830.75, 10830, 10828.2, 10828.05, 10826.85, 10824.9, 10824.6, 10823.7, 10822.95, 10821.15, 10819.2, 10818, 10816.95, 10815.15, 10814.25, 10812, 10810.8, 10807.8, 10805.7, 10804.5, 10803.3, 10802.1, 10801.35, 10800.75, 10800.75, 10800.45, 10798.8, 10797.45, 10795.35, 10793.25, 10791.6, 10790.25, 10789.35, 10787.25, 10785.75, 10784.55, 10783.8, 10782.6, 10781.55, 10780.35, 10779.15, 10777.95, 10777.5, 10775.55, 10774.5, 10773.3, 10770.9, 10770.3, 10769.85, 10768.2, 10767.9, 10766.85, 10765.35, 10764.3, 10764, 10763.7, 10763.25, 10762.5, 10762.35, 10761, 10760.7, 10759.65, 10757.7, 10756.2, 10755.15, 10753.2, 10752.6, 10752, 10751.55, 10751.1, 10750.5, 10749.75, 10749.45, 10750.65, 10750.35, 10750.65, 10750.05, 10749.9, 10749.6, 10749, 10747.95, 10747.05, 10746, 10746.15, 10744.8, 10744.8, 10744.35, 10743.75, 10744.5, 10744.65, 10744.5, 10744.5, 10744.5, 10745.55, 10745.25, 10744.2, 10744.65, 10744.8, 10745.85, 10746.3, 10746.15, 10747.35, 10747.8, 10748.1, 10748.4, 10749, 10749.3, 10749.45, 10750.05, 10751.7, 10751.25, 10752.45, 10753.2, 10752.9, 10753.8, 10754.25, 10754.7, 10755.6, 10755.75, 10757.25, 10759.05, 10759.95, 10761.15, 10761.45, 10763.55, 10764.9, 10764.9, 10766.1, 10767, 10767.9, 10770, 10770.45, 10771.35, 10773.6, 10775.1]
