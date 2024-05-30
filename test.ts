@@ -50,7 +50,7 @@ function performSetup() {
                 basic.showArrow(ArrowNames.West)
                 nextTask = Task.Scan // restart with a fresh scan
             } else {
-                spinRPM = heading.spinRPM() // ...just out of interest
+                spinRPM = heading.spinRate() // ...just out of interest
                 basic.showNumber(Math.floor(spinRPM))
                 basic.pause(1000)
                 basic.showIcon(IconNames.Yes)

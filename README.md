@@ -103,6 +103,7 @@ will then get averaged-out somewhat.
 Unfortunately, the first two factors lie outside our control, and will inevitably limit the accuracy and repeatability
 of reported headings.
 
+
 ## Scanning Around
 
 ```sig
@@ -118,7 +119,7 @@ and then call the ``||heading:scanClockwise()||`` function to perform a magnetic
 ## Where's North?
 
 ```sig
-heading.setNorth()
+heading.setNorth(): number
 ```
 
 Because this extension can't know just how the microbit is mounted on your particular buggy, you'll need to physically point it towards 
@@ -130,7 +131,7 @@ It will then take a fix on the current heading and register that direction as ze
 ## Where am I pointing?
 
 ```sig
-heading.degrees()
+heading.degrees(): number
 ```
 
 Having performed the scan using ``||heading:scanClockwise()||``, and calibrated the measuring set-up using ``||heading:setNorth()||`` , 
@@ -139,7 +140,7 @@ this is the function that actually returns the current compass heading in degree
 ## Rotation Time
 
 ```sig
-heading.spinTime()
+heading.spinTime(): number
 ```
 
 As an interesting by-product of analysing a scan, we calculate the rotation-period of the buggy. This function returns
@@ -148,7 +149,7 @@ that time (in ms), so letting you compare the effects of scanning with different
 ## Rotation Rate
 
 ```sig
-heading.spinRate()
+heading.spinRate(): number
 ```
 
 This function returns the latest scan rotation rate, expressed in revs-per-minute (RPM)
@@ -156,49 +157,10 @@ This function returns the latest scan rotation rate, expressed in revs-per-minut
 ## Power v. Speed
 
 ```sig
-equivalentSpeed(axleLength)
+equivalentSpeed(axleLength: number): number
 ```
 
 A utility function to help (a little) with motor calibration, this function converts the spin-rate achieved with wheels turning 
 in opposite directions into the equivalent linear speed (in mm/sec) if both wheels were going forwards. 
 
 > ``||heading:axleLength||`` calculations require knowledge of the wheel separation (in mm). 
-
-### ~reminder
-It should be noted that motor calibration using this technique can only ever be approximate. 
-For a given power setting, inertial effects and tyre-friction may mean that the wheel-rotation speeds
-actually achieved will differ between moving forwards and spinning on the spot.
-Also, on slower power settings, some buggies may complicate matters by automatically giving an initial "kick" 
-at higher power, just to get the motor going!
-### ~
-
-
-
-
-
-
-
-
-> Open this page at [https://grandpabond.github.io/pxt-heading/](https://grandpabond.github.io/pxt-heading/)
-
-## Use as Extension
-
-This repository can be added as an **extension** in MakeCode.
-
-* open [https://makecode.microbit.org/](https://makecode.microbit.org/)
-* click on **New Project**
-* click on **Extensions** under the gearwheel menu
-* search for **https://github.com/grandpabond/pxt-heading** and import
-
-## Edit this project
-
-To edit this repository in MakeCode.
-
-* open [https://makecode.microbit.org/](https://makecode.microbit.org/)
-* click on **Import** then click on **Import URL**
-* paste **https://github.com/grandpabond/pxt-heading** and click import
-
-#### Metadata (used for search, rendering)
-
-* for PXT/microbit
-<script src="https://makecode.com/gh-pages-embed.js"></script><script>makeCodeRender("{{ site.makecode.home_url }}", "{{ site.github.owner_name }}/{{ site.github.repository_name }}");</script>

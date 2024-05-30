@@ -535,7 +535,7 @@ namespace heading {
     //% block="spin rate (RPM)" 
     //% inlineInputMode=inline 
     //% weight=50 
-    export function spinRPM(): number {
+    export function spinRate(): number {
         if (period == -1) {
             return -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
         } else {
