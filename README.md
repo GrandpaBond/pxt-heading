@@ -1,4 +1,8 @@
-# pxt-heading
+```package
+heading=github:grandpabond/pxt-heading
+```
+
+# Heading Extension
 
 ## Introduction
 MicroBit makes a great controller for a robot buggy. But every vehicle ideally needs to know which way it's pointing. 
@@ -11,7 +15,7 @@ A rather simpler method is just to use the compass! The problem is that the buil
 and seems to operate best when it is horizontal, yet most robot buggies mount it vertically. 
 It also demands calibration by tilting it in every possible direction --potentially a rather awkward operation with a buggy!
 
-This pxt-heading extension is designed to meet the need for a location-independent and orientation-independent compass,
+This ``||heading:heading||`` extension is designed to meet the need for a location-independent and orientation-independent compass,
 based solely on the magnetometer readings. The magnetometer does still need to be calibrated (to discover how it 
 sees its magnetic environment), but we achieve that simply by spinning the buggy on the spot for a few rotations, 
 and then teaching it where North is.
@@ -79,11 +83,11 @@ measured by the magnetometer. These can include:
 
 * Environmental magnetic anomalies, due to magnets or electrical machinery near where the buggy is being used.
 
-* Electro-magnetic fields due to flowing currents (including those powering the buggy's motors).
+* Electro-magnetic fields due to flowing currents (including those powering the buggy's motors or servos).
 
 * Varying fields from the arbitrary angles of any rotating magnetic elements in the motors at the moment of measurement.
 
-* Fixed metalwork and static motor magnets on the buggy itself, if they lie close to the microbit mounting-point. 
+* Fixed metalwork and static motor or loudspeaker magnets on the buggy itself, if they lie close to the microbit mounting-point. 
 These so-called "hard-iron" distortions will add (or subtract) a different fixed bias for each axis.
 
 * "Jitter". Even when nothing has changed, repeated readings from the magnetometer often tend to differ.
@@ -98,35 +102,74 @@ will then get averaged-out somewhat.
 Unfortunately, the first two factors lie outside our control, and will inevitably limit the accuracy and repeatability
 of reported headings.
 
-## heading.scan()
+## Scanning Around
+
+```sig
+heading.scanClockwise(ms)
+```
+
 It is obviously not feasible for this extension to know how to turn every buggy in any particular direction, so you 
-must first set it spinning on-the-spot (by running its motors in opposite directions) and then call the heading.scan() 
-function to perform a magnetic scan of 3-D readings. The scanning time specified should be sufficient to complete at least
-two full rotations.
+must first set it spinning clockwise on-the-spot (by running its motors in opposite directions)
+and then call the ``||heading:scanClockwise()||`` function to perform a magnetic scan of 3-D readings. 
 
-## heading.setNorth()
-Because this extension can't know just how the microbit is mounted on your particular buggy, you'll need to point it towards 
-"North" and then call this function (after first performing a heading.scan()) to register that direction as zero degrees. 
-This function will first analyse the data collected during the scan to choose the best axes, and how to calibrate readings from them.
+> ``||heading:ms||`` the scanning time in ms (sufficient to complete at least two full rotations).
 
-As an interesting by-product, it will also calculate the rotation-period of the buggy during its latest scan, letting 
-you compare the effects of setting different motor speeds.
+## Where's North?
 
-## heading.degrees()
-Having performed the scan using heading.scan(), and calibrated the measuring set-up using heading.setNorth(), 
+```sig
+heading.setNorth()
+```
+
+Because this extension can't know just how the microbit is mounted on your particular buggy, you'll need to physically point it towards 
+"North" and then call this function (after first performing a ``||heading:scanClockwise()||`` ).
+This function will first analyse the data collected during the previous scan (to choose the best axes and how to calibrate 
+readings taken from them).
+It will then take a fix on the current heading and register that direction as zero degrees.
+
+## Where am I pointing?
+
+```sig
+heading.degrees()
+```
+
+Having performed the scan using ``||heading:scanClockwise()||``, and calibrated the measuring set-up using ``||heading:setNorth()||`` , 
 this is the function that actually returns the current compass heading in degrees (0 to 360) clockwise from North.
 
-## rpm2speed(axleLength)
-A utility function to help with motor calibration. This function converts the spin-rate (in RPM) achieved with wheels turning 
-in opposite directions, into the equivalent linear speed (in mm/sec) when both wheels are going forwards. Calculations require 
-knowledge of the axle-length (in mm). 
+## Rotation Time
 
-NOTE: It should be noted that motor calibration using this technique can only ever be approximate. 
+```sig
+heading.spinTime()
+```
+
+As an interesting by-product of analysing a scan, we calculate the rotation-period of the buggy. This function returns
+that time (in ms), so letting you compare the effects of scanning with different motor speed settings.
+
+## Rotation Rate
+
+```sig
+heading.spinRate()
+```
+
+This function returns the latest scan rotation rate, expressed in revs-per-minute (RPM)
+
+## Power v. Speed
+
+```sig
+equivalentSpeed(axleLength)
+```
+
+A utility function to help (a little) with motor calibration, this function converts the spin-rate achieved with wheels turning 
+in opposite directions into the equivalent linear speed (in mm/sec) if both wheels were going forwards. 
+
+> ``||heading:axleLength||`` calculations require knowledge of the wheel separation (in mm). 
+
+### ~reminder
+It should be noted that motor calibration using this technique can only ever be approximate. 
 For a given power setting, inertial effects and tyre-friction may mean that the wheel-rotation speeds
 actually achieved will differ between moving forwards and spinning on the spot.
-Also, on slower power settings, some buggies may complicate matters by automatically give an initial "kick" 
-at higher power to get the motor going!
-
+Also, on slower power settings, some buggies may complicate matters by automatically giving an initial "kick" 
+at higher power, just to get the motor going!
+### ~
 
 
 
