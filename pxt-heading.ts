@@ -576,10 +576,10 @@ namespace heading {
      *  - or to debug processing using a named test dataset
      * (new datasets need editing externally before compiling into simulateScan)
      */
-    //% block="set mode $mode using $name"
+    //% block="reset to mode $mode using $name"
     //% inlineInputMode=inline 
     //% weight=10
-    export function setMode(newMode:Mode, name: string) {
+    export function resetMode(newMode:Mode, name: string) {
         // always reinitialise key data
         scanTimes = []
         scanData = []
@@ -594,6 +594,9 @@ namespace heading {
         // now adopt the new mode
         mode = newMode
         dataset = name
+        if (mode != Mode.Normal) {
+            datalogger.deleteLog() // clear previous log
+        }
     }
 
     // UTILITY FUNCTIONS

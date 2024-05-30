@@ -66,6 +66,7 @@ least eccentric Ellipse).
 Having selected the best view to use (and thus the two most useful axes), we'll need to transform each new 2-D reading from its
 fore-shortened position on the Ellipse to its equivalent position on the Spin-Circle. This can require up to four transformation steps:
 
+
 1) First we will need to shift each coordinate by a fixed offset (effectively moving the Ellipse's centre to the origin), 
 
 2) If we are unlucky and the Ellipse appears tilted, we may then have to rotate our reading so that the Ellipse lies squarely 

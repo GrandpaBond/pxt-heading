@@ -27,18 +27,6 @@ function performSetup() {
             basic.showString("S")
             basic.pause(1000)
             basic.showString("_")
-            switch (config) {
-                case Config.Live:
-                    heading.setMode(Mode.Normal,"")
-                    break
-                case Config.Debug:
-                    heading.setMode(Mode.Debug, dataset)
-                    scanTime = 100 // don't wait around
-                    break
-                case Config.Capture:
-                    heading.setMode(Mode.Capture, "")
-                    break
-            }
             heading.scanClockwise(scanTime)
             basic.showIcon(IconNames.Yes)
             basic.pause(1000)
@@ -129,22 +117,21 @@ function nextConfig() {
     basic.showIcon(IconNames.No)
     basic.pause(500)
     basic.clearScreen()
-    datalogger.deleteLog() // clear previous log
     switch(config) {
         case Config.Live:
             config = Config.Debug
-            heading.setMode(Mode.Debug, dataset)
+            heading.resetMode(Mode.Debug, dataset)
             basic.showString("D") // use sample data while debugging...
             break
         case Config.Debug:
             config = Config.Capture
             basic.showString("C") // no buggy, but use live magnetometer
-            heading.setMode(Mode.Capture, "")
+            heading.resetMode(Mode.Capture, "")
             break
         case Config.Capture:
             config = Config.Live
             basic.showString("L")  // normal live operation
-            heading.setMode(Mode.Normal, "")
+            heading.resetMode(Mode.Normal, "")
             break
     }
     basic.pause(1000)
@@ -167,6 +154,18 @@ input.onButtonPressed(Button.AB, function () {
 })
 
 let nextTask: Task
-let config = Config.Live
-nextConfig() // always start with Config.Debug ...until it all works!
+let config = Config.Capture // --> Config.Live when A+B pressed
+
+for(let i = 0; i < 5; i++) {
+    basic.clearScreen()
+    basic.pause(100)
+    // invite A+B press
+    basic.showLeds(`
+                    . . . . .
+                    . # . # .
+                    # # . # #
+                    . # . # .
+                    . . . . .
+                    `)
+}
 let spinRPM = 0
