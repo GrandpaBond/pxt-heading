@@ -555,7 +555,7 @@ namespace heading {
      * 
      *      -4 : SUCCESSFUL SCAN IS NEEDED FIRST
      */
-    //% block="equivalent speed where axle length (mm) = $axleLength" 
+    //% block="equivalent speed (mm/s), axle length (mm) = $axleLength" 
     //% inlineInputMode=inline 
     //% weight=50 
     export function equivalentSpeed(axleLength: number): number {

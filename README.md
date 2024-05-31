@@ -154,13 +154,14 @@ heading.spinRate(): number
 
 This function returns the latest scan rotation rate, expressed in revs-per-minute (RPM)
 
+
 ## Power v. Speed
 
 ```sig
-equivalentSpeed(axleLength: number): number
+heading.equivalentSpeed(axleLength: number): number
 ```
 
 A utility function to help (a little) with motor calibration, this function converts the spin-rate achieved with wheels turning 
 in opposite directions into the equivalent linear speed (in mm/sec) if both wheels were going forwards. 
 
-> ``||heading:axleLength||`` calculations require knowledge of the wheel separation (in mm). 
+> ``||heading:axleLength||`` the wheel separation (in mm). 
