@@ -114,7 +114,7 @@ It is obviously not feasible for this extension to know how to turn every buggy 
 must first set it spinning clockwise on-the-spot (by running its motors in opposite directions)
 and then call the ``||heading:scanClockwise()||`` function to perform a magnetic scan of 3-D readings. 
 
-> ``||heading:ms||`` the scanning time in ms (sufficient to complete at least two full rotations).
+> ``||heading:ms||`` is the scanning time in ms (sufficient to complete at least two full rotations).
 
 ## Where's North?
 
@@ -163,5 +163,41 @@ heading.equivalentSpeed(axleLength: number): number
 
 A utility function to help (a little) with motor calibration, this function converts the spin-rate achieved with wheels turning 
 in opposite directions into the equivalent linear speed (in mm/sec) if both wheels were going forwards. 
+To calculate this we need to know how far apart the wheels are,
 
-> ``||heading:axleLength||`` the wheel separation (in mm). 
+> ``||heading:axleLength||`` is the wheel separation (in mm). 
+
+### ~reminder
+It should be noted that motor calibration using this technique can only ever be approximate. 
+
+For a given power setting, inertial effects and tyre-friction may mean that the wheel-rotation speeds
+actually achieved will differ between moving forwards and spinning on the spot.
+
+Also, on slower power settings, some buggies may complicate matters by automatically giving an initial "kick" 
+at higher power, just to get the motor going!
+### ~
+
+
+> Open this page at [https://grandpabond.github.io/pxt-heading/](https://grandpabond.github.io/pxt-heading/)
+
+## Use as Extension
+
+This repository can be added as an **extension** in MakeCode.
+
+* open [https://makecode.microbit.org/](https://makecode.microbit.org/)
+* click on **New Project**
+* click on **Extensions** under the gearwheel menu
+* search for **https://github.com/grandpabond/pxt-heading** and import
+
+## Edit this project
+
+To edit this repository in MakeCode.
+
+* open [https://makecode.microbit.org/](https://makecode.microbit.org/)
+* click on **Import** then click on **Import URL**
+* paste **https://github.com/grandpabond/pxt-heading** and click import
+
+#### Metadata (used for search, rendering)
+
+* for PXT/microbit
+<script src="https://makecode.com/gh-pages-embed.js"></script><script>makeCodeRender("{{ site.makecode.home_url }}", "{{ site.github.owner_name }}/{{ site.github.repository_name }}");</script>
