@@ -9,7 +9,7 @@ enum Mode {
     Normal, // Normal usage, mounted in a buggy
     Capture, // Acquire a new test dataset, using a special rotating jig
     Debug, // Test & debug (NOTE: named sets of test-dataset are hard-coded below)
-    Silent // (switch off all trace)
+    Trace // (like Normal mode, but collecting some activity trace )
 }
 
 //% color=#6080e0 weight=40 icon="\uf14e" block="Heading" 
@@ -36,9 +36,10 @@ namespace heading {
     const RadianDegrees = 360 / TwoPi
     const EnoughScanTime = 1800 // minimum acceptable scan-time
     const EnoughSamples = 70 // fewest acceptable scan samples
+    const TooManySamples = 500 // don't be too greedy with memory!
     const MarginalField = 30 // minimum acceptable field-strength for 7 magnetometer readings
     const Circular = 1.03 // maximum eccentricity to consider an Ellipse as "circular"
-    const LongEnough = 0.9 // for major-axis candidates, qualifying fraction of longest 
+    const LongEnough = 0.9 // for major-axis candidates, qualifying fraction of longest radius 
 
     // SUPPORTING CLASSES
 
@@ -104,7 +105,7 @@ namespace heading {
         //    radius peaks; candidate values are pushed onto the list of Arrows: this.majors[]
         // 3) It then finds the consensus angle of the axis-candidates (reversing "opposite"
         //    ones, so they all point to the same end of the axis as the first candidate).
-        // 4) Work out the average rotation period by clocking each time we pass the first major-axis end. 
+        // 4) Works out the average rotation period by clocking each time we pass the first major-axis end. 
         
         analyseView() {
             let majors: Arrow[] = [] // candidate directions for major axis of Ellipse
@@ -247,7 +248,7 @@ namespace heading {
     let scale: number // stretch-factor for correcting foreshortened readings (= eccentricity)
 
     // test-related globals
-    let mode:Mode = Mode.Normal // mode switch for logging
+    let mode:Mode = Mode.Trace // mode switch for logging
     let dataset: string = "" // test dataset to use
     let testData: number[][] = [] //[X,Y,Z] magnetometer values for test cases
     let test = 0 // global selector for test-cases
@@ -315,7 +316,8 @@ namespace heading {
 
             // continue cranking out rolling sums, adding a new reading and dropping the oldest
             let finish = now + ms
-            while (now < finish) {
+            while ((scanTimes.length < TooManySamples)
+                && (now < finish)) {
                 field = input.magneticForce(0)
                 x += field
                 xRoll.push(field)
@@ -336,6 +338,13 @@ namespace heading {
                 z -= zRoll.shift()
                 basic.pause(20)
             }
+        }
+
+
+        if (mode == Mode.Trace) {
+            datalogger.log(
+                datalogger.createCV("step", 1),
+                datalogger.createCV("value", scanTimes.length))
         }
 
         if (mode == Mode.Capture) {
@@ -379,6 +388,13 @@ namespace heading {
         // we'll typically need about a couple of second's worth of scanned readings...
         let nSamples = scanTimes.length
         scanTime = scanTimes[nSamples - 1] - scanTimes[0]
+
+        if (mode == Mode.Trace) {
+            datalogger.log(
+                datalogger.createCV("step", 2),
+                datalogger.createCV("value", scanTime))
+        }
+
         if ((nSamples < EnoughSamples) || (scanTime < EnoughScanTime)) {
             return -1 // "NOT ENOUGH SCAN DATA"
         }
