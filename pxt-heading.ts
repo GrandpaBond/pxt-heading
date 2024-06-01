@@ -247,7 +247,7 @@ namespace heading {
     let scale: number // stretch-factor for correcting foreshortened readings (= eccentricity)
 
     // test-related globals
-    let mode:Mode = Mode.Debug // mode switch for logging
+    let mode:Mode = Mode.Normal // mode switch for logging
     let dataset: string = "" // test dataset to use
     let testData: number[][] = [] //[X,Y,Z] magnetometer values for test cases
     let test = 0 // global selector for test-cases
