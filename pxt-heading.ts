@@ -576,7 +576,7 @@ namespace heading {
      *  - or to debug processing using a named test dataset
      * (new datasets need editing externally before compiling into simulateScan)
      */
-    //% block="reset to mode $mode using $name"
+    //% block="reset to mode $newMode using $name"
     //% inlineInputMode=inline 
     //% weight=10
     export function resetMode(newMode:Mode, name: string) {
