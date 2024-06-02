@@ -341,12 +341,12 @@ namespace heading {
         }
 
 
-        /*if (mode == Mode.Trace) {
+        if (mode == Mode.Trace) {
             datalogger.log(
                 datalogger.createCV("step", 1),
                 datalogger.createCV("value", scanTimes.length))
         }
-        */
+        
 basic.showString("#")
 basic.showNumber(scanTimes.length)
 
@@ -390,17 +390,17 @@ basic.showNumber(scanTimes.length)
         // First analyse the scan-data to decide how best to use the magnetometer readings.
         // we'll typically need about a couple of second's worth of scanned readings...
         let nSamples = scanTimes.length
-basic.showString("#")
-basic.showNumber(nSamples)
         scanTime = scanTimes[nSamples - 1] - scanTimes[0]
-basic.showString("T")
-basic.showNumber(scanTime)
-        /*if (mode == Mode.Trace) {
+        if (mode == Mode.Trace) {
             datalogger.log(
                 datalogger.createCV("step", 2),
                 datalogger.createCV("value", scanTime))
         }
-        */
+        
+basic.showString("#")
+basic.showNumber(nSamples)
+basic.showString("T")
+basic.showNumber(scanTime)
 
         if ((nSamples < EnoughSamples) || (scanTime < EnoughScanTime)) {
             return -1 // "NOT ENOUGH SCAN DATA"
