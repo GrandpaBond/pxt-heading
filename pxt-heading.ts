@@ -346,9 +346,6 @@ namespace heading {
                 datalogger.createCV("step", 1),
                 datalogger.createCV("value", scanTimes.length))
         }
-        
-basic.showString("#")
-basic.showNumber(scanTimes.length)
 
         if (mode == Mode.Capture) {
             datalogger.setColumnTitles("index", "t", "x", "y", "z")
@@ -397,11 +394,6 @@ basic.showNumber(scanTimes.length)
                 datalogger.createCV("value", scanTime))
         }
         
-basic.showString("#")
-basic.showNumber(nSamples)
-basic.showString("T")
-basic.showNumber(scanTime)
-
         if ((nSamples < EnoughSamples) || (scanTime < EnoughScanTime)) {
             return -1 // "NOT ENOUGH SCAN DATA"
         }
