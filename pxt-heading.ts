@@ -9,7 +9,7 @@ enum Mode {
     Normal, // Normal usage, mounted in a buggy
     Capture, // Acquire a new test dataset, using a special rotating jig
     Debug, // Test & debug (NOTE: named sets of test-dataset are hard-coded below)
-    Trace // (like Normal mode, but collecting some activity trace )
+    Trace // Collect full trace (= Capture + Debug) 
 }
 
 //% color=#6080e0 weight=40 icon="\uf14e" block="Heading" 
@@ -281,7 +281,7 @@ namespace heading {
 
         if (mode != Mode.Normal) {
             datalogger.deleteLog()
-            datalogger.includeTimestamp(FlashLogTimeStampFormat.None)
+            datalogger.includeTimestamp(FlashLogTimeStampFormat.Milliseconds)
         }
 
         if (mode == Mode.Debug) {
@@ -341,13 +341,7 @@ namespace heading {
         }
 
 
-        if (mode == Mode.Trace) {
-            datalogger.log(
-                datalogger.createCV("step", 1),
-                datalogger.createCV("value", scanTimes.length))
-        }
-
-        if (mode == Mode.Capture) {
+        if ((mode == Mode.Trace) || (mode == Mode.Capture)) {
             datalogger.setColumnTitles("index", "t", "x", "y", "z")
             for (let i = 0; i < scanTimes.length; i++) {
                 datalogger.log(
@@ -388,11 +382,6 @@ namespace heading {
         // we'll typically need about a couple of second's worth of scanned readings...
         let nSamples = scanTimes.length
         scanTime = scanTimes[nSamples - 1] - scanTimes[0]
-        if (mode == Mode.Trace) {
-            datalogger.log(
-                datalogger.createCV("step", 2),
-                datalogger.createCV("value", scanTime))
-        }
         
         if ((nSamples < EnoughSamples) || (scanTime < EnoughScanTime)) {
             return -1 // "NOT ENOUGH SCAN DATA"
@@ -481,7 +470,7 @@ namespace heading {
         // (This is the global fixed bias to be subtracted from all future readings)
         north = takeSingleReading()
 
-        if (mode == Mode.Debug) {
+        if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
             datalogger.log(
                 datalogger.createCV("view", views[bestView].plane),
                 datalogger.createCV("scale", scale),
@@ -609,9 +598,6 @@ namespace heading {
         // now adopt the new mode
         mode = newMode
         dataset = name
-        if (mode != Mode.Normal) {
-            datalogger.deleteLog() // clear previous log
-        }
     }
 
     // UTILITY FUNCTIONS
@@ -655,7 +641,7 @@ namespace heading {
                 xyz[2] += input.magneticForce(2)
             }
 
-            if (mode == Mode.Capture) {
+            if ((mode == Mode.Trace)||(mode == Mode.Capture)) {
                 datalogger.log(
                     datalogger.createCV("index", test),
                     datalogger.createCV("x", round2(xyz[0])),
@@ -694,7 +680,7 @@ namespace heading {
             reading += theta
         }
         
-        if (mode == Mode.Debug) {
+        if ((mode == Mode.Trace)||(mode == Mode.Debug)) {
             // just for debug, show coordinates of "stretched" reading after undoing rotation
             let uStretch = uFix * cosTheta - vFix * sinTheta
             let vStretch = vFix * cosTheta + uFix * sinTheta
