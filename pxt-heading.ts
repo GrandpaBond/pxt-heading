@@ -38,7 +38,7 @@ namespace heading {
     const EnoughSamples = 70 // fewest acceptable scan samples
     const TooManySamples = 500 // don't be too greedy with memory!
     const MarginalField = 30 // minimum acceptable field-strength for 7 magnetometer readings
-    const Circular = 1.03 // maximum eccentricity to consider an Ellipse as "circular"
+    const Circular = 1.1 // maximum eccentricity to consider an Ellipse as "circular"
     const LongEnough = 0.9 // for major-axis candidates, qualifying fraction of longest radius 
 
     // SUPPORTING CLASSES
@@ -205,6 +205,16 @@ namespace heading {
                         flipped = true
                         uSum -= majors[i].u
                         vSum -= majors[i].v
+                    } 
+                    
+                    if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
+                            datalogger.log(
+                                datalogger.createCV("plane", this.plane),
+                                datalogger.createCV("time", majors[i].time),
+                                datalogger.createCV("uAxis", majors[i].u),
+                                datalogger.createCV("vAxis", majors[i].v),
+                                datalogger.createCV("[angle]", asDegrees(majors[i].angle)),
+                                datalogger.createCV("size", majors[i].size))
                     }
                 }
                 // normalise the resultant's vector coordinates (not strictly necessary!)
@@ -477,9 +487,9 @@ namespace heading {
                 datalogger.createCV("circular?", isCircular),
                 datalogger.createCV("sense?", rotationSense),
                 datalogger.createCV("theta", theta),
-                datalogger.createCV("[theta]", Math.round(asDegrees(theta))),
+                datalogger.createCV("[theta]", round2(asDegrees(theta))),
                 datalogger.createCV("north", north),
-                datalogger.createCV("[north]", Math.round(asDegrees(north))),
+                datalogger.createCV("[north]", round2(asDegrees(north))),
                 datalogger.createCV("period", period),
             )
         }
@@ -697,7 +707,7 @@ namespace heading {
                 datalogger.createCV("uStretch", round2(uStretch)),
                 datalogger.createCV("vStretch", round2(vStretch)),
                 datalogger.createCV("reading", round2(reading)),
-                datalogger.createCV("[reading]", Math.round(asDegrees(reading) * rotationSense))
+                datalogger.createCV("[reading]", round2(asDegrees(reading) * rotationSense))
             )
         }
         return reading
