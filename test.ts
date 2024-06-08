@@ -3,6 +3,7 @@ enum Config {
     Live, // Normal usage (but use turntable Jig to pretend it's on a buggy)
     Capture, // Acquire new test datasets, using turntable Jig
     Debug, // Test & debug (dataset selection is preset in code below)
+    Trace, // Gather full diagnostics
 }
 enum Task {
     Scan,
@@ -112,7 +113,7 @@ function measure() {
 
 }
 
-// rotate three-state configuration 
+// rotate four-state configuration 
 function nextConfig() {
     basic.showIcon(IconNames.No)
     basic.pause(500)
@@ -125,13 +126,18 @@ function nextConfig() {
             break
         case Config.Debug:
             config = Config.Capture
-            basic.showString("C") // no buggy, but use live magnetometer
             heading.resetMode(Mode.Capture, "")
+            basic.showString("C") // no buggy, but use live magnetometer
             break
         case Config.Capture:
+            config = Config.Trace
+            heading.resetMode(Mode.Trace, "")
+            basic.showString("T")  // gather full diagnostics
+            break
+        case Config.Trace:
             config = Config.Live
-            basic.showString("L")  // normal live operation
             heading.resetMode(Mode.Normal, "")
+            basic.showString("L")  // normal live operation
             break
     }
     basic.pause(1000)
