@@ -69,12 +69,12 @@ function performSetup() {
             }
             break
 
-        case Task.Measure: // Button A resets everything
+        case Task.Measure: // Button A allows new North setting
             basic.showIcon(IconNames.No)
             basic.pause(1000)
             basic.clearScreen()
             basic.showArrow(ArrowNames.West)
-            nextTask = Task.Scan // restart with a scan
+            nextTask = Task.SetNorth // reset new North
             break
     }
 

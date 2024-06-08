@@ -128,8 +128,8 @@ namespace heading {
                 let delta = trial.angle - angleWas
                 spin += delta
                 // fix roll-rounds in either direction
-                if (delta > HalfPi) spin -= TwoPi
-                if (delta < -HalfPi) spin += TwoPi
+                if (delta > HalfPi) spin -= TwoPi // apparent big positive jump is due to underflow
+                if (delta < -HalfPi) spin += TwoPi // apparent big negative jump is due to overflow
                 // now collect candidates for the major-axis angle   
                 stepWas = step
                 step = trial.size - sizeWas // is radius growing or shrinking?
