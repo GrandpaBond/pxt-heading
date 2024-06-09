@@ -298,6 +298,7 @@ namespace heading {
             simulateScan(dataset)
             basic.pause(ms)
         } else { // use live magnetometer
+            basic.pause(200) // wait for motors to stabilise (after initial kick)
             let index = 0
             let xRoll: number[] = []
             let yRoll: number[] = []
@@ -306,10 +307,6 @@ namespace heading {
             let y = 0
             let z = 0
             let field = 0
-            // discard the very first magnetometer readings as these are sometimes dubious!
-            field = input.magneticForce(0)
-            field = input.magneticForce(1)
-            field = input.magneticForce(2)
             
             let now = input.runningTime()
             // add up the first six readings, about 25ms apart...
