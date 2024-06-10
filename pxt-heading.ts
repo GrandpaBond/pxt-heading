@@ -40,8 +40,9 @@ namespace heading {
     const MarginalField = 30 // minimum acceptable field-strength for 7 magnetometer readings
     const Circular = 1.1 // maximum eccentricity to consider an Ellipse as "circular"
     const LongEnough = 0.9 // for major-axis candidates, qualifying fraction of longest radius
-    const Window = 200 // time-window (i.e latency) for movingAverage() function (in ms)
     const SampleGap = 25 // millisecs to leave between magnetometer readings
+    const Window = 7 // number of magnetometer samples needed to form a good average
+    const Latency = Window * SampleGap // consequent approximate ms delay, collecting a moving average
 
     // SUPPORTING CLASSES
 
@@ -330,8 +331,8 @@ namespace heading {
 
             // continue cranking out rolling sums, adding a new reading and dropping the oldest
             let finish = now + ms
-            // while ((scanTimes.length < TooManySamples) && (now < finish)) {
-            while (now < finish) {
+            while ( (now < finish) 
+                    && (scanTimes.length < TooManySamples)) {
                 field = input.magneticForce(0)
                 x += field
                 xRoll.push(field)
@@ -373,9 +374,11 @@ namespace heading {
         // magnetometer readings are sampled and a new [X,Y,Z] triple added to the scanData[] array.
         // A timestamp for each sample is also recorded in the scanTimes[] array.
 
-        // NOTE: to smooth out jitter, each reading is always a rolling sum of SEVEN consecutive
-        // readings, effectively amplifying seven-fold the dynamic field range due to the Earth 
-        // (from ~50 microTeslas to ~350)
+        // NOTE: To smooth out jitter, each reading is always a moving average of several consecutive
+        // readings. Because of scheduled interrupts, sample-times may be irregular, so a special
+        // exponential moving average function is used which is timing-aware. The minimum sample-spacing
+        // and grouping are controlled respectively by the constants SampleGap and Window.
+
         scanTimes = []
         scanData = []
 
@@ -390,17 +393,15 @@ namespace heading {
         } else { // use live magnetometer
             basic.pause(200) // wait for motors to stabilise (after initial kick)
             let previous: number[] = []
-            let averaged: number[] = []
             let timeWas = 0
             let timeNow = input.runningTime()
             let latest = [
                 input.magneticForce(Dimension.X),
                 input.magneticForce(Dimension.Y),
                 input.magneticForce(Dimension.Z)]
-
-
-// build up a moving average over the latency period, Window
-            for (let i = 0; i < ); i++) {
+            let averaged = latest
+            // build up the first moving average
+            for (let n = 0; n < Window; n++) {
                 timeWas = timeNow
                 previous = latest
                 timeNow = input.runningTime()
@@ -408,79 +409,30 @@ namespace heading {
                     input.magneticForce(Dimension.X),
                     input.magneticForce(Dimension.Y),
                     input.magneticForce(Dimension.Z)]
-
                 averaged = irregularMovingAverage(averaged, previous, latest, timeNow - timeWas)
                 basic.pause(10)
             }
 
-            if ((mode == Mode.Trace) || (mode == Mode.Capture)) {
-                datalogger.log(
-                    datalogger.createCV("index", test),
-                    datalogger.createCV("u", round2(averaged[0])),
-                    datalogger.createCV("v", round2(averaged[1])))
+            // continue cranking out updated moving averages until we run out of time or space
+            let finish = timeNow + ms
+            while ((timeNow < finish)
+                && (scanTimes.length < TooManySamples)) {
+                timeWas = timeNow
+                previous = latest
+                timeNow = input.runningTime()
+                latest = [
+                    input.magneticForce(Dimension.X),
+                    input.magneticForce(Dimension.Y),
+                    input.magneticForce(Dimension.Z)]
+                averaged = irregularMovingAverage(averaged, previous, latest, timeNow - timeWas)
+                scanData.push(averaged)  // store the triple of averaged [X,Y,Z] values
+                timeNow = input.runningTime()
+                scanTimes.push(timeNow)
+
+                basic.pause(10)
             }
-
-            // use just our current bestView's two dimensions
-            uRaw = averaged[0]
-            vRaw = averaged[1]
-
-
-
-
-
-            let index = 0
-            let xRoll: number[] = []
-            let yRoll: number[] = []
-            let zRoll: number[] = []
-            let x = 0
-            let y = 0
-            let z = 0
-            let field = 0
-
-            let now = input.runningTime()
-            // add up the first six readings, about 25ms apart...
-            for (let k = 0; k < 6; k++) {
-                field = input.magneticForce(0)
-                x += field
-                xRoll.push(field)
-
-                field = input.magneticForce(1)
-                y += field
-                yRoll.push(field)
-
-                field = input.magneticForce(2)
-                z += field
-                zRoll.push(field)
-
-                basic.pause(20)
-            }
-
-            // continue cranking out rolling sums, adding a new reading and dropping the oldest
-            let finish = now + ms
-            // while ((scanTimes.length < TooManySamples) && (now < finish)) {
-            while (now < finish) {
-                field = input.magneticForce(0)
-                x += field
-                xRoll.push(field)
-
-                field = input.magneticForce(1)
-                y += field
-                yRoll.push(field)
-
-                field = input.magneticForce(2)
-                z += field
-                zRoll.push(field)
-
-                scanData.push([x, y, z])
-                now = input.runningTime()
-                scanTimes.push(now)
-                x -= xRoll.shift()
-                y -= yRoll.shift()
-                z -= zRoll.shift()
-                basic.pause(20)
-            }
+ 
         }
-
 
         if ((mode == Mode.Trace) || (mode == Mode.Capture)) {
             datalogger.setColumnTitles("index", "t", "x", "y", "z")
@@ -608,7 +560,7 @@ namespace heading {
         // Having successfully set up the projection parameters for the bestView, get a
         // stable fix on the current heading, which we will then designate as "North".
         // (This is the global fixed bias to be subtracted from all future readings)
-        north = takeSingleReading()
+        north = takeSingleReading2()
 
         if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
             datalogger.log(
@@ -649,7 +601,7 @@ namespace heading {
     // Spin-Circle from "underneath", with the field-vector appearing to move clockwise 
     // --effectively experiencing an anti-clockwise scan. 
     // In this case the rotationSense will be negative.
-        return asDegrees((takeSingleReading() - north) * rotationSense)
+        return asDegrees((takeSingleReading2() - north) * rotationSense)
         // NOTE: that there is a double reversal going on here:
         // Viewed from above, the Field-vector reading INCREASES (anticlockwise) w.r.t "North"
         // as the buggy's compass-heading increases (clockwise).
