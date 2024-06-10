@@ -3,7 +3,7 @@ enum Config {
     Live, // Normal usage (but use turntable Jig to pretend it's on a buggy)
     Capture, // Acquire new test datasets, using turntable Jig
     Debug, // Test & debug (dataset selection is preset in code below)
-    Trace, // Gather full diagnostics
+    Trace, // Gather full diagnostics using dataLogger
 }
 enum Task {
     Scan,
@@ -24,7 +24,7 @@ function performSetup() {
     let result = 0
     switch (nextTask) {
         case Task.Scan:
-            let scanTime = 6000 // ...to manually rotate turntable jig twice (SMOOOOTHLY!)
+            let scanTime = 6000 // ...to MANUALLY rotate turntable jig twice (SMOOOOTHLY!)
             basic.showString("S")
             basic.pause(1000)
             basic.showString("_")
@@ -99,7 +99,7 @@ function measure() {
             let compass = heading.degrees()
             basic.showNumber(Math.floor(compass))
             basic.pause(500)
-            // now manually move to next test-angle...
+            // now MANUALLY move to next test-angle...
             basic.showLeds(`
                     # # . # #
                     # . . . #

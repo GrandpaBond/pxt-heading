@@ -39,7 +39,8 @@ namespace heading {
     const TooManySamples = 500 // don't be too greedy with memory!
     const MarginalField = 30 // minimum acceptable field-strength for 7 magnetometer readings
     const Circular = 1.1 // maximum eccentricity to consider an Ellipse as "circular"
-    const LongEnough = 0.9 // for major-axis candidates, qualifying fraction of longest radius 
+    const LongEnough = 0.9 // for major-axis candidates, qualifying fraction of longest radius
+    const Alpha = 0.2 // control constant for movingAverage() function
 
     // SUPPORTING CLASSES
 
@@ -523,8 +524,11 @@ namespace heading {
     // In this case the rotationSense will be negative.
         return asDegrees((takeSingleReading() - north) * rotationSense)
         // NOTE: that there is a double reversal going on here:
-        // Viewed from above, the Field-vector reading increases (anticlockwise) w.r.t "North"
-        // as the buggy's heading increases (clockwise). From below, a third reversal is needed!
+        // Viewed from above, the Field-vector reading INCREASES (anticlockwise) w.r.t "North"
+        // as the buggy's compass-heading increases (clockwise).
+        // So after a right-turn, the reading is HalfPi bigger than the North reading.
+        // After subtracting North, that converts asDegrees() to +90 
+        // From below, the same right-turn would REDUCE the reading by HalfPi so a third reversal is needed!
     }
 
     /**
@@ -715,6 +719,122 @@ namespace heading {
         return reading
     }
 
+// update the rolling average of the magnetometer readings
+    function takeSingleReading2(): number {
+        let uRaw = 0
+        let vRaw = 0
+        let u = 0
+        let v = 0
+        let uNew = 0
+        let vNew = 0
+        let uFix = 0
+        let vFix = 0
+        let reading = 0
+        if (mode == Mode.Debug) { // just choose the next test-data value
+            uRaw = testData[test][uDim]
+            vRaw = testData[test][vDim]
+            test = (test + 1) % testData.length
+        } else {
+            let xyz = [0, 0, 0]
+
+            // get a new sample as the sum of seven readings, 10ms apart
+            xyz[0] = input.magneticForce(0)
+            xyz[1] = input.magneticForce(1)
+            xyz[2] = input.magneticForce(2)
+
+            for (let i = 0; i < 6; i++) {
+                basic.pause(10)
+                xyz[0] += input.magneticForce(0)
+                xyz[1] += input.magneticForce(1)
+                xyz[2] += input.magneticForce(2)
+            }
+
+            if ((mode == Mode.Trace) || (mode == Mode.Capture)) {
+                datalogger.log(
+                    datalogger.createCV("index", test),
+                    datalogger.createCV("x", round2(xyz[0])),
+                    datalogger.createCV("y", round2(xyz[1])),
+                    datalogger.createCV("z", round2(xyz[2])))
+            }
+
+            // even in normal operation, it's currently useful to keep a history of readings
+            testData.push(xyz)
+            test++ // clock another test sample
+
+            // use just our current bestView's two dimensions
+            uRaw = xyz[uDim]
+            vRaw = xyz[vDim]
+        }
+
+        // re-centre this latest point w.r.t our Ellipse origin
+        u = uRaw - uOff
+        v = vRaw - vOff
+
+        if (isCircular) {
+            reading = Math.atan2(v, u)
+        } else {
+            // Unless this Ellipse.isCircular, any {u,v} reading will be foreshortened in this View, and
+            // must be stretched along the Ellipse minor-axis to place it correctly onto the Spin-Circle.
+
+            // First rotate CLOCKWISE by theta (so aligning the Ellipse minor-axis angle with the V-axis)
+            uNew = u * cosTheta + v * sinTheta
+            vNew = v * cosTheta - u * sinTheta
+            // Now scale up along V, re-balancing the axes to make the Ellipse circular
+            uFix = uNew
+            vFix = vNew * scale
+            // get the adjusted angle for this corrected {u,v}
+            reading = Math.atan2(vFix, uFix)
+            // finally, undo the rotation by theta
+            reading += theta
+        }
+
+        if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
+            // just for debug, show coordinates of "stretched" reading after undoing rotation
+            let uStretch = uFix * cosTheta - vFix * sinTheta
+            let vStretch = vFix * cosTheta + uFix * sinTheta
+            datalogger.log(
+                datalogger.createCV("u", round2(u)),
+                datalogger.createCV("v", round2(v)),
+                datalogger.createCV("uNew", round2(uNew)),
+                datalogger.createCV("vNew", round2(vNew)),
+                datalogger.createCV("uFix", round2(uFix)),
+                datalogger.createCV("vFix", round2(vFix)),
+                datalogger.createCV("uStretch", round2(uStretch)),
+                datalogger.createCV("vStretch", round2(vStretch)),
+                datalogger.createCV("reading", round2(reading)),
+                datalogger.createCV("[reading]", round2(asDegrees(reading) * rotationSense))
+            )
+        }
+        return reading
+    }
+
+
+
+
+// Compute an updated moving average for the next in a sampled set of magnetometer readings.
+// Sampling irregularites due to scheduler interrupts demand this somewhat complex maths.
+// The constant Alpha governs the responsiveness of the exponential averaging.
+// (The history[], previous[], latest[] and result[] arrays will be 3-D for initial scanning
+//  of X,Y, & Z.  Thereafter, they will be 2-D, using just the uDim and vDim)
+
+    function irregularMovingAverage(history: number[], previous:number[], latest:number[], 
+                                    timeStep: number):number[] {
+        let a = timeStep / Alpha
+        let keepOld = Math.exp(-a)
+        let cutNew = (1 - keepOld) / a
+        let addNew = (1 - cutNew)
+        let boostLast = (cutNew - keepOld)
+        let result = latest // ensure correct #dims
+        for (let dim = 0; dim < latest.length; dim++) { 
+            result[dim] = (keepOld * history[dim]) 
+                    + (boostLast * previous[dim]) 
+                    + (addNew * latest[dim])
+        }
+        return result
+    }
+
+
+
     // helpful for logging...
     function round2(v: number): number {
         return (Math.round(100 * v) / 100)
@@ -799,7 +919,6 @@ namespace heading {
                 break
 
 
-*/ 
             case "dashboard70": // mounted as 45-degree tilted dashboard; dip ~= 70 
                 // In this instance an adjacent speaker magnet was dominating the Earth's field by
                 // a factor af ~150x, yet it is still possible to extract the small Spin-Circle field-vector!
@@ -811,7 +930,8 @@ namespace heading {
                 yTest = [10843.5, 10841.25, 10796.7, 10753.35, 10740, 10765.95, 10814.55, 10855.05, 10861.65]
                 zTest = [3019.8, 3023.7, 2975.4, 2936.4, 2930.25, 2953.2, 2995.35, 3037.8, 3048]
                 break
-            }
+*/
+             }
 
         // transpose the three arrays into array of triples
         for (let n = 0; n < scanTimes.length; n++) {
