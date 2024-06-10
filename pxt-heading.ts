@@ -883,6 +883,7 @@ namespace heading {
     }
 
 
+
 // Compute an updated moving average for the next in a sampled set of magnetometer readings.
 // Sampling irregularites due to scheduler interrupts demand this somewhat complex maths.
 // The constant Window governs the latency of the exponential averaging.
@@ -904,6 +905,14 @@ namespace heading {
                     + (boostLast * previous[dim]) 
                     + (addNew * latest[dim])
         }
+
+        datalogger.log(
+            datalogger.createCV("index", test),
+            datalogger.createCV("x", round2(result[0])),
+            datalogger.createCV("y", round2(result[1])),
+            datalogger.createCV("z", round2(result[2])))
+        
+
         return result
     }
 
@@ -919,6 +928,7 @@ namespace heading {
     function asDegrees(angle: number): number {
         return ((angle * RadianDegrees) + 360) % 360
     }
+    
 
     // While debugging, it is necessary to re-use predictable sample data for a variety of use-cases 
     // captured (using the datalogger) from earlier live runs. 
@@ -1005,7 +1015,9 @@ namespace heading {
                 zTest = [3019.8, 3023.7, 2975.4, 2936.4, 2930.25, 2953.2, 2995.35, 3037.8, 3048]
                 break
 */
-             }
+}
+    
+
 
         // transpose the three arrays into array of triples
         for (let n = 0; n < scanTimes.length; n++) {
