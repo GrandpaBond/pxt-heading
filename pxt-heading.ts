@@ -37,7 +37,7 @@ namespace heading {
     const EnoughScanTime = 1800 // minimum acceptable scan-time
     const EnoughSamples = 70 // fewest acceptable scan samples
     const TooManySamples = 500 // don't be too greedy with memory!
-    const MarginalField = 30 // minimum acceptable field-strength for 7 magnetometer readings
+    const MarginalField = 10 // minimum acceptable field-strength for magnetometer readings
     const Circular = 1.1 // maximum eccentricity to consider an Ellipse as "circular"
     const LongEnough = 0.9 // for major-axis candidates, qualifying fraction of longest radius
     const SampleGap = 25 // millisecs to leave between magnetometer readings
@@ -400,6 +400,7 @@ namespace heading {
                 input.magneticForce(Dimension.Y),
                 input.magneticForce(Dimension.Z)]
             let averaged = latest
+            let next = latest
             // build up the first moving average
             for (let n = 0; n < Window; n++) {
                 timeWas = timeNow
@@ -409,7 +410,8 @@ namespace heading {
                     input.magneticForce(Dimension.X),
                     input.magneticForce(Dimension.Y),
                     input.magneticForce(Dimension.Z)]
-                averaged = irregularMovingAverage(averaged, previous, latest, timeNow - timeWas)
+                next = irregularMovingAverage(averaged, previous, latest, timeNow - timeWas)
+                averaged = next
                 basic.pause(10)
             }
 
@@ -816,6 +818,7 @@ namespace heading {
         } else {
             let previous: number[] = []
             let averaged: number[] = []
+            let next: number[] = []
             let timeWas = 0
             let timeNow = input.runningTime()
             let latest = [input.magneticForce(uDim), input.magneticForce(vDim)]
@@ -824,7 +827,8 @@ namespace heading {
                 previous = latest
                 timeNow = input.runningTime()
                 latest = [input.magneticForce(uDim), input.magneticForce(vDim)]
-                averaged = irregularMovingAverage(averaged, previous, latest, timeNow - timeWas)
+                next = irregularMovingAverage(averaged, previous, latest, timeNow - timeWas)
+                averaged = next
                 basic.pause(10)
             }
 
@@ -898,19 +902,26 @@ namespace heading {
         let boostLast = (inherited - keepOld)
         let addNew = (1 - inherited)
         // keepOld + boostLast + addNew always add up to 100%
-        
+
         let result = latest // ensure correct #dims
         for (let dim = 0; dim < result.length; dim++) { 
             result[dim] = (keepOld * history[dim]) 
                     + (boostLast * previous[dim]) 
                     + (addNew * latest[dim])
         }
-
+        
         datalogger.log(
             datalogger.createCV("index", test),
-            datalogger.createCV("x", round2(result[0])),
-            datalogger.createCV("y", round2(result[1])),
-            datalogger.createCV("z", round2(result[2])))
+            datalogger.createCV("timeStep", timeStep),
+            datalogger.createCV("keepOld", round2(keepOld)),
+            datalogger.createCV("inherited", round2(inherited)),
+            datalogger.createCV("boostLast", round2(boostLast)),
+            datalogger.createCV("addNew", round2(addNew)),
+            datalogger.createCV("history", round2(history[0])),
+            datalogger.createCV("previous", round2(previous[0])),
+            datalogger.createCV("latest", round2(latest[0])),
+            datalogger.createCV("result0", round2(result[0]))
+            )
         
 
         return result
