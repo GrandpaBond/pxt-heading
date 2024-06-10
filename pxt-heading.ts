@@ -40,7 +40,8 @@ namespace heading {
     const MarginalField = 30 // minimum acceptable field-strength for 7 magnetometer readings
     const Circular = 1.1 // maximum eccentricity to consider an Ellipse as "circular"
     const LongEnough = 0.9 // for major-axis candidates, qualifying fraction of longest radius
-    const Alpha = 0.2 // control constant for movingAverage() function
+    const Window = 200 // time-window (i.e latency) for movingAverage() function (in ms)
+    const SampleGap = 25 // millisecs to leave between magnetometer readings
 
     // SUPPORTING CLASSES
 
@@ -367,6 +368,132 @@ namespace heading {
         }
     }
 
+    export function scanClockwise2(ms: number) {
+        // Every 25-30 ms over the specified duration (generally a couple of seconds),
+        // magnetometer readings are sampled and a new [X,Y,Z] triple added to the scanData[] array.
+        // A timestamp for each sample is also recorded in the scanTimes[] array.
+
+        // NOTE: to smooth out jitter, each reading is always a rolling sum of SEVEN consecutive
+        // readings, effectively amplifying seven-fold the dynamic field range due to the Earth 
+        // (from ~50 microTeslas to ~350)
+        scanTimes = []
+        scanData = []
+
+        if (mode != Mode.Normal) {
+            datalogger.deleteLog()
+            datalogger.includeTimestamp(FlashLogTimeStampFormat.Milliseconds)
+        }
+
+        if (mode == Mode.Debug) {
+            simulateScan(dataset)
+            basic.pause(ms)
+        } else { // use live magnetometer
+            basic.pause(200) // wait for motors to stabilise (after initial kick)
+            let previous: number[] = []
+            let averaged: number[] = []
+            let timeWas = 0
+            let timeNow = input.runningTime()
+            let latest = [
+                input.magneticForce(Dimension.X),
+                input.magneticForce(Dimension.Y),
+                input.magneticForce(Dimension.Z)]
+
+
+// build up a moving average over the latency period, Window
+            for (let i = 0; i < ); i++) {
+                timeWas = timeNow
+                previous = latest
+                timeNow = input.runningTime()
+                latest = [
+                    input.magneticForce(Dimension.X),
+                    input.magneticForce(Dimension.Y),
+                    input.magneticForce(Dimension.Z)]
+
+                averaged = irregularMovingAverage(averaged, previous, latest, timeNow - timeWas)
+                basic.pause(10)
+            }
+
+            if ((mode == Mode.Trace) || (mode == Mode.Capture)) {
+                datalogger.log(
+                    datalogger.createCV("index", test),
+                    datalogger.createCV("u", round2(averaged[0])),
+                    datalogger.createCV("v", round2(averaged[1])))
+            }
+
+            // use just our current bestView's two dimensions
+            uRaw = averaged[0]
+            vRaw = averaged[1]
+
+
+
+
+
+            let index = 0
+            let xRoll: number[] = []
+            let yRoll: number[] = []
+            let zRoll: number[] = []
+            let x = 0
+            let y = 0
+            let z = 0
+            let field = 0
+
+            let now = input.runningTime()
+            // add up the first six readings, about 25ms apart...
+            for (let k = 0; k < 6; k++) {
+                field = input.magneticForce(0)
+                x += field
+                xRoll.push(field)
+
+                field = input.magneticForce(1)
+                y += field
+                yRoll.push(field)
+
+                field = input.magneticForce(2)
+                z += field
+                zRoll.push(field)
+
+                basic.pause(20)
+            }
+
+            // continue cranking out rolling sums, adding a new reading and dropping the oldest
+            let finish = now + ms
+            // while ((scanTimes.length < TooManySamples) && (now < finish)) {
+            while (now < finish) {
+                field = input.magneticForce(0)
+                x += field
+                xRoll.push(field)
+
+                field = input.magneticForce(1)
+                y += field
+                yRoll.push(field)
+
+                field = input.magneticForce(2)
+                z += field
+                zRoll.push(field)
+
+                scanData.push([x, y, z])
+                now = input.runningTime()
+                scanTimes.push(now)
+                x -= xRoll.shift()
+                y -= yRoll.shift()
+                z -= zRoll.shift()
+                basic.pause(20)
+            }
+        }
+
+
+        if ((mode == Mode.Trace) || (mode == Mode.Capture)) {
+            datalogger.setColumnTitles("index", "t", "x", "y", "z")
+            for (let i = 0; i < scanTimes.length; i++) {
+                datalogger.log(
+                    datalogger.createCV("index", i),
+                    datalogger.createCV("t", scanTimes[i]),
+                    datalogger.createCV("x", round2(scanData[i][Dimension.X])),
+                    datalogger.createCV("y", round2(scanData[i][Dimension.Y])),
+                    datalogger.createCV("z", round2(scanData[i][Dimension.Z])))
+            }
+        }
+    }
 
 
     /**
@@ -735,35 +862,30 @@ namespace heading {
             vRaw = testData[test][vDim]
             test = (test + 1) % testData.length
         } else {
-            let xyz = [0, 0, 0]
-
-            // get a new sample as the sum of seven readings, 10ms apart
-            xyz[0] = input.magneticForce(0)
-            xyz[1] = input.magneticForce(1)
-            xyz[2] = input.magneticForce(2)
-
+            let previous: number[] = []
+            let averaged: number[] = []
+            let timeWas = 0
+            let timeNow = input.runningTime()
+            let latest = [input.magneticForce(uDim), input.magneticForce(vDim)]
             for (let i = 0; i < 6; i++) {
+                timeWas = timeNow
+                previous = latest
+                timeNow = input.runningTime()
+                latest = [input.magneticForce(uDim), input.magneticForce(vDim)]
+                averaged = irregularMovingAverage(averaged, previous, latest, timeNow - timeWas)
                 basic.pause(10)
-                xyz[0] += input.magneticForce(0)
-                xyz[1] += input.magneticForce(1)
-                xyz[2] += input.magneticForce(2)
             }
 
             if ((mode == Mode.Trace) || (mode == Mode.Capture)) {
                 datalogger.log(
                     datalogger.createCV("index", test),
-                    datalogger.createCV("x", round2(xyz[0])),
-                    datalogger.createCV("y", round2(xyz[1])),
-                    datalogger.createCV("z", round2(xyz[2])))
+                    datalogger.createCV("u", round2(averaged[0])),
+                    datalogger.createCV("v", round2(averaged[1])))
             }
 
-            // even in normal operation, it's currently useful to keep a history of readings
-            testData.push(xyz)
-            test++ // clock another test sample
-
             // use just our current bestView's two dimensions
-            uRaw = xyz[uDim]
-            vRaw = xyz[vDim]
+            uRaw = averaged[0]
+            vRaw = averaged[1]
         }
 
         // re-centre this latest point w.r.t our Ellipse origin
@@ -809,23 +931,23 @@ namespace heading {
     }
 
 
-
-
 // Compute an updated moving average for the next in a sampled set of magnetometer readings.
 // Sampling irregularites due to scheduler interrupts demand this somewhat complex maths.
-// The constant Alpha governs the responsiveness of the exponential averaging.
-// (The history[], previous[], latest[] and result[] arrays will be 3-D for initial scanning
-//  of X,Y, & Z.  Thereafter, they will be 2-D, using just the uDim and vDim)
+// The constant Window governs the latency of the exponential averaging.
+// For initial scanning, history[], previous[], latest[] and result[] arrays will be 3-D, for [X,Y,Z].
+// Thereafter, they will be 2-D, using just the chosen [uDim,vDim].
 
-    function irregularMovingAverage(history: number[], previous:number[], latest:number[], 
-                                    timeStep: number):number[] {
-        let a = timeStep / Alpha
-        let keepOld = Math.exp(-a)
-        let cutNew = (1 - keepOld) / a
-        let addNew = (1 - cutNew)
-        let boostLast = (cutNew - keepOld)
+    function irregularMovingAverage(history: number[], previous: number[],
+                                    latest: number[], timeStep: number): number[] {
+        let timeFraction = timeStep / Window
+        let keepOld = Math.exp(-timeFraction)
+        let inherited = (1 - keepOld) / timeFraction
+        let boostLast = (inherited - keepOld)
+        let addNew = (1 - inherited)
+        // keepOld + boostLast + addNew always add up to 100%
+        
         let result = latest // ensure correct #dims
-        for (let dim = 0; dim < latest.length; dim++) { 
+        for (let dim = 0; dim < result.length; dim++) { 
             result[dim] = (keepOld * history[dim]) 
                     + (boostLast * previous[dim]) 
                     + (addNew * latest[dim])
