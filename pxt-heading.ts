@@ -73,6 +73,49 @@ namespace heading {
         }
     }
 
+    // a Smoother computes a moving average from a sequence of sampled sets of magnetometer readings.
+    // Timing irregularites due to scheduler interrupts demand this somewhat complex maths.
+    // The constant {Window} governs the latency of the exponential averaging.
+    // For initial scanning, history[], previous[], latest[] and result[] arrays will be 3-D, for [X,Y,Z].
+    // Thereafter, they will be 2-D, using just the chosen [uDim,vDim].
+    class Smoother {
+        dims: number; // dimensionality
+        average: number[];
+        lastTime: number;
+        lastInputs:number[];
+
+        constructor (dims: number, timestamp: number, values: number[]) {
+            this.dims = dims
+            for (let i = 0; i < values.length; i++){
+                this.average.push(values[i])
+                this.lastInputs.push(values[i])
+            }
+        }
+
+        update(timeStamp: number, values: number[]) {
+            // work out appropriate blend, based on time-step
+            let timeFraction = (this.lastTime - timeStamp) / Latency
+            let keepOld = Math.exp(-timeFraction)
+            let inherited = (1 - keepOld) / timeFraction
+            // the component of inherited average due to the most recent sample gets amplified
+            let boostLast = (inherited - keepOld)
+            let addNew = (1 - inherited)
+            // (blending proportions keepOld + boostLast + addNew will always add up to 100%)
+            // apply blending to old and new data
+            let result: number[] = []
+            for (let dim = 0; dim < this.dims; dim++) {
+                result.push( keepOld * this.average[dim]
+                    + boostLast * this.lastInputs[dim]
+                    + addNew * values[dim])
+            }
+            this.average = result
+
+            // update history for next time round
+            this.lastTime = timeStamp
+            this.lastInputs = values
+        }
+    }
+
     // An Ellipse is an object holding the characteristics of the (typically) elliptical
     // view formed when projecting the scan Spin-Circle onto a 2-axis View-plane.
     class Ellipse {
@@ -242,10 +285,12 @@ namespace heading {
     let scanTimes: number[] = [] // sequence of time-stamps for scanned readings 
     let scanData: number[][] = [] // scanned sequence of [X,Y,Z] magnetometer readings
     let scanTime: number = 0 // duration of scan in ms
+    let field: Smoother // 3-D rolling average for forming scanData
     let views: Ellipse[] = [] // the three possible elliptical views of the Spin-Circle
     let bestView = -1
     let uDim = -1 // the "horizontal" axis (called U) for the best View
     let vDim = -1 // the "vertical" axis (called V) for the best View
+    let point: Smoother // 2-D rolling average for forming individual bestView readings
     let north = 0 // reading registered as "North"
     let strength = 0 // the average magnetic field-strength observed by the magnetometer
     let period = -1 // overall assessment of average rotation time
@@ -393,32 +438,30 @@ namespace heading {
         } else { // use live magnetometer
             basic.pause(200) // wait for motors to stabilise (after initial kick)
             let timeNow = input.runningTime()
-            let timeWas: number
-            let latest = [
+            let values = [
                 input.magneticForce(Dimension.X),
                 input.magneticForce(Dimension.Y),
                 input.magneticForce(Dimension.Z)]
-            let averaged = latest
-            let previous: number[] = []
-            let next: number[] = []
+            let field = new Smoother(3, timeNow, values)
+
             // continue cranking out updated moving averages until we run out of time or space
             let start = timeNow + Latency
             let finish = timeNow + ms
             while ((timeNow < finish)
                 && (scanTimes.length < TooManySamples)) {
                 basic.pause(SampleGap)
-                timeWas = timeNow
-                previous = latest
                 timeNow = input.runningTime()
-                latest = [
+                values = [
                     input.magneticForce(Dimension.X),
                     input.magneticForce(Dimension.Y),
                     input.magneticForce(Dimension.Z)]
-                averaged = irregularMovingAverage(averaged, previous, latest, timeNow - timeWas)
+
+                field.update(timeNow,values)
+
                 // only start recording once moving average has stabilised
                 if (timeNow > start) {
-                    scanData.push(averaged)  // store the triple of averaged [X,Y,Z] values
-                    scanTimes.push(timeNow)  // timestamp it
+                    scanData.push(field.average) // store the triple of averaged [X,Y,Z] values
+                    scanTimes.push(timeNow) // timestamp it
                 }
             }
         }
@@ -804,34 +847,28 @@ namespace heading {
             vRaw = testData[test][vDim]
             test = (test + 1) % testData.length
         } else {
-            let timeWas = 0
             let timeNow = input.runningTime()
-            let latest = [input.magneticForce(uDim), input.magneticForce(vDim)]
-            let averaged = latest
-            let previous: number[] = []
-            let next: number[] = []
+            let values = [input.magneticForce(uDim), input.magneticForce(vDim)]
+            let point = new Smoother(2, timeNow, values)
 
             // collect and average enough samples for a stable reading 
             for (let n = 0; n < Window; n++) {
                 basic.pause(SampleGap)
-                timeWas = timeNow
                 timeNow = input.runningTime()
-                previous = latest
-                latest = [input.magneticForce(uDim), input.magneticForce(vDim)]
-                next = irregularMovingAverage(averaged, previous, latest, timeNow - timeWas)
-                averaged = next
+                values = [input.magneticForce(uDim), input.magneticForce(vDim)]
+                point.update(timeNow,values)
             }
 
             if ((mode == Mode.Trace) || (mode == Mode.Capture)) {
-                test++
+                test++ // just for trace
                 datalogger.log(
                     datalogger.createCV("index", test),
-                    datalogger.createCV("u", round2(averaged[0])),
-                    datalogger.createCV("v", round2(averaged[1])))
+                    datalogger.createCV("u", round2(point.average[0])),
+                    datalogger.createCV("v", round2(point.average[1])))
             }
 
-            uRaw = averaged[0]
-            vRaw = averaged[1]
+            uRaw = point.average[0]
+            vRaw = point.average[1]
         }
 
         // re-centre this latest point w.r.t our Ellipse origin
@@ -884,7 +921,7 @@ namespace heading {
 // The constant {Window} governs the latency of the exponential averaging.
 // For initial scanning, history[], previous[], latest[] and result[] arrays will be 3-D, for [X,Y,Z].
 // Thereafter, they will be 2-D, using just the chosen [uDim,vDim].
-
+/*
     function irregularMovingAverage(history: number[], previous: number[],
                                     latest: number[], timeStep: number): number[] {
         let timeFraction = timeStep / Latency
@@ -902,22 +939,11 @@ namespace heading {
                     + (addNew * latest[dim])
         }
         
-        datalogger.log(
-            datalogger.createCV("dims", result.length),
-            datalogger.createCV("timeStep", timeStep),
-            datalogger.createCV("keepOld", round2(keepOld)),
-            datalogger.createCV("inherited", round2(inherited)),
-            datalogger.createCV("boostLast", round2(boostLast)),
-            datalogger.createCV("addNew", round2(addNew)),
-            datalogger.createCV("history", round2(history[0])),
-            datalogger.createCV("previous", round2(previous[0])),
-            datalogger.createCV("latest", round2(latest[0])),
-            datalogger.createCV("result0", round2(result[0]))
-            )
-        
-
         return result
     }
+    */
+
+    function proportions(timeStep: number){}
 
 
 
