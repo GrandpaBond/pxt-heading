@@ -40,9 +40,9 @@ namespace heading {
     const MarginalField = 10 // minimum acceptable field-strength for magnetometer readings
     const Circular = 1.1 // maximum eccentricity to consider an Ellipse as "circular"
     const LongEnough = 0.9 // for major-axis candidates, qualifying fraction of longest radius
-    const SampleGap = 25 // millisecs to leave between magnetometer readings
-    const Window = 7 // number of magnetometer samples needed to form a good average
-    const Latency = Window * SampleGap // consequent approximate ms delay, collecting a moving average
+    const SampleGap = 15 // millisecs to leave between magnetometer readings
+    const Window = 10 // number of magnetometer samples needed to form a good average
+    const Latency = SampleGap * Window // time taken to collect a good moving average from scratch
 
     // SUPPORTING CLASSES
 
@@ -326,7 +326,7 @@ namespace heading {
                 z += field
                 zRoll.push(field)
 
-                basic.pause(20)
+                basic.pause(SampleGap)
             }
 
             // continue cranking out rolling sums, adding a new reading and dropping the oldest
@@ -392,7 +392,6 @@ namespace heading {
             basic.pause(ms)
         } else { // use live magnetometer
             basic.pause(200) // wait for motors to stabilise (after initial kick)
-            let previous: number[] = []
             let timeWas = 0
             let timeNow = input.runningTime()
             let latest = [
@@ -400,9 +399,11 @@ namespace heading {
                 input.magneticForce(Dimension.Y),
                 input.magneticForce(Dimension.Z)]
             let averaged = latest
-            let next = latest
+            let previous: number[] = []
+            let next: number[] = []
             // build up the first moving average
             for (let n = 0; n < Window; n++) {
+                basic.pause(SampleGap)
                 timeWas = timeNow
                 previous = latest
                 timeNow = input.runningTime()
@@ -412,7 +413,6 @@ namespace heading {
                     input.magneticForce(Dimension.Z)]
                 next = irregularMovingAverage(averaged, previous, latest, timeNow - timeWas)
                 averaged = next
-                basic.pause(10)
             }
 
             // continue cranking out updated moving averages until we run out of time or space
@@ -800,7 +800,7 @@ namespace heading {
         return reading
     }
 
-// update the rolling average of the magnetometer readings
+// Create a rolling average of magnetometer readings
     function takeSingleReading2(): number {
         let uRaw = 0
         let vRaw = 0
@@ -811,35 +811,38 @@ namespace heading {
         let uFix = 0
         let vFix = 0
         let reading = 0
+        // use just our current bestView's two dimensions
         if (mode == Mode.Debug) { // just choose the next test-data value
             uRaw = testData[test][uDim]
             vRaw = testData[test][vDim]
             test = (test + 1) % testData.length
         } else {
-            let previous: number[] = []
-            let averaged: number[] = []
-            let next: number[] = []
             let timeWas = 0
             let timeNow = input.runningTime()
             let latest = [input.magneticForce(uDim), input.magneticForce(vDim)]
-            for (let i = 0; i < 6; i++) {
+            let averaged = latest
+            let previous: number[] = []
+            let next: number[] = []
+
+            // collect and average enough samples for a stable reading 
+            for (let n = 0; n < Window; n++) {
+                basic.pause(SampleGap)
                 timeWas = timeNow
-                previous = latest
                 timeNow = input.runningTime()
+                previous = latest
                 latest = [input.magneticForce(uDim), input.magneticForce(vDim)]
                 next = irregularMovingAverage(averaged, previous, latest, timeNow - timeWas)
                 averaged = next
-                basic.pause(10)
             }
 
             if ((mode == Mode.Trace) || (mode == Mode.Capture)) {
+                test++
                 datalogger.log(
                     datalogger.createCV("index", test),
                     datalogger.createCV("u", round2(averaged[0])),
                     datalogger.createCV("v", round2(averaged[1])))
             }
 
-            // use just our current bestView's two dimensions
             uRaw = averaged[0]
             vRaw = averaged[1]
         }
@@ -848,11 +851,12 @@ namespace heading {
         u = uRaw - uOff
         v = vRaw - vOff
 
+        // Unless this Ellipse.isCircular, any {u,v} reading will be foreshortened in this View, and
+        // must be stretched along the Ellipse minor-axis to place it correctly onto the Spin-Circle
+        // before assessing its angle.
         if (isCircular) {
             reading = Math.atan2(v, u)
         } else {
-            // Unless this Ellipse.isCircular, any {u,v} reading will be foreshortened in this View, and
-            // must be stretched along the Ellipse minor-axis to place it correctly onto the Spin-Circle.
 
             // First rotate CLOCKWISE by theta (so aligning the Ellipse minor-axis angle with the V-axis)
             uNew = u * cosTheta + v * sinTheta
@@ -889,19 +893,20 @@ namespace heading {
 
 
 // Compute an updated moving average for the next in a sampled set of magnetometer readings.
-// Sampling irregularites due to scheduler interrupts demand this somewhat complex maths.
-// The constant Window governs the latency of the exponential averaging.
+// Timing irregularites due to scheduler interrupts demand this somewhat complex maths.
+// The constant {Window} governs the latency of the exponential averaging.
 // For initial scanning, history[], previous[], latest[] and result[] arrays will be 3-D, for [X,Y,Z].
 // Thereafter, they will be 2-D, using just the chosen [uDim,vDim].
 
     function irregularMovingAverage(history: number[], previous: number[],
                                     latest: number[], timeStep: number): number[] {
-        let timeFraction = timeStep / Window
+        let timeFraction = timeStep / Latency
         let keepOld = Math.exp(-timeFraction)
         let inherited = (1 - keepOld) / timeFraction
+        // the component of inherited average due to the most recent sample gets amplified
         let boostLast = (inherited - keepOld)
         let addNew = (1 - inherited)
-        // keepOld + boostLast + addNew always add up to 100%
+        // the blending proportions keepOld + boostLast + addNew will always add up to 100%
 
         let result = latest // ensure correct #dims
         for (let dim = 0; dim < result.length; dim++) { 
