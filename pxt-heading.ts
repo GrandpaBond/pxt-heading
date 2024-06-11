@@ -392,8 +392,8 @@ namespace heading {
             basic.pause(ms)
         } else { // use live magnetometer
             basic.pause(200) // wait for motors to stabilise (after initial kick)
-            let timeWas = 0
             let timeNow = input.runningTime()
+            let timeWas: number
             let latest = [
                 input.magneticForce(Dimension.X),
                 input.magneticForce(Dimension.Y),
@@ -401,8 +401,11 @@ namespace heading {
             let averaged = latest
             let previous: number[] = []
             let next: number[] = []
-            // build up the first moving average
-            for (let n = 0; n < Window; n++) {
+            // continue cranking out updated moving averages until we run out of time or space
+            let start = timeNow + Latency
+            let finish = timeNow + ms
+            while ((timeNow < finish)
+                && (scanTimes.length < TooManySamples)) {
                 basic.pause(SampleGap)
                 timeWas = timeNow
                 previous = latest
@@ -411,29 +414,13 @@ namespace heading {
                     input.magneticForce(Dimension.X),
                     input.magneticForce(Dimension.Y),
                     input.magneticForce(Dimension.Z)]
-                next = irregularMovingAverage(averaged, previous, latest, timeNow - timeWas)
-                averaged = next
-            }
-
-            // continue cranking out updated moving averages until we run out of time or space
-            let finish = timeNow + ms
-            while ((timeNow < finish)
-                && (scanTimes.length < TooManySamples)) {
-                timeWas = timeNow
-                previous = latest
-                timeNow = input.runningTime()
-                latest = [
-                    input.magneticForce(Dimension.X),
-                    input.magneticForce(Dimension.Y),
-                    input.magneticForce(Dimension.Z)]
                 averaged = irregularMovingAverage(averaged, previous, latest, timeNow - timeWas)
-                scanData.push(averaged)  // store the triple of averaged [X,Y,Z] values
-                timeNow = input.runningTime()
-                scanTimes.push(timeNow)
-
-                basic.pause(10)
+                // only start recording once moving average has stabilised
+                if (timeNow > start) {
+                    scanData.push(averaged)  // store the triple of averaged [X,Y,Z] values
+                    scanTimes.push(timeNow)  // timestamp it
+                }
             }
- 
         }
 
         if ((mode == Mode.Trace) || (mode == Mode.Capture)) {
@@ -916,7 +903,7 @@ namespace heading {
         }
         
         datalogger.log(
-            datalogger.createCV("index", test),
+            datalogger.createCV("dims", result.length),
             datalogger.createCV("timeStep", timeStep),
             datalogger.createCV("keepOld", round2(keepOld)),
             datalogger.createCV("inherited", round2(inherited)),
