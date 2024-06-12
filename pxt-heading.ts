@@ -370,7 +370,7 @@ namespace heading {
     }
 
     export function scanClockwise2(ms: number) {
-        // Every 25-30 ms over the specified duration (generally a couple of seconds),
+        // Periodically over the specified duration (generally a couple of seconds),
         // magnetometer readings are sampled and a new [X,Y,Z] triple added to the scanData[] array.
         // A timestamp for each sample is also recorded in the scanTimes[] array.
 
@@ -394,30 +394,69 @@ namespace heading {
             basic.pause(200) // wait for motors to stabilise (after initial kick)
             let timeNow = input.runningTime()
             let timeWas: number
-            let latest = [
+            let history: number[] = []
+            let last: number[] = []
+            // get initial readings
+            let fresh = [
                 input.magneticForce(Dimension.X),
                 input.magneticForce(Dimension.Y),
                 input.magneticForce(Dimension.Z)]
-            let averaged = latest
-            let previous: number[] = []
-            let next: number[] = []
+
+            let updated: number[] = [fresh[0], fresh[1], fresh[2]]
             // continue cranking out updated moving averages until we run out of time or space
             let start = timeNow + Latency
             let finish = timeNow + ms
+
             while ((timeNow < finish)
                 && (scanTimes.length < TooManySamples)) {
                 basic.pause(SampleGap)
+            // on each iteration, blend the history[]; the last[]; and a fresh[] set of samples
+            // in the proportions <keepOld : boostLast : addFresh> respectively
                 timeWas = timeNow
-                previous = latest
                 timeNow = input.runningTime()
-                latest = [
-                    input.magneticForce(Dimension.X),
-                    input.magneticForce(Dimension.Y),
-                    input.magneticForce(Dimension.Z)]
-                averaged = irregularMovingAverage(averaged, previous, latest, timeNow - timeWas)
-                // only start recording once moving average has stabilised
+                let timeFraction = (timeNow - timeWas) / Latency // (uses global constant)
+                let keepOld = Math.exp(-timeFraction)
+                let inherited = (1 - keepOld) / timeFraction
+                // we will amplify the fraction of the inherited average that is due to the most recent sample
+                let boostLast = (inherited - keepOld)
+                let addNew = (1 - inherited)
+                // the blending proportions <keepOld + boostLast + addNew> will always add up to 100%
+
+                if (mode == Mode.Trace) {
+                    datalogger.log(
+                        datalogger.createCV("time", timeNow),
+                        datalogger.createCV("keepOld", round2(keepOld)),
+                        datalogger.createCV("inherited", round2(inherited)),
+                        datalogger.createCV("boostLast", round2(boostLast)),
+                        datalogger.createCV("addNew", round2(addNew)))
+
+                }
+
+                // deal with [X,Y,Z] in turn...
+                for(let dim = 0; dim < 3; dim++) {
+                    last[dim] = fresh[dim]
+                    fresh[dim] = input.magneticForce(dim)
+                    history[dim] = updated[dim]
+                    // put in the blender and smooth!
+                    updated[dim] = keepOld * history[dim] 
+                                + boostLast * last[dim] 
+                                + addNew * fresh[dim]
+
+                }
+                if (mode == Mode.Trace) {
+                    datalogger.log(
+                        datalogger.createCV("latestX", round2(fresh[0])),
+                        datalogger.createCV("latestY", round2(fresh[1])),
+                        datalogger.createCV("latestZ", round2(fresh[2])),
+                        datalogger.createCV("updatedX", round2(updated[0])),
+                        datalogger.createCV("updatedY", round2(updated[1])),
+                        datalogger.createCV("updatedZ", round2(updated[2]))
+                        )
+                }
+
+                // only start recording once the moving average has stabilised
                 if (timeNow > start) {
-                    scanData.push(averaged)  // store the triple of averaged [X,Y,Z] values
+                    scanData.push(updated)  // store the triple of averaged [X,Y,Z] values
                     scanTimes.push(timeNow)  // timestamp it
                 }
             }
@@ -586,16 +625,15 @@ namespace heading {
     //% inlineInputMode=inline 
     //% weight=70
     export function degrees(): number {
-    // Depending on mounting orientation, the bestView might possibly be seeing the
-    // Spin-Circle from "underneath", with the field-vector appearing to move clockwise 
-    // --effectively experiencing an anti-clockwise scan. 
-    // In this case the rotationSense will be negative.
+    // Depending on mounting orientation, the bestView might possibly be seeing the Spin-Circle from
+    // "underneath", with the field-vector appearing to move clockwise  --effectively experiencing an
+    // anti-clockwise scan. In this case the rotationSense will be negative.
         return asDegrees((takeSingleReading() - north) * rotationSense)
         // NOTE: that there is a double reversal going on here:
-        // Viewed from above, the Field-vector reading INCREASES (anticlockwise) w.r.t "North"
+        // Viewed from above, the Field-vector reading in radians INCREASES (anticlockwise) w.r.t "North"
         // as the buggy's compass-heading increases (clockwise).
         // So after a right-turn, the reading is HalfPi bigger than the North reading.
-        // After subtracting North, that converts asDegrees() to +90 
+        // After subtracting North (cyclically), that converts asDegrees() to +90 
         // From below, the same right-turn would REDUCE the reading by HalfPi so a third reversal is needed!
     }
 
@@ -690,7 +728,7 @@ namespace heading {
     // UTILITY FUNCTIONS
 
     /** Take the sum of several new readings to get a stable fix on the current heading.
-     *  @return projected angle of the magnetic field-vector (in radians anticlockwise
+     *  @return the projected angle of the magnetic field-vector (in radians anticlockwise
      * from the horizontal U-axis)
      */
 
@@ -717,14 +755,7 @@ namespace heading {
             }
 
             uRaw /= Window
-            uRaw /= Window
-
-            if ((mode == Mode.Trace)||(mode == Mode.Capture)) {
-                datalogger.log(
-                    datalogger.createCV("index", test),
-                    datalogger.createCV("u", round2(uRaw)),
-                    datalogger.createCV("v", round2(vRaw)))
-            }
+            vRaw /= Window
         }
 
         // re-centre this latest point w.r.t our Ellipse origin
@@ -769,10 +800,13 @@ namespace heading {
         return reading
     }
 
-// Compute an updated moving average for the next in a sampled set of [X,Y,Z] magnetometer readings.
-// Timing irregularites due to scheduler interrupts demand this somewhat complex maths.
-// The constant {Window} governs the latency of the exponential averaging.
-
+/** Update the moving averages of [X,Y,Z] magnetometer readings after an irregular time.
+ * @param history[] the current moving averages
+ * @param previous[] the last set of readings.
+ * @param latest[] the fresh set of readings.
+ * @param timestep millisecs since the last invocation.
+ * @return the updated moving averages
+ */
     function irregularMovingAverage(history: number[], previous: number[],
                                     latest: number[], timeStep: number): number[] {
         let timeFraction = timeStep / Latency
