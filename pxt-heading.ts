@@ -34,14 +34,14 @@ namespace heading {
     const TwoPi = 2 * Math.PI
     const ThreePi = 3 * Math.PI
     const RadianDegrees = 360 / TwoPi
-    const EnoughScanTime = 1500 // minimum acceptable scan-time
+    const EnoughScanTime = 1800 // minimum acceptable scan-time
     const EnoughSamples = 70 // fewest acceptable scan samples
     const TooManySamples = 500 // don't be too greedy with memory!
     const MarginalField = 10 // minimum acceptable field-strength for magnetometer readings
     const Circular = 1.1 // maximum eccentricity to consider an Ellipse as "circular"
     const LongEnough = 0.9 // for major-axis candidates, qualifying fraction of longest radius
     const SampleGap = 15 // millisecs to leave between magnetometer readings
-    const Window = 8 // number of magnetometer samples needed to form a good average
+    const Window = 10 // number of magnetometer samples needed to form a good average
     const Latency = SampleGap * Window // time taken to collect a good moving average from scratch
 
     // SUPPORTING CLASSES
@@ -70,50 +70,6 @@ namespace heading {
         // when copying...
         cloneMe(): Arrow {
             return new Arrow(this.u, this.v, this.time)
-        }
-    }
-
-    // A Smoother computes a moving average from a sequence of sampled sets of magnetometer readings.
-    // Timing irregularites (due to scheduler interrupts) demand this somewhat complex maths.
-    // The constant {Window} governs the latency of the exponential averaging.
-    // For initial scanning of the entire [X,Y,Z] field, the Smoother arrays will be 3-D.
-    // Thereafter, for dicrete [uDim,vDim] points, they need only be 2-D.
-    class Smoother {
-        dims: number; // dimensionality
-        average: number[] = []; // the moving average being developed
-        lastInputs:number[] = []; // set of values provided for the previous iteration
-        lastTime: number;   // timestamp of lastInputs
-
-        constructor (dims: number, time: number, values: number[]) {
-            this.dims = dims
-            this.lastTime = time
-            for (let i = 0; i < values.length; i++){
-                this.average.push(values[i])
-                this.lastInputs.push(values[i])
-            }
-        }
-
-        update(time: number, values: number[]) {
-            // work out appropriate blend, based on time-step
-            let timeFraction = (time - this.lastTime) / Latency
-            let keepOld = Math.exp(-timeFraction)
-            let inherited = (1 - keepOld) / timeFraction
-            // the component of inherited average due to the most recent sample gets amplified
-            let boostLast = (inherited - keepOld)
-            let addNew = (1 - inherited)
-            // (blending proportions keepOld + boostLast + addNew will always add up to 100%)
-            // apply blending to old and new data
-            let result: number[] = []
-            for (let dim = 0; dim < this.dims; dim++) {
-                result.push( keepOld * this.average[dim]
-                    + boostLast * this.lastInputs[dim]
-                    + addNew * values[dim])
-            }
-            this.average = result
-
-            // update history for next time round
-            this.lastTime = time
-            this.lastInputs = values
         }
     }
 
@@ -286,12 +242,10 @@ namespace heading {
     let scanTimes: number[] = [] // sequence of time-stamps for scanned readings 
     let scanData: number[][] = [] // scanned sequence of [X,Y,Z] magnetometer readings
     let scanTime: number = 0 // duration of scan in ms
-    let field: Smoother // 3-D rolling average for forming scanData
     let views: Ellipse[] = [] // the three possible elliptical views of the Spin-Circle
     let bestView = -1
     let uDim = -1 // the "horizontal" axis (called U) for the best View
     let vDim = -1 // the "vertical" axis (called V) for the best View
-    let point: Smoother // 2-D rolling average for forming individual bestView readings
     let north = 0 // reading registered as "North"
     let strength = 0 // the average magnetic field-strength observed by the magnetometer
     let period = -1 // overall assessment of average rotation time
@@ -318,25 +272,112 @@ namespace heading {
      * Assuming the buggy is currently spinning clockwise on the spot, capture a 
      * time-stamped sequence of magnetometer readings from which to set up the compass.
      *
-     * @param duration scanning-time in millisecs (long enough for more than one full rotation)    
+     * @param ms scanning-time in millisecs (long enough for more than one full rotation)    
      */
 
-    //% block="scan clockwise for (ms) $duration" 
+    //% block="scan clockwise for (ms) $ms" 
     //% inlineInputMode=inline 
-    //% duration.shadow="timePicker"
-    //% duration.defl=0
+    //% ms.shadow="timePicker" 
+    //% ms.defl=0 
     //% weight=90 
 
-    export function scanClockwise(duration: number) {
-        // Periodically over the specified duration (generally a couple of seconds), new
+    export function scanClockwise(ms: number) {
+        // Every 25-30 ms over the specified duration (generally a couple of seconds),
         // magnetometer readings are sampled and a new [X,Y,Z] triple added to the scanData[] array.
         // A timestamp for each sample is also recorded in the scanTimes[] array.
 
-        // NOTE:a Smoother is employed to collect a moving average of {Window} consecutive readings.
-        // This is used primarily to smooth out jitter, but also to cope with sample timing irregularities
-        // (due to scheduled interrupts). The Smoother uses an exponential moving average algorithm
-        // hich is timing-aware. The minimum sample-spacing and grouping are controlled respectively
-        // by the constants {SampleGap} and {Window}.
+        // NOTE: to smooth out jitter, each reading is always a rolling sum of SEVEN consecutive
+        // readings, effectively amplifying seven-fold the dynamic field range due to the Earth 
+        // (from ~50 microTeslas to ~350)
+        scanTimes = []
+        scanData = []
+
+        if (mode != Mode.Normal) {
+            datalogger.deleteLog()
+            datalogger.includeTimestamp(FlashLogTimeStampFormat.Milliseconds)
+        }
+
+        if (mode == Mode.Debug) {
+            simulateScan(dataset)
+            basic.pause(ms)
+        } else { // use live magnetometer
+            basic.pause(200) // wait for motors to stabilise (after initial kick)
+            let index = 0
+            let xRoll: number[] = []
+            let yRoll: number[] = []
+            let zRoll: number[] = []
+            let x = 0
+            let y = 0
+            let z = 0
+            let field = 0
+            
+            let now = input.runningTime()
+            // add up the first six readings, about 25ms apart...
+            for (let k = 0; k < 6; k++) {
+                field = input.magneticForce(0)
+                x += field
+                xRoll.push(field)
+
+                field = input.magneticForce(1)
+                y += field
+                yRoll.push(field)
+
+                field = input.magneticForce(2)
+                z += field
+                zRoll.push(field)
+
+                basic.pause(SampleGap)
+            }
+
+            // continue cranking out rolling sums, adding a new reading and dropping the oldest
+            let finish = now + ms
+            while ( (now < finish) 
+                    && (scanTimes.length < TooManySamples)) {
+                field = input.magneticForce(0)
+                x += field
+                xRoll.push(field)
+
+                field = input.magneticForce(1)
+                y += field
+                yRoll.push(field)
+
+                field = input.magneticForce(2)
+                z += field
+                zRoll.push(field)
+
+                scanData.push([x, y, z])
+                now = input.runningTime()
+                scanTimes.push(now)
+                x -= xRoll.shift()
+                y -= yRoll.shift()
+                z -= zRoll.shift()
+                basic.pause(20)
+            }
+        }
+
+
+        if ((mode == Mode.Trace) || (mode == Mode.Capture)) {
+            datalogger.setColumnTitles("index", "t", "x", "y", "z")
+            for (let i = 0; i < scanTimes.length; i++) {
+                datalogger.log(
+                    datalogger.createCV("index", i),
+                    datalogger.createCV("t", scanTimes[i]),
+                    datalogger.createCV("x", round2(scanData[i][Dimension.X])),
+                    datalogger.createCV("y", round2(scanData[i][Dimension.Y])),
+                    datalogger.createCV("z", round2(scanData[i][Dimension.Z])))
+            }
+        }
+    }
+
+    export function scanClockwise2(ms: number) {
+        // Every 25-30 ms over the specified duration (generally a couple of seconds),
+        // magnetometer readings are sampled and a new [X,Y,Z] triple added to the scanData[] array.
+        // A timestamp for each sample is also recorded in the scanTimes[] array.
+
+        // NOTE: To smooth out jitter, each reading is always a moving average of several consecutive
+        // readings. Because of scheduled interrupts, sample-times may be irregular, so a special
+        // exponential moving average function is used which is timing-aware. The minimum sample-spacing
+        // and grouping are controlled respectively by the constants SampleGap and Window.
 
         scanTimes = []
         scanData = []
@@ -348,45 +389,36 @@ namespace heading {
 
         if (mode == Mode.Debug) {
             simulateScan(dataset)
-            basic.pause(500)  // (cosmetic)
+            basic.pause(ms)
         } else { // use live magnetometer
             basic.pause(200) // wait for motors to stabilise (after initial kick)
             let timeNow = input.runningTime()
-            let values = [
+            let timeWas: number
+            let latest = [
                 input.magneticForce(Dimension.X),
                 input.magneticForce(Dimension.Y),
                 input.magneticForce(Dimension.Z)]
-            let field = new Smoother(3, timeNow, values)
-
+            let averaged = latest
+            let previous: number[] = []
+            let next: number[] = []
             // continue cranking out updated moving averages until we run out of time or space
             let start = timeNow + Latency
-            let finish = timeNow + duration
+            let finish = timeNow + ms
             while ((timeNow < finish)
                 && (scanTimes.length < TooManySamples)) {
                 basic.pause(SampleGap)
+                timeWas = timeNow
+                previous = latest
                 timeNow = input.runningTime()
-                values = [
+                latest = [
                     input.magneticForce(Dimension.X),
                     input.magneticForce(Dimension.Y),
                     input.magneticForce(Dimension.Z)]
-                field.update(timeNow,values)
-
-
-                if (mode == Mode.Trace) {
-                    datalogger.log(
-                        datalogger.createCV("time", timeNow),
-                        datalogger.createCV("xIn", round2(values[0])),
-                        datalogger.createCV("yIn", round2(values[1])),
-                        datalogger.createCV("zIn", round2(values[2])),
-                        datalogger.createCV("xAve", round2(field.average[0])),
-                        datalogger.createCV("yAve", round2(field.average[1])),
-                        datalogger.createCV("zAve", round2(field.average[2])))
-                }
-
+                averaged = irregularMovingAverage(averaged, previous, latest, timeNow - timeWas)
                 // only start recording once moving average has stabilised
                 if (timeNow > start) {
-                    scanData.push(field.average) // store the triple of averaged [X,Y,Z] values
-                    scanTimes.push(timeNow) // timestamp it
+                    scanData.push(averaged)  // store the triple of averaged [X,Y,Z] values
+                    scanTimes.push(timeNow)  // timestamp it
                 }
             }
         }
@@ -513,11 +545,11 @@ namespace heading {
         sinTheta = Math.sin(theta)
         isCircular = views[bestView].isCircular
         rotationSense = views[bestView].rotationSense
-        
+
         // Having successfully set up the projection parameters for the bestView, get a
         // stable fix on the current heading, which we will then designate as "North".
         // (This is the global fixed bias to be subtracted from all future readings)
-        north = takeSingleReading()
+        north = takeSingleReading2()
 
         if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
             datalogger.log(
@@ -558,7 +590,7 @@ namespace heading {
     // Spin-Circle from "underneath", with the field-vector appearing to move clockwise 
     // --effectively experiencing an anti-clockwise scan. 
     // In this case the rotationSense will be negative.
-        return asDegrees((takeSingleReading() - north) * rotationSense)
+        return asDegrees((takeSingleReading2() - north) * rotationSense)
         // NOTE: that there is a double reversal going on here:
         // Viewed from above, the Field-vector reading INCREASES (anticlockwise) w.r.t "North"
         // as the buggy's compass-heading increases (clockwise).
@@ -658,59 +690,159 @@ namespace heading {
     // UTILITY FUNCTIONS
 
     /** Take the sum of seven new readings to get a stable fix on the current heading.
-     *  @return projected angle of the magnetic field-vector onto the Spin-Circle
-     *          (in radians anticlockwise from the horizontal U-axis)
+     *  @return projected angle of the magnetic field-vector (in radians anticlockwise
+     * from the horizontal U-axis)
      */
 
-// Build up a rolling average of magnetometer readings
+    /* Although eventually we'd only need [uDim, vDim], we'll sum and log all three Dims.
+       This will allow us, while testing, to override automatic choice of bestView
+       and check out more severe levels of correction! Eventually, optimise this out!
+    */
+
     function takeSingleReading(): number {
         let uRaw = 0
         let vRaw = 0
-        // use just our current bestView's two dimensions
-        if (mode == Mode.Debug) { // just choose the next test-data value
-            uRaw = testData[test][uDim]
-            vRaw = testData[test][vDim]
-            test = (test + 1) % testData.length
-       } else {
-            let timeNow = input.runningTime()
-            let values = [input.magneticForce(uDim), input.magneticForce(vDim)]
-            let point = new Smoother(2, timeNow, values)
-
-            // collect and average enough samples for a stable reading 
-            for (let n = 0; n < Window; n++) {
-                basic.pause(SampleGap)
-                timeNow = input.runningTime()
-                values = [input.magneticForce(uDim), input.magneticForce(vDim)]
-                point.update(timeNow,values)
-            }
-
-            if ((mode == Mode.Trace) || (mode == Mode.Capture)) {
-                test++ // just for trace
-                datalogger.log(
-                    datalogger.createCV("index", test),
-                    datalogger.createCV("u", round2(point.average[0])),
-                    datalogger.createCV("v", round2(point.average[1])))
-            }
-
-            uRaw = point.average[0]
-            vRaw = point.average[1]
-        }
-
-        // re-centre this latest point w.r.t our Ellipse origin
-        let u = uRaw - uOff
-        let v = vRaw - vOff
-
-        // Unless this Ellipse.isCircular, any {u,v} reading will be foreshortened in this View, and
-        // must be stretched along the Ellipse minor-axis to place it correctly onto the Spin-Circle
-        // before assessing its angle.
+        let u = 0
+        let v = 0
         let uNew = 0
         let vNew = 0
         let uFix = 0
         let vFix = 0
         let reading = 0
+        if (mode == Mode.Debug) { // just choose the next test-data value
+            uRaw = testData[test][uDim]
+            vRaw = testData[test][vDim]
+            test = (test + 1) % testData.length
+        } else {
+            let xyz = [0, 0, 0]
+
+            // get a new sample as the sum of seven readings, 10ms apart
+            xyz[0] = input.magneticForce(0)
+            xyz[1] = input.magneticForce(1)
+            xyz[2] = input.magneticForce(2)
+
+            for (let i = 0; i < 6; i++) {
+                basic.pause(10)
+                xyz[0] += input.magneticForce(0)
+                xyz[1] += input.magneticForce(1)
+                xyz[2] += input.magneticForce(2)
+            }
+
+            if ((mode == Mode.Trace)||(mode == Mode.Capture)) {
+                datalogger.log(
+                    datalogger.createCV("index", test),
+                    datalogger.createCV("x", round2(xyz[0])),
+                    datalogger.createCV("y", round2(xyz[1])),
+                    datalogger.createCV("z", round2(xyz[2])))
+            }
+
+            // even in normal operation, it's currently useful to keep a history of readings
+            testData.push(xyz)
+            test++ // clock another test sample
+
+            // use just our current bestView's two dimensions
+            uRaw = xyz[uDim]
+            vRaw = xyz[vDim]
+        }
+
+        // re-centre this latest point w.r.t our Ellipse origin
+        u = uRaw - uOff
+        v = vRaw - vOff
 
         if (isCircular) {
-            let reading = Math.atan2(v, u)
+            reading = Math.atan2(v, u) 
+        } else { 
+        // Unless this Ellipse.isCircular, any {u,v} reading will be foreshortened in this View, and
+        // must be stretched along the Ellipse minor-axis to place it correctly onto the Spin-Circle.
+
+            // First rotate CLOCKWISE by theta (so aligning the Ellipse minor-axis angle with the V-axis)
+            uNew = u * cosTheta + v * sinTheta
+            vNew = v * cosTheta - u * sinTheta
+            // Now scale up along V, re-balancing the axes to make the Ellipse circular
+            uFix = uNew
+            vFix = vNew * scale
+            // get the adjusted angle for this corrected {u,v}
+            reading = Math.atan2(vFix, uFix)
+            // finally, undo the rotation by theta
+            reading += theta
+        }
+        
+        if ((mode == Mode.Trace)||(mode == Mode.Debug)) {
+            // just for debug, show coordinates of "stretched" reading after undoing rotation
+            let uStretch = uFix * cosTheta - vFix * sinTheta
+            let vStretch = vFix * cosTheta + uFix * sinTheta
+            datalogger.log(
+                datalogger.createCV("u", round2(u)),
+                datalogger.createCV("v", round2(v)),
+                datalogger.createCV("uNew", round2(uNew)),
+                datalogger.createCV("vNew", round2(vNew)),
+                datalogger.createCV("uFix", round2(uFix)),
+                datalogger.createCV("vFix", round2(vFix)),
+                datalogger.createCV("uStretch", round2(uStretch)),
+                datalogger.createCV("vStretch", round2(vStretch)),
+                datalogger.createCV("reading", round2(reading)),
+                datalogger.createCV("[reading]", round2(asDegrees(reading) * rotationSense))
+            )
+        }
+        return reading
+    }
+
+// Create a rolling average of magnetometer readings
+    function takeSingleReading2(): number {
+        let uRaw = 0
+        let vRaw = 0
+        let u = 0
+        let v = 0
+        let uNew = 0
+        let vNew = 0
+        let uFix = 0
+        let vFix = 0
+        let reading = 0
+        // use just our current bestView's two dimensions
+        if (mode == Mode.Debug) { // just choose the next test-data value
+            uRaw = testData[test][uDim]
+            vRaw = testData[test][vDim]
+            test = (test + 1) % testData.length
+        } else {
+            let timeWas = 0
+            let timeNow = input.runningTime()
+            let latest = [input.magneticForce(uDim), input.magneticForce(vDim)]
+            let averaged = latest
+            let previous: number[] = []
+            let next: number[] = []
+
+            // collect and average enough samples for a stable reading 
+            for (let n = 0; n < Window; n++) {
+                basic.pause(SampleGap)
+                timeWas = timeNow
+                timeNow = input.runningTime()
+                previous = latest
+                latest = [input.magneticForce(uDim), input.magneticForce(vDim)]
+                next = irregularMovingAverage(averaged, previous, latest, timeNow - timeWas)
+                averaged = next
+            }
+
+            if ((mode == Mode.Trace) || (mode == Mode.Capture)) {
+                test++
+                datalogger.log(
+                    datalogger.createCV("index", test),
+                    datalogger.createCV("u", round2(averaged[0])),
+                    datalogger.createCV("v", round2(averaged[1])))
+            }
+
+            uRaw = averaged[0]
+            vRaw = averaged[1]
+        }
+
+        // re-centre this latest point w.r.t our Ellipse origin
+        u = uRaw - uOff
+        v = vRaw - vOff
+
+        // Unless this Ellipse.isCircular, any {u,v} reading will be foreshortened in this View, and
+        // must be stretched along the Ellipse minor-axis to place it correctly onto the Spin-Circle
+        // before assessing its angle.
+        if (isCircular) {
+            reading = Math.atan2(v, u)
         } else {
 
             // First rotate CLOCKWISE by theta (so aligning the Ellipse minor-axis angle with the V-axis)
@@ -745,16 +877,62 @@ namespace heading {
         return reading
     }
 
+
+
+// Compute an updated moving average for the next in a sampled set of magnetometer readings.
+// Timing irregularites due to scheduler interrupts demand this somewhat complex maths.
+// The constant {Window} governs the latency of the exponential averaging.
+// For initial scanning, history[], previous[], latest[] and result[] arrays will be 3-D, for [X,Y,Z].
+// Thereafter, they will be 2-D, using just the chosen [uDim,vDim].
+
+    function irregularMovingAverage(history: number[], previous: number[],
+                                    latest: number[], timeStep: number): number[] {
+        let timeFraction = timeStep / Latency
+        let keepOld = Math.exp(-timeFraction)
+        let inherited = (1 - keepOld) / timeFraction
+        // the component of inherited average due to the most recent sample gets amplified
+        let boostLast = (inherited - keepOld)
+        let addNew = (1 - inherited)
+        // the blending proportions keepOld + boostLast + addNew will always add up to 100%
+
+        let result = latest // ensure correct #dims
+        for (let dim = 0; dim < result.length; dim++) { 
+            result[dim] = (keepOld * history[dim]) 
+                    + (boostLast * previous[dim]) 
+                    + (addNew * latest[dim])
+        }
+        
+        datalogger.log(
+            datalogger.createCV("dims", result.length),
+            datalogger.createCV("timeStep", timeStep),
+            datalogger.createCV("keepOld", round2(keepOld)),
+            datalogger.createCV("inherited", round2(inherited)),
+            datalogger.createCV("boostLast", round2(boostLast)),
+            datalogger.createCV("addNew", round2(addNew)),
+            datalogger.createCV("history", round2(history[0])),
+            datalogger.createCV("previous", round2(previous[0])),
+            datalogger.createCV("latest", round2(latest[0])),
+            datalogger.createCV("result0", round2(result[0]))
+            )
+        
+
+        return result
+    }
+
+
+
     // helpful for logging...
     function round2(v: number): number {
         return (Math.round(100 * v) / 100)
     }
+
 
     // Convert an angle measured in radians to degrees.
     function asDegrees(angle: number): number {
         return ((angle * RadianDegrees) + 360) % 360
     }
     
+
     // While debugging, it is necessary to re-use predictable sample data for a variety of use-cases 
     // captured (using the datalogger) from earlier live runs. 
     // [This function is greedy on memory and can be commented-out once the extension has been fully debugged.]
