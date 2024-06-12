@@ -34,14 +34,14 @@ namespace heading {
     const TwoPi = 2 * Math.PI
     const ThreePi = 3 * Math.PI
     const RadianDegrees = 360 / TwoPi
-    const EnoughScanTime = 1800 // minimum acceptable scan-time
+    const EnoughScanTime = 1500 // minimum acceptable scan-time
     const EnoughSamples = 70 // fewest acceptable scan samples
     const TooManySamples = 500 // don't be too greedy with memory!
     const MarginalField = 10 // minimum acceptable field-strength for magnetometer readings
     const Circular = 1.1 // maximum eccentricity to consider an Ellipse as "circular"
     const LongEnough = 0.9 // for major-axis candidates, qualifying fraction of longest radius
     const SampleGap = 15 // millisecs to leave between magnetometer readings
-    const Window = 10 // number of magnetometer samples needed to form a good average
+    const Window = 8 // number of magnetometer samples needed to form a good average
     const Latency = SampleGap * Window // time taken to collect a good moving average from scratch
 
     // SUPPORTING CLASSES
@@ -539,7 +539,7 @@ namespace heading {
         vDim = views[bestView].vDim
         uOff = views[bestView].uOff
         vOff = views[bestView].vOff
-        scale = views[bestView].eccentricity
+        scale = views[bestView].eccentricity // scaling needed to balance axes
         theta = views[bestView].majorAxis.angle // the rotation (in radians) of the major-axis from the U-axis
         cosTheta = Math.cos(theta)
         sinTheta = Math.sin(theta)
@@ -549,7 +549,7 @@ namespace heading {
         // Having successfully set up the projection parameters for the bestView, get a
         // stable fix on the current heading, which we will then designate as "North".
         // (This is the global fixed bias to be subtracted from all future readings)
-        north = takeSingleReading2()
+        north = takeSingleReading()
 
         if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
             datalogger.log(
@@ -590,7 +590,7 @@ namespace heading {
     // Spin-Circle from "underneath", with the field-vector appearing to move clockwise 
     // --effectively experiencing an anti-clockwise scan. 
     // In this case the rotationSense will be negative.
-        return asDegrees((takeSingleReading2() - north) * rotationSense)
+        return asDegrees((takeSingleReading() - north) * rotationSense)
         // NOTE: that there is a double reversal going on here:
         // Viewed from above, the Field-vector reading INCREASES (anticlockwise) w.r.t "North"
         // as the buggy's compass-heading increases (clockwise).
@@ -689,15 +689,10 @@ namespace heading {
 
     // UTILITY FUNCTIONS
 
-    /** Take the sum of seven new readings to get a stable fix on the current heading.
+    /** Take the sum of several new readings to get a stable fix on the current heading.
      *  @return projected angle of the magnetic field-vector (in radians anticlockwise
      * from the horizontal U-axis)
      */
-
-    /* Although eventually we'd only need [uDim, vDim], we'll sum and log all three Dims.
-       This will allow us, while testing, to override automatic choice of bestView
-       and check out more severe levels of correction! Eventually, optimise this out!
-    */
 
     function takeSingleReading(): number {
         let uRaw = 0
@@ -714,35 +709,22 @@ namespace heading {
             vRaw = testData[test][vDim]
             test = (test + 1) % testData.length
         } else {
-            let xyz = [0, 0, 0]
-
-            // get a new sample as the sum of seven readings, 10ms apart
-            xyz[0] = input.magneticForce(0)
-            xyz[1] = input.magneticForce(1)
-            xyz[2] = input.magneticForce(2)
-
-            for (let i = 0; i < 6; i++) {
-                basic.pause(10)
-                xyz[0] += input.magneticForce(0)
-                xyz[1] += input.magneticForce(1)
-                xyz[2] += input.magneticForce(2)
+            // get a new sample as the average of {Window} consecutive readings, {SampleGap} apart
+            for (let i = 0; i < Window; i++) {
+                basic.pause(SampleGap)
+                uRaw += input.magneticForce(uDim)
+                vRaw += input.magneticForce(vDim)
             }
+
+            uRaw /= Window
+            uRaw /= Window
 
             if ((mode == Mode.Trace)||(mode == Mode.Capture)) {
                 datalogger.log(
                     datalogger.createCV("index", test),
-                    datalogger.createCV("x", round2(xyz[0])),
-                    datalogger.createCV("y", round2(xyz[1])),
-                    datalogger.createCV("z", round2(xyz[2])))
+                    datalogger.createCV("u", round2(uRaw)),
+                    datalogger.createCV("v", round2(vRaw)))
             }
-
-            // even in normal operation, it's currently useful to keep a history of readings
-            testData.push(xyz)
-            test++ // clock another test sample
-
-            // use just our current bestView's two dimensions
-            uRaw = xyz[uDim]
-            vRaw = xyz[vDim]
         }
 
         // re-centre this latest point w.r.t our Ellipse origin
@@ -787,103 +769,9 @@ namespace heading {
         return reading
     }
 
-// Create a rolling average of magnetometer readings
-    function takeSingleReading2(): number {
-        let uRaw = 0
-        let vRaw = 0
-        let u = 0
-        let v = 0
-        let uNew = 0
-        let vNew = 0
-        let uFix = 0
-        let vFix = 0
-        let reading = 0
-        // use just our current bestView's two dimensions
-        if (mode == Mode.Debug) { // just choose the next test-data value
-            uRaw = testData[test][uDim]
-            vRaw = testData[test][vDim]
-            test = (test + 1) % testData.length
-        } else {
-            let timeWas = 0
-            let timeNow = input.runningTime()
-            let latest = [input.magneticForce(uDim), input.magneticForce(vDim)]
-            let averaged = latest
-            let previous: number[] = []
-            let next: number[] = []
-
-            // collect and average enough samples for a stable reading 
-            for (let n = 0; n < Window; n++) {
-                basic.pause(SampleGap)
-                timeWas = timeNow
-                timeNow = input.runningTime()
-                previous = latest
-                latest = [input.magneticForce(uDim), input.magneticForce(vDim)]
-                next = irregularMovingAverage(averaged, previous, latest, timeNow - timeWas)
-                averaged = next
-            }
-
-            if ((mode == Mode.Trace) || (mode == Mode.Capture)) {
-                test++
-                datalogger.log(
-                    datalogger.createCV("index", test),
-                    datalogger.createCV("u", round2(averaged[0])),
-                    datalogger.createCV("v", round2(averaged[1])))
-            }
-
-            uRaw = averaged[0]
-            vRaw = averaged[1]
-        }
-
-        // re-centre this latest point w.r.t our Ellipse origin
-        u = uRaw - uOff
-        v = vRaw - vOff
-
-        // Unless this Ellipse.isCircular, any {u,v} reading will be foreshortened in this View, and
-        // must be stretched along the Ellipse minor-axis to place it correctly onto the Spin-Circle
-        // before assessing its angle.
-        if (isCircular) {
-            reading = Math.atan2(v, u)
-        } else {
-
-            // First rotate CLOCKWISE by theta (so aligning the Ellipse minor-axis angle with the V-axis)
-            uNew = u * cosTheta + v * sinTheta
-            vNew = v * cosTheta - u * sinTheta
-            // Now scale up along V, re-balancing the axes to make the Ellipse circular
-            uFix = uNew
-            vFix = vNew * scale
-            // get the adjusted angle for this corrected {u,v}
-            reading = Math.atan2(vFix, uFix)
-            // finally, undo the rotation by theta
-            reading += theta
-        }
-
-        if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
-            // just for debug, show coordinates of "stretched" reading after undoing rotation
-            let uStretch = uFix * cosTheta - vFix * sinTheta
-            let vStretch = vFix * cosTheta + uFix * sinTheta
-            datalogger.log(
-                datalogger.createCV("u", round2(u)),
-                datalogger.createCV("v", round2(v)),
-                datalogger.createCV("uNew", round2(uNew)),
-                datalogger.createCV("vNew", round2(vNew)),
-                datalogger.createCV("uFix", round2(uFix)),
-                datalogger.createCV("vFix", round2(vFix)),
-                datalogger.createCV("uStretch", round2(uStretch)),
-                datalogger.createCV("vStretch", round2(vStretch)),
-                datalogger.createCV("reading", round2(reading)),
-                datalogger.createCV("[reading]", round2(asDegrees(reading) * rotationSense))
-            )
-        }
-        return reading
-    }
-
-
-
-// Compute an updated moving average for the next in a sampled set of magnetometer readings.
+// Compute an updated moving average for the next in a sampled set of [X,Y,Z] magnetometer readings.
 // Timing irregularites due to scheduler interrupts demand this somewhat complex maths.
 // The constant {Window} governs the latency of the exponential averaging.
-// For initial scanning, history[], previous[], latest[] and result[] arrays will be 3-D, for [X,Y,Z].
-// Thereafter, they will be 2-D, using just the chosen [uDim,vDim].
 
     function irregularMovingAverage(history: number[], previous: number[],
                                     latest: number[], timeStep: number): number[] {
@@ -895,15 +783,13 @@ namespace heading {
         let addNew = (1 - inherited)
         // the blending proportions keepOld + boostLast + addNew will always add up to 100%
 
-        let result = latest // ensure correct #dims
-        for (let dim = 0; dim < result.length; dim++) { 
-            result[dim] = (keepOld * history[dim]) 
-                    + (boostLast * previous[dim]) 
-                    + (addNew * latest[dim])
-        }
-        
+        let result = []
+
+        result.push(keepOld * history[0] + boostLast * previous[0] + addNew * latest[0])
+        result.push(keepOld * history[1] + boostLast * previous[1] + addNew * latest[1])
+        result.push(keepOld * history[2] + boostLast * previous[2] + addNew * latest[2])
+
         datalogger.log(
-            datalogger.createCV("dims", result.length),
             datalogger.createCV("timeStep", timeStep),
             datalogger.createCV("keepOld", round2(keepOld)),
             datalogger.createCV("inherited", round2(inherited)),
