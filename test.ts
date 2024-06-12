@@ -28,7 +28,7 @@ function performSetup() {
             basic.showString("S")
             basic.pause(1000)
             basic.showString("_")
-            heading.scanClockwise2(scanTime)
+            heading.scanClockwise(scanTime)
             basic.showIcon(IconNames.Yes)
             basic.pause(1000)
             basic.clearScreen()
