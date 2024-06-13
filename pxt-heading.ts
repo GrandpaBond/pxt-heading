@@ -403,6 +403,11 @@ namespace heading {
     //% inlineInputMode=inline 
     //% weight=80 
     export function setNorth(): number {
+        // reset global defaults
+        bestView = -1
+        strength = -1
+        period = -1
+
         // First analyse the scan-data to decide how best to use the magnetometer readings.
         // we'll typically need about a couple of second's worth of scanned readings...
         let nSamples = scanTimes.length
@@ -465,7 +470,6 @@ namespace heading {
         if ((views[View.XY].period == -1)
             && (views[View.YZ].period == -1)
             && (views[View.ZX].period == -1)) {
-            period = -1
             return -3 // "NOT ENOUGH SCAN ROTATION"
         }
 
@@ -592,7 +596,7 @@ namespace heading {
     //% inlineInputMode=inline 
     //% weight=50 
     export function equivalentSpeed(axleLength: number): number {
-        if ((views.length == 0) || (views[bestView].period <= 0)) {
+        if (period < 0) {
             return -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
         } else {
             // compute tangential speed of wheel-centre in mm/s:
