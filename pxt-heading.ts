@@ -321,7 +321,6 @@ namespace heading {
             let finish = timeNow + ms
             while ((timeNow < finish)
                 && (scanTimes.length < TooManySamples)) {
-
                 basic.pause(SampleGap)
             // on each iteration, blend the history[]; the last[]; and a fresh[] set of samples
             // in the proportions <keepOld : boostLast : addFresh> respectively
@@ -332,19 +331,8 @@ namespace heading {
                 let inherited = (1 - keepOld) / timeFraction
                 // we will amplify the fraction of the inherited average that is due to the most recent sample
                 let boostLast = (inherited - keepOld)
-                let addNew = (1 - inherited)
                 // the blending proportions <keepOld + boostLast + addNew> must always add up to 100%
-
-                if (mode == Mode.Trace) {
-                    datalogger.log(
-                        datalogger.createCV("time", timeNow),
-                        datalogger.createCV("keepOld", round2(keepOld)),
-                        datalogger.createCV("inherited", round2(inherited)),
-                        datalogger.createCV("boostLast", round2(boostLast)),
-                        datalogger.createCV("addNew", round2(addNew)),
-                        datalogger.createCV("blend", round2(keepOld + boostLast + addNew)))
-                }
-
+                let addNew = (1 - inherited)
                 // to ensure deep copy of historical arrays, deal in turn with X,Y and Z...
                 for(let dim = 0; dim < 3; dim++) {
                     history[dim] = updated[dim]
@@ -369,8 +357,9 @@ namespace heading {
                 }
 
                 // only start recording once the moving average has stabilised
-                if (index > Window) {
-                    scanData.push(updated)  // store the triple of averaged [X,Y,Z] values
+                if (index > Window) { 
+                    // store the triple of averaged [X,Y,Z] values
+                    scanData.push([updated[0], updated[1], updated[2]])
                     scanTimes.push(timeNow)  // timestamp it
                 }
                 index++
