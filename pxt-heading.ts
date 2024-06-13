@@ -320,12 +320,13 @@ namespace heading {
             // continue cranking out updated moving averages until we run out of time or space
             let finish = timeNow + ms
             while ((timeNow < finish)
-                && (scanTimes.length < TooManySamples)) {
-                basic.pause(SampleGap)
-            // on each iteration, blend the history[]; the last[]; and a fresh[] set of samples
-            // in the proportions <keepOld : boostLast : addFresh> respectively
+            && (scanTimes.length < TooManySamples)) {
                 timeWas = timeNow
                 timeNow = input.runningTime()
+                basic.pause(SampleGap + timeWas - timeNow) // pause for remainder of gap (if any) 
+                timeNow = input.runningTime()
+            // on each iteration, blend the history[]; the last[]; and a fresh[] set of samples
+            // in the proportions <keepOld : boostLast : addFresh> respectively
                 let timeFraction = (timeNow - timeWas) / Latency // (uses global constant)
                 let keepOld = Math.exp(-timeFraction)
                 let inherited = (1 - keepOld) / timeFraction
