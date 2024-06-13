@@ -40,9 +40,9 @@ namespace heading {
     const MarginalField = 10 // minimum acceptable field-strength for magnetometer readings
     const Circular = 1.1 // maximum eccentricity to consider an Ellipse as "circular"
     const LongEnough = 0.9 // for major-axis candidates, qualifying fraction of longest radius
-    const SampleGap = 15 // millisecs to leave between magnetometer readings
     const Window = 8 // number of magnetometer samples needed to form a good average
-    const Latency = SampleGap * Window // time taken to collect a good moving average from scratch
+    const SampleGap = 15 // millisecs to leave between magnetometer readings
+    const Latency = Window * SampleGap // consequent time taken to collect a good moving average from scratch
 
     // SUPPORTING CLASSES
 
@@ -282,13 +282,15 @@ namespace heading {
     //% weight=90 
 
     export function scanClockwise(ms: number) {
-        // Every 25-30 ms over the specified duration (generally a couple of seconds),
-        // magnetometer readings are sampled and a new [X,Y,Z] triple added to the scanData[] array.
+        // Sample magnetometer readings periodically over the specified duration (generally a couple
+        // of seconds), and append a new [X,Y,Z] triple to the scanData[] array.
         // A timestamp for each sample is also recorded in the scanTimes[] array.
 
-        // NOTE: to smooth out jitter, each reading is always a rolling sum of SEVEN consecutive
-        // readings, effectively amplifying seven-fold the dynamic field range due to the Earth 
-        // (from ~50 microTeslas to ~350)
+        // NOTE: To smooth out jitter, each reading is always a moving average of several consecutive readings.
+        // Also (because of scheduled interrupts) sample-times may be irregular, so a special exponential
+        // moving-average function is used that is timing-aware. The minimum sample-grouping
+        // and spacing are controlled respectively by the constants Window and SampleGap.
+
         scanTimes = []
         scanData = []
 
@@ -303,95 +305,6 @@ namespace heading {
         } else { // use live magnetometer
             basic.pause(200) // wait for motors to stabilise (after initial kick)
             let index = 0
-            let xRoll: number[] = []
-            let yRoll: number[] = []
-            let zRoll: number[] = []
-            let x = 0
-            let y = 0
-            let z = 0
-            let field = 0
-            
-            let now = input.runningTime()
-            // add up the first six readings, about 25ms apart...
-            for (let k = 0; k < 6; k++) {
-                field = input.magneticForce(0)
-                x += field
-                xRoll.push(field)
-
-                field = input.magneticForce(1)
-                y += field
-                yRoll.push(field)
-
-                field = input.magneticForce(2)
-                z += field
-                zRoll.push(field)
-
-                basic.pause(SampleGap)
-            }
-
-            // continue cranking out rolling sums, adding a new reading and dropping the oldest
-            let finish = now + ms
-            while ( (now < finish) 
-                    && (scanTimes.length < TooManySamples)) {
-                field = input.magneticForce(0)
-                x += field
-                xRoll.push(field)
-
-                field = input.magneticForce(1)
-                y += field
-                yRoll.push(field)
-
-                field = input.magneticForce(2)
-                z += field
-                zRoll.push(field)
-
-                scanData.push([x, y, z])
-                now = input.runningTime()
-                scanTimes.push(now)
-                x -= xRoll.shift()
-                y -= yRoll.shift()
-                z -= zRoll.shift()
-                basic.pause(20)
-            }
-        }
-
-
-        if ((mode == Mode.Trace) || (mode == Mode.Capture)) {
-            datalogger.setColumnTitles("index", "t", "x", "y", "z")
-            for (let i = 0; i < scanTimes.length; i++) {
-                datalogger.log(
-                    datalogger.createCV("index", i),
-                    datalogger.createCV("t", scanTimes[i]),
-                    datalogger.createCV("x", round2(scanData[i][Dimension.X])),
-                    datalogger.createCV("y", round2(scanData[i][Dimension.Y])),
-                    datalogger.createCV("z", round2(scanData[i][Dimension.Z])))
-            }
-        }
-    }
-
-    export function scanClockwise2(ms: number) {
-        // Periodically over the specified duration (generally a couple of seconds),
-        // magnetometer readings are sampled and a new [X,Y,Z] triple added to the scanData[] array.
-        // A timestamp for each sample is also recorded in the scanTimes[] array.
-
-        // NOTE: To smooth out jitter, each reading is always a moving average of several consecutive
-        // readings. Because of scheduled interrupts, sample-times may be irregular, so a special
-        // exponential moving average function is used which is timing-aware. The minimum sample-spacing
-        // and grouping are controlled respectively by the constants SampleGap and Window.
-
-        scanTimes = []
-        scanData = []
-
-        if (mode != Mode.Normal) {
-            datalogger.deleteLog()
-            datalogger.includeTimestamp(FlashLogTimeStampFormat.Milliseconds)
-        }
-
-        if (mode == Mode.Debug) {
-            simulateScan(dataset)
-            basic.pause(ms)
-        } else { // use live magnetometer
-            basic.pause(200) // wait for motors to stabilise (after initial kick)
             let timeNow = input.runningTime()
             let timeWas: number
             let history: number[] = []
@@ -402,13 +315,13 @@ namespace heading {
                 input.magneticForce(Dimension.Y),
                 input.magneticForce(Dimension.Z)]
 
-            let updated: number[] = [fresh[0], fresh[1], fresh[2]]
-            // continue cranking out updated moving averages until we run out of time or space
-            let start = timeNow + Latency
-            let finish = timeNow + ms
+            let updated: number[] = [fresh[0], fresh[1], fresh[2]] // (can't use [...fresh]!)
 
+            // continue cranking out updated moving averages until we run out of time or space
+            let finish = timeNow + ms
             while ((timeNow < finish)
                 && (scanTimes.length < TooManySamples)) {
+
                 basic.pause(SampleGap)
             // on each iteration, blend the history[]; the last[]; and a fresh[] set of samples
             // in the proportions <keepOld : boostLast : addFresh> respectively
@@ -420,7 +333,7 @@ namespace heading {
                 // we will amplify the fraction of the inherited average that is due to the most recent sample
                 let boostLast = (inherited - keepOld)
                 let addNew = (1 - inherited)
-                // the blending proportions <keepOld + boostLast + addNew> will always add up to 100%
+                // the blending proportions <keepOld + boostLast + addNew> must always add up to 100%
 
                 if (mode == Mode.Trace) {
                     datalogger.log(
@@ -428,21 +341,22 @@ namespace heading {
                         datalogger.createCV("keepOld", round2(keepOld)),
                         datalogger.createCV("inherited", round2(inherited)),
                         datalogger.createCV("boostLast", round2(boostLast)),
-                        datalogger.createCV("addNew", round2(addNew)))
-
+                        datalogger.createCV("addNew", round2(addNew)),
+                        datalogger.createCV("blend", round2(keepOld + boostLast + addNew)))
                 }
 
-                // deal with [X,Y,Z] in turn...
+                // to ensure deep copy of historical arrays, deal in turn with X,Y and Z...
                 for(let dim = 0; dim < 3; dim++) {
+                    history[dim] = updated[dim]
                     last[dim] = fresh[dim]
                     fresh[dim] = input.magneticForce(dim)
-                    history[dim] = updated[dim]
                     // put in the blender and smooth!
                     updated[dim] = keepOld * history[dim] 
                                 + boostLast * last[dim] 
                                 + addNew * fresh[dim]
 
                 }
+
                 if (mode == Mode.Trace) {
                     datalogger.log(
                         datalogger.createCV("latestX", round2(fresh[0])),
@@ -455,10 +369,11 @@ namespace heading {
                 }
 
                 // only start recording once the moving average has stabilised
-                if (timeNow > start) {
+                if (index > Window) {
                     scanData.push(updated)  // store the triple of averaged [X,Y,Z] values
                     scanTimes.push(timeNow)  // timestamp it
                 }
+                index++
             }
         }
 
@@ -806,7 +721,7 @@ namespace heading {
  * @param latest[] the fresh set of readings.
  * @param timestep millisecs since the last invocation.
  * @return the updated moving averages
- */
+ 
     function irregularMovingAverage(history: number[], previous: number[],
                                     latest: number[], timeStep: number): number[] {
         let timeFraction = timeStep / Latency
@@ -839,7 +754,7 @@ namespace heading {
         return result
     }
 
-
+*/
 
     // helpful for logging...
     function round2(v: number): number {
