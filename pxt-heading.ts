@@ -38,7 +38,7 @@ namespace heading {
     const EnoughSamples = 70 // fewest acceptable scan samples
     const TooManySamples = 500 // don't be too greedy with memory!
     const MarginalField = 10 // minimum acceptable field-strength for magnetometer readings
-    const Circular = 1.1 // maximum eccentricity to consider an Ellipse as "circular"
+    const Circular = 1.03 // maximum eccentricity to consider an Ellipse as "circular" (3% gives ~1 degree error)
     const LongEnough = 0.9 // for major-axis candidates, qualifying fraction of longest radius
     const Window = 8 // number of magnetometer samples needed to form a good average
     const SampleGap = 15 // millisecs to leave between magnetometer readings
@@ -472,8 +472,7 @@ namespace heading {
         bestView = View.XY
         if (views[View.YZ].eccentricity < views[bestView].eccentricity) bestView = View.YZ
         if (views[View.ZX].eccentricity < views[bestView].eccentricity) bestView = View.ZX
-/*        bestView = View.XY  // while debugging, force use of this view!
-*/       
+        
         // periodicity is unreliable in a near-circular View: average just the other two Views' measurements
         period = (views[0].period + views[1].period + views[2].period - views[bestView].period) / 2
 
