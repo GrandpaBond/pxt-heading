@@ -1,6 +1,6 @@
 {
     "name": "pxt-heading",
-    "version": "0.0.11",
+    "version": "0.0.12",
     "description": "orientation-independent compass extension for microbit",
     "license": "MIT",
     "dependencies": {
