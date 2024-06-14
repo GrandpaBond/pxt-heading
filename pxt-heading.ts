@@ -41,8 +41,9 @@ namespace heading {
     const Circular = 1.03 // maximum eccentricity to consider an Ellipse as "circular" (3% gives ~1 degree error)
     const LongEnough = 0.9 // for major-axis candidates, qualifying fraction of longest radius
     const Window = 8 // number of magnetometer samples needed to form a good average
-    const SampleGap = 15 // millisecs to leave between magnetometer readings
-    const Latency = Window * SampleGap // consequent time taken to collect a good moving average from scratch
+    const SampleGap = 15 // minimum ms to wait between magnetometer readings
+    const AverageGap = 25 // (achieved in practice, due to system interrupts)
+    const Latency = Window * AverageGap // consequent time taken to collect a good moving average from scratch
 
     // SUPPORTING CLASSES
 
@@ -317,14 +318,17 @@ namespace heading {
 
             let updated: number[] = [fresh[0], fresh[1], fresh[2]] // (can't use [...fresh]!)
 
-            // continue cranking out updated moving averages until we run out of time or space
-            let finish = timeNow + ms
-            while ((timeNow < finish)
+            // after an initial settling period, continue cranking out updated moving averages 
+            // until we run out of time (or space!)
+            let startTime = timeNow + Latency
+            let stopTime = startTime + ms
+            while ((timeNow < stopTime)
             && (scanTimes.length < TooManySamples)) {
+
                 timeWas = timeNow
                 timeNow = input.runningTime()
-                basic.pause(SampleGap + timeWas - timeNow) // pause for remainder of gap (if any) 
-                timeNow = input.runningTime()
+                basic.pause(SampleGap - (timeNow - timeWas)) // pause for remainder of gap (if any) 
+
             // on each iteration, blend the history[]; the last[]; and a fresh[] set of samples
             // in the proportions <keepOld : boostLast : addFresh> respectively
                 let timeFraction = (timeNow - timeWas) / Latency // (uses global constant)
@@ -334,7 +338,7 @@ namespace heading {
                 let boostLast = (inherited - keepOld)
                 // the blending proportions <keepOld + boostLast + addNew> must always add up to 100%
                 let addNew = (1 - inherited)
-                // to ensure deep copy of historical arrays, deal in turn with X,Y and Z...
+                // to ensure deep copy of our historical arrays, deal with X, Y and Z separately...
                 for(let dim = 0; dim < 3; dim++) {
                     history[dim] = updated[dim]
                     last[dim] = fresh[dim]
@@ -346,20 +350,8 @@ namespace heading {
 
                 }
 
-                /*if (mode == Mode.Trace) {
-                    datalogger.log(
-                        datalogger.createCV("latestX", round2(fresh[0])),
-                        datalogger.createCV("latestY", round2(fresh[1])),
-                        datalogger.createCV("latestZ", round2(fresh[2])),
-                        datalogger.createCV("updatedX", round2(updated[0])),
-                        datalogger.createCV("updatedY", round2(updated[1])),
-                        datalogger.createCV("updatedZ", round2(updated[2]))
-                        )
-                }
-                */
-
                 // only start recording once the moving average has stabilised
-                if (index > Window) { 
+                if (timeNow > startTime) { 
                     // store the triple of averaged [X,Y,Z] values
                     scanData.push([updated[0], updated[1], updated[2]])
                     scanTimes.push(timeNow)  // timestamp it
