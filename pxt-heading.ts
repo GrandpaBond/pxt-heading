@@ -346,7 +346,7 @@ namespace heading {
 
                 }
 
-                if (mode == Mode.Trace) {
+                /*if (mode == Mode.Trace) {
                     datalogger.log(
                         datalogger.createCV("latestX", round2(fresh[0])),
                         datalogger.createCV("latestY", round2(fresh[1])),
@@ -356,6 +356,7 @@ namespace heading {
                         datalogger.createCV("updatedZ", round2(updated[2]))
                         )
                 }
+                */
 
                 // only start recording once the moving average has stabilised
                 if (index > Window) { 
