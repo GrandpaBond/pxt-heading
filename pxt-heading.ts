@@ -311,17 +311,21 @@ namespace heading {
             let inherited: number
             let boostLast: number
             let addFresh: number
-            let history: number[] = []
+            let fresh: number[] = []
             let last: number[] = []
+            let history: number[] = []
+            let updated: number[] = []
 
             basic.pause(200) // wait for motors to stabilise (after initial kick)
             // get initial reading
             let timeStamp = input.runningTime()
-            let fresh = [
+            fresh = [
                 input.magneticForce(Dimension.X),
                 input.magneticForce(Dimension.Y),
                 input.magneticForce(Dimension.Z)]
-            let updated: number[] = [fresh[0], fresh[1], fresh[2]] // (can't use [...fresh] spread operator!)
+            // echo it as history (NOTE shallow copy, so all three will share the same data!)
+            updated = fresh
+            history = fresh
 
             let startTime = timeStamp + Latency
             let stopTime = timeStamp + ms
@@ -331,10 +335,11 @@ namespace heading {
             while ((timeStamp < stopTime)
             && (scanTimes.length < TooManySamples)) {
 
-                // after processing, sleep until it's time for next sample.
+                // After processing, sleep until it's time for next sample.
                 // NOTE: here is where various system subprograms will get scheduled.
                 // If they need more time than we've offered, out next sample will get delayed!
                 // (This seems to incur extra delays of ~44 ms every 100ms, plus ~26ms every 400ms)
+
                 timeWas = timeStamp // remember time of latest sample
                 timeNow = input.runningTime()
                 basic.pause((timeWas + SampleGap) - timeNow) // pause for remainder of SampleGap (if any!)
@@ -357,18 +362,27 @@ namespace heading {
                 addFresh = (1 - inherited)
 
                 // put everything in the blender and smooth!
-                for(let dim = 0; dim < 3; dim++) {
-                    updated[dim] = keepOld * history[dim] 
-                                + boostLast * last[dim] 
-                                + addFresh * fresh[dim]
+                updated = [
+                    keepOld * history[0] + boostLast * last[0] + addFresh * fresh[0],
+                    keepOld * history[1] + boostLast * last[1] + addFresh * fresh[1],
+                    keepOld * history[2] + boostLast * last[2] + addFresh * fresh[2]]
+
+                // perform shallow array copies for next iteration 
+                // (merely relinking pointers to the two sets of [X,Y,Z] triples)
+                history = updated
+                last = fresh
+
+                if (mode == Mode.Trace) {
+                    datalogger.log(
+                        datalogger.createCV("t", timeStamp),
+                        datalogger.createCV("X", round2(updated[0])),
+                        datalogger.createCV("Y", round2(updated[1])),
+                        datalogger.createCV("Z", round2(updated[2])))
                 }
-                // ensure deep copies of our historical arrays for next time around!
-                history = [updated[0], updated[1], updated[2]] // not simply history = updated!
-                last = [fresh[0], fresh[1], fresh[2]]
 
                 // only start recording once the moving average has stabilised
                 if (timeStamp > startTime) {
-                    // store the triple of averaged [X,Y,Z] values
+                    // store the triple of averaged [X,Y,Z] values as a deep copy
                     scanData.push([updated[0], updated[1], updated[2]])
                     scanTimes.push(timeStamp)  // timestamp it
                 }
