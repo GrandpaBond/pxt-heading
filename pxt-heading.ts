@@ -304,28 +304,42 @@ namespace heading {
             simulateScan(dataset)
             basic.pause(ms)
         } else { // use live magnetometer
-            basic.pause(200) // wait for motors to stabilise (after initial kick)
-            let timeWas: number
+            let timeWas:number
+            let timeFraction: number
+            let timeNow: number
+            let keepOld: number
+            let inherited: number
+            let boostLast: number
+            let addFresh: number
             let history: number[] = []
             let last: number[] = []
-            // get initial readings
-            let timeNow = input.runningTime()
+
+            basic.pause(200) // wait for motors to stabilise (after initial kick)
+            // get initial reading
+            let timeStamp = input.runningTime()
             let fresh = [
                 input.magneticForce(Dimension.X),
                 input.magneticForce(Dimension.Y),
                 input.magneticForce(Dimension.Z)]
-
             let updated: number[] = [fresh[0], fresh[1], fresh[2]] // (can't use [...fresh] spread operator!)
+
+            let startTime = timeStamp + Latency
+            let stopTime = timeStamp + ms
 
             // after an initial settling period, continue cranking out updated moving averages 
             // until we run out of time (or space!)
-            let startTime = timeNow + Latency
-            let stopTime = startTime + ms
-            while ((timeNow < stopTime)
+            while ((timeStamp < stopTime)
             && (scanTimes.length < TooManySamples)) {
 
-                timeWas = timeNow // remember time of latest sample
-                timeNow = input.runningTime() // take a fresh reading
+                // after processing, sleep until it's time for next sample.
+                // NOTE: here is where various system subprograms will get scheduled.
+                // If they need more time than we've offered, out next sample will get delayed!
+                // (This seems to incur extra delays of ~44 ms every 100ms, plus ~26ms every 400ms)
+                timeWas = timeStamp // remember time of latest sample
+                timeNow = input.runningTime()
+                basic.pause((timeWas + SampleGap) - timeNow) // pause for remainder of SampleGap (if any!)
+
+                timeStamp = input.runningTime() // take a fresh reading
                 fresh = [
                     input.magneticForce(Dimension.X),
                     input.magneticForce(Dimension.Y),
@@ -334,35 +348,30 @@ namespace heading {
             // Calculate moving average...
             // On each iteration, blend the history[]; the last[]; and a fresh[] set of samples
             // in the proportions <keepOld : boostLast : addFresh> respectively
-                let timeFraction = (timeNow - timeWas) / Latency // (uses global constant)
-                let keepOld = Math.exp(-timeFraction)
-                let inherited = (1 - keepOld) / timeFraction
+                timeFraction = (timeStamp - timeWas) / Latency // (uses global constant)
+                keepOld = Math.exp(-timeFraction)
+                inherited = (1 - keepOld) / timeFraction
                 // we will amplify the fraction of the inherited average that is due to the most recent sample
-                let boostLast = (inherited - keepOld)
+                boostLast = (inherited - keepOld)
                 // the blending proportions <keepOld + boostLast + addNew> must always add up to 100%
-                let addNew = (1 - inherited)
+                addFresh = (1 - inherited)
 
                 // put everything in the blender and smooth!
                 for(let dim = 0; dim < 3; dim++) {
                     updated[dim] = keepOld * history[dim] 
                                 + boostLast * last[dim] 
-                                + addNew * fresh[dim]
+                                + addFresh * fresh[dim]
                 }
                 // ensure deep copies of our historical arrays for next time around!
-                history = [updated[0], updated[1], updated[2]]
+                history = [updated[0], updated[1], updated[2]] // not simply history = updated!
                 last = [fresh[0], fresh[1], fresh[2]]
 
                 // only start recording once the moving average has stabilised
-                if (timeNow > startTime) {
+                if (timeStamp > startTime) {
                     // store the triple of averaged [X,Y,Z] values
                     scanData.push([updated[0], updated[1], updated[2]])
-                    scanTimes.push(timeNow)  // timestamp it
+                    scanTimes.push(timeStamp)  // timestamp it
                 }
-                // after processing, sleep until time for next sample
-                let timeCheck = input.runningTime()
-                basic.pause(timeWas + SampleGap - timeCheck) // pause for remainder of gap (if any)
-                // NOTE: this is the point at which other processes get scheduled
-                // If they steal more time than we offered, out next sample will get delayed!
             }
         }
 
