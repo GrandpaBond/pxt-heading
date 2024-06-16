@@ -39,7 +39,7 @@ namespace heading {
     const TooManySamples = 500 // don't be too greedy with memory!
     const MarginalField = 10 // minimum acceptable field-strength for magnetometer readings
     const Circular = 1.03 // maximum eccentricity to consider an Ellipse as "circular" (3% gives ~1 degree error)
-    const LongEnough = 0.9 // for major-axis candidates, qualifying fraction of longest radius
+    const NearEnough = 0.9 // for major-axis candidates, qualifying fraction of longest radius
     const Window = 8 // number of magnetometer samples needed to form a good average
     const SampleGap = 15 // minimum ms to wait between magnetometer readings
     const AverageGap = 25 // (achieved in practice, due to system interrupts)
@@ -84,11 +84,11 @@ namespace heading {
         vOff: number; // vertical offset needed to re-centre this Ellipse along the V-axis
 
         // calibration characteristics
-        majorAxis: Arrow; // direction of the major axis 
+        majorAngle: number; // direction of the Ellipse major axis 
+        period: number; // scan-rotation time as viewed in this plane
         eccentricity: number; // ratio of major-axis to minor-axis magnitudes for this Ellipse
         isCircular: boolean; // flag saying this "Ellipse" View is almost circular, simplifying future handling
         rotationSense: number; // rotation reversal sign = +/-1, reflecting this Ellipse's view of the clockwise scan
-        period: number; // scan-rotation time (as twice average time between passing the ellipse major-axis)
 
         constructor(plane: string, uDim: number, vDim: number, uOff: number, vOff: number) {
             this.plane = plane // (as a DEBUG aid)
@@ -113,6 +113,7 @@ namespace heading {
         
         analyseView() {
             let majors: Arrow[] = [] // candidate directions for major axis of Ellipse
+            let minors: Arrow[] = [] // candidate directions for minor axis of Ellipse
             let trial = new Arrow(scanData[0][this.uDim], scanData[0][this.vDim], scanTimes[0])
             let longest = trial.size
             let shortest = trial.size
@@ -134,15 +135,22 @@ namespace heading {
                 // fix roll-rounds in either direction
                 if (delta > HalfPi) spin -= TwoPi // apparent big positive jump is due to underflow
                 if (delta < -HalfPi) spin += TwoPi // apparent big negative jump is due to overflow
-                // now collect candidates for the major-axis angle   
+                // now collect candidates for axes  
                 stepWas = step
                 step = trial.size - sizeWas // is radius growing or shrinking?
                 // (ensure that the first two steps will always match)
                 if (stepWas == 99999) stepWas = step
+
                 // look for peaks, where we switch from growing to shrinking
                 if ((stepWas > 0) && (step <= 0)) {
                     majors.push(trial.cloneMe()) // copy the major axis we are passing
                 }
+
+                // look for troughs, where we switch from shrinking to growing
+                if ((stepWas < 0) && (step >= 0)) {
+                    minors.push(trial.cloneMe()) // copy the minor axis we are passing
+                }
+
             }
             // During a clockwise scan, the projection-angle of the field-vector as viewed from above 
             // will appear to rotate anticlockwise (increasing radians) from the perspective of the Buggy. 
@@ -153,86 +161,61 @@ namespace heading {
             /* PERIODICITY FROM SPIN?
              Why not simply use the accumulated spin-angle and time-span to calculate the rotation-period?
              --Because the arbitrary start and end angles may be subject to fore-shortening, and hence
-             quite inaccurate! The only dependable angles occur as we pass over the major-axis (see below).
+             quite inaccurate! The only dependable angles occur as we pass over the axes (see below).
             */
 
-            // The ratio of the extreme axis lengths gives the eccentricity of this Ellipse
-            this.eccentricity = longest / shortest
-            // Readings on a near-circular Ellipse won't ever be fore-shortened, so we can skip correction!
-            this.isCircular = (this.eccentricity < Circular)
 
             /* We are trying to find a good approximation to the tilt of the Ellipse's major-axis.  
-            We could simply nominate the longest candidate detected, but instead we will average them. 
-            With an eccentric Ellipse, passing the major-axis twice per Spin-circle revolution yields neatly
-            alternating candidates with "opposite" angles.
-            With a more-nearly circular Ellipse, noisy readings can yield alternating clusters of local maxima 
+            We could simply nominate the longest candidate detected, but instead we will average them.
+
+            If the Ellipse is quite eccentric, yields neatly
+            alternating candidates with "opposite" angles.passing the major-axis twice per Spin-circle revolution 
+
+            A more-nearly circular Ellipse, noisy readings can yield alternating clusters of local maxima 
             near each end of the axis.
+
             An almost circular Ellipse has no meaningful axis and generally yields multiple spurious candidates. 
             */
 
             // purge any local maximum whose vector length is too short --it's nowhere near the major-axis!
-            let long = longest * LongEnough
+            let long = longest * NearEnough
             for (let i = 0; i < majors.length; i++) {
                 if (majors[i].size < long) {
                     majors.splice(i, 1)  // disqualified!
                     i-- // (all subsequent candidates now shuffle up by one place!)
                 }
             }
-            // A simple way to form a consensus angle is to use vector addition
-            let turns = 0 
-            let endTime = 0
-            let flipped = false
-            let uSum = 0
-            let vSum = 0
-            let count = majors.length
-            if (count > 0) {
-                // the first candidate fixes which "end" of the axis we're choosing
-                let front = majors[0].angle
-                uSum = majors[0].u
-                vSum = majors[0].v
-                let startTime = majors[0].time
-                for (let i = 1; i < count; i++) {
-                    // get angle difference, as +/- 2pi
-                    let deviate = ((ThreePi + majors[i].angle - front) % TwoPi) - Math.PI
-                    // does it point nearer to the front? ...or to the back?
-                    if (Math.abs(deviate) < HalfPi) {
-                        // add this next arrow directly to the chain (no need to flip)
-                        uSum += majors[i].u
-                        vSum += majors[i].v
-                        // the first unflipped Arrow after one or more flipped ones clocks a new revolution
-                        if (flipped) {
-                            flipped = false
-                            turns++
-                            endTime = majors[i].time
-                        }
-                    } else { // flip this arrow before chaining it, as it's pointing the "wrong" way
-                        flipped = true
-                        uSum -= majors[i].u
-                        vSum -= majors[i].v
-                    } 
-                    
-                    if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
-                            datalogger.log(
-                                datalogger.createCV("plane", this.plane),
-                                datalogger.createCV("time", majors[i].time),
-                                datalogger.createCV("uAxis", majors[i].u),
-                                datalogger.createCV("vAxis", majors[i].v),
-                                datalogger.createCV("[angle]", asDegrees(majors[i].angle)),
-                                datalogger.createCV("size", majors[i].size))
-                    }
+
+            // similarly purge all errant local minima
+            let short = shortest * NearEnough
+            for (let i = 0; i < minors.length; i++) {
+                if (minors[i].size > short) {
+                    minors.splice(i, 1)
+                    i--
                 }
-                // normalise the resultant's vector coordinates (not strictly necessary!)
-                uSum /= count
-                vSum /= count
-                // compute the average rotation time (so long as we've made at least one complete revolution)
-                if (endTime > 0) { 
-                    this.period = (endTime - startTime) / turns
-                } else {
-                    this.period = -1
-                }
-            } // else uSum & vSum remain at zero
-            // create an Arrow pointing to {uSum,vSum}, showing the overall direction of the chained source Arrows
-            this.majorAxis = new Arrow(uSum, vSum, 0)
+            }
+            // form best estimates of the axes
+            let major = averageArrows(majors)
+            let minor = averageArrows(minors)
+
+            if ((mode = Mode.Trace) || (mode = Mode.Debug)) {
+                datalogger.log(
+                    datalogger.createCV("view", this.plane),
+                    datalogger.createCV("RADIUS", round2(major.size)),
+                    datalogger.createCV("radius", round2(minor.size)),
+                    datalogger.createCV("ANGLE", round2(major.angle)),
+                    datalogger.createCV("angle", round2(minor.angle)),
+                    datalogger.createCV("PERIOD", round2(major.time)),
+                    datalogger.createCV("period", round2(minor.time)))
+            }
+            // adopt the average major axis angle
+            this.majorAngle = major.angle
+            // The ratio of the axis lengths gives the eccentricity of this Ellipse
+            this.eccentricity = major.size / minor.size
+            // average the periodicities detected 
+            this.period = (major.time + minor.time) / 2
+            // Readings on a near-circular Ellipse won't ever be fore-shortened, so we can skip correction!
+            this.isCircular = (this.eccentricity < Circular)
         }
     }
 
@@ -534,7 +517,7 @@ namespace heading {
         uOff = views[bestView].uOff
         vOff = views[bestView].vOff
         scale = views[bestView].eccentricity // scaling needed to balance axes
-        theta = views[bestView].majorAxis.angle // the rotation (in radians) of the major-axis from the U-axis
+        theta = views[bestView].majorAngle // the rotation (in radians) of the major-axis from the U-axis
         cosTheta = Math.cos(theta)
         sinTheta = Math.sin(theta)
         isCircular = views[bestView].isCircular
@@ -795,6 +778,62 @@ namespace heading {
     }
 
 */
+
+
+
+    // Use vector addition to average a sequence of candidate axis Arrows (possibly empty!)
+    // The ones pointing away from the first one are assumed to belong to the other end
+    // of the axis, so will get reversed.
+    // The returned Arrow shows the average axis length and angle.
+    // Assuming candidates represent more than one revolution, the periodocity is also calculated.
+    function averageArrows(arrows: Arrow[]): Arrow {
+        let turns = 0
+        let endTime = 0
+        let flipped = false
+        let uSum = 0
+        let vSum = 0
+        let count = arrows.length
+        if (count > 0) {
+            // the first candidate fixes which end of the axis we're choosing as the "front"
+            let front = arrows[0].angle
+            uSum = arrows[0].u
+            vSum = arrows[0].v
+            let startTime = arrows[0].time
+            for (let i = 1; i < count; i++) {
+                // get angle difference, as +/- 2pi
+                let deviate = ((ThreePi + arrows[i].angle - front) % TwoPi) - Math.PI
+                // does it point nearer to the "front"? ...or to the "back"?
+                if (Math.abs(deviate) < HalfPi) {
+                    // add this next arrow directly to the chain (no need to flip)
+                    uSum += arrows[i].u
+                    vSum += arrows[i].v
+                    // the first unflipped Arrow after one or more flipped ones clocks a new revolution
+                    if (flipped) {
+                        flipped = false
+                        turns++
+                        endTime = arrows[i].time
+                    }
+                } else { // flip this arrow before chaining it, as it's pointing the "wrong" way
+                    flipped = true
+                    uSum -= arrows[i].u
+                    vSum -= arrows[i].v
+                }
+            }
+            // compute the average rotation time (so long as we've made at least one complete revolution)
+            let period = -1
+            if (endTime > 0) {
+                period = (endTime - startTime) / turns
+            } 
+            // normalise the resultant's vector coordinates
+            uSum /= count
+            vSum /= count
+        } // else uSum & vSum remain at zero
+        // create an Arrow for the resultant, hijacking its timeStamp property to return the period
+        return new Arrow(uSum, vSum, period)
+    }
+
+
+
 
     // helpful for logging...
     function round2(v: number): number {
