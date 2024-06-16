@@ -304,6 +304,13 @@ namespace heading {
             simulateScan(dataset)
             basic.pause(ms)
         } else { // use live magnetometer
+
+            /* cobbled for testing!
+            /* ===================== 
+            simulateScan(dataset)
+            let index = 0
+            /* ===================== */
+
             let timeWas:number
             let timeFraction: number
             let timeNow: number
@@ -319,12 +326,20 @@ namespace heading {
             basic.pause(200) // wait for motors to stabilise (after initial kick)
             // get initial reading
             let timeStamp = input.runningTime()
+
+            /* ===================== */
             fresh = [
                 input.magneticForce(Dimension.X),
                 input.magneticForce(Dimension.Y),
                 input.magneticForce(Dimension.Z)]
-            // echo it as history (NOTE shallow copy, so all three will share the same data!)
+            /* =====================
+            fresh = scanData[index]
+            index++
+            /* ===================== */
+
+            // echo new [XYZ] as history (NOTE shallow copy, so all four will share the same data!)
             updated = fresh
+            last = fresh
             history = fresh
 
             let startTime = timeStamp + Latency
@@ -332,8 +347,12 @@ namespace heading {
 
             // after an initial settling period, continue cranking out updated moving averages 
             // until we run out of time (or space!)
+            /* ===================== */
             while ((timeStamp < stopTime)
-            && (scanTimes.length < TooManySamples)) {
+                && (scanTimes.length < TooManySamples)) {
+            /* =====================
+            while (index < scanData.length) {
+            /* ===================== */
 
                 // After processing, sleep until it's time for next sample.
                 // NOTE: here is where various system subprograms will get scheduled.
@@ -344,15 +363,21 @@ namespace heading {
                 timeNow = input.runningTime()
                 basic.pause((timeWas + SampleGap) - timeNow) // pause for remainder of SampleGap (if any!)
 
-                timeStamp = input.runningTime() // take a fresh reading
+                timeStamp = input.runningTime() // take a fresh 
+
+                /* ===================== */
                 fresh = [
                     input.magneticForce(Dimension.X),
                     input.magneticForce(Dimension.Y),
                     input.magneticForce(Dimension.Z)]
+                /* ===================== 
+                fresh = scanData[index]
+                index++
+                /* ===================== */
 
-            // Calculate moving average...
-            // On each iteration, blend the history[]; the last[]; and a fresh[] set of samples
-            // in the proportions <keepOld : boostLast : addFresh> respectively
+                // Calculate moving average...
+                // On each iteration, blend the history[]; the last[]; and a fresh[] set of samples
+                // in the proportions <keepOld : boostLast : addFresh> respectively
                 timeFraction = (timeStamp - timeWas) / Latency // (uses global constant)
                 keepOld = Math.exp(-timeFraction)
                 inherited = (1 - keepOld) / timeFraction

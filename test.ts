@@ -131,7 +131,7 @@ function nextConfig() {
             break
         case Config.Capture:
             config = Config.Trace
-            heading.resetMode(Mode.Trace, "")
+            heading.resetMode(Mode.Trace, dataset)
             basic.showString("T")  // gather full diagnostics
             break
         case Config.Trace:
