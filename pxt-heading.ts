@@ -39,7 +39,8 @@ namespace heading {
     const TooManySamples = 500 // don't be too greedy with memory!
     const MarginalField = 10 // minimum acceptable field-strength for magnetometer readings
     const Circular = 1.03 // maximum eccentricity to consider an Ellipse as "circular" (3% gives ~1 degree error)
-    const NearEnough = 0.9 // for major-axis candidates, qualifying fraction of longest radius
+    const NearEnough = 0.75 // major-axis candidates must be longer than (longest*NearEnough)
+                            // minor-axis candidates must be shorter than (shortest/NearEnough) 
     const Window = 8 // number of magnetometer samples needed to form a good average
     const SampleGap = 15 // minimum ms to wait between magnetometer readings
     const AverageGap = 25 // (achieved in practice, due to system interrupts)
@@ -115,8 +116,8 @@ namespace heading {
             let majors: Arrow[] = [] // candidate directions for major axis of Ellipse
             let minors: Arrow[] = [] // candidate directions for minor axis of Ellipse
             let trial = new Arrow(scanData[0][this.uDim], scanData[0][this.vDim], scanTimes[0])
-            let longest = trial.size
-            let shortest = trial.size
+            let longest = 0
+            let shortest = 99999
             let spin = 0
             let sizeWas: number
             let angleWas: number
@@ -127,8 +128,6 @@ namespace heading {
                 sizeWas = trial.size
                 angleWas = trial.angle
                 trial = new Arrow(scanData[i][this.uDim], scanData[i][this.vDim], scanTimes[i])
-                longest = Math.max(longest, trial.size)
-                shortest = Math.min(shortest, trial.size)
                 // accumulate gradual rotation of the projected field-vector...
                 let delta = trial.angle - angleWas
                 spin += delta
@@ -137,17 +136,19 @@ namespace heading {
                 if (delta < -HalfPi) spin += TwoPi // apparent big negative jump is due to overflow
                 // now collect candidates for axes  
                 stepWas = step
-                step = trial.size - sizeWas // is radius growing or shrinking?
-                // (ensure that the first two steps will always match)
-                if (stepWas == 99999) stepWas = step
+                step = trial.size - sizeWas // is radius growing or shrinking (or the same!)?
+                if (stepWas == 99999) stepWas = step // (ensure that the first two steps will always match)
+                if (step == 0) step = stepWas // ignore any (rare!) level sequence by propagating last step
 
                 // look for peaks, where we switch from growing to shrinking
-                if ((stepWas > 0) && (step <= 0)) {
+                if ((stepWas > 0) && (step < 0)) {
+                    longest = Math.max(longest, trial.size)
                     majors.push(trial.cloneMe()) // copy the major axis we are passing
                 }
 
                 // look for troughs, where we switch from shrinking to growing
-                if ((stepWas < 0) && (step >= 0)) {
+                if ((stepWas < 0) && (step > 0)) {
+                    shortest = Math.min(shortest, trial.size)
                     minors.push(trial.cloneMe()) // copy the minor axis we are passing
                 }
 
@@ -186,8 +187,8 @@ namespace heading {
                 }
             }
 
-            // similarly purge all errant local minima
-            let short = shortest * NearEnough
+            // similarly purge all errant local minima that are too big
+            let short = shortest / NearEnough
             for (let i = 0; i < minors.length; i++) {
                 if (minors[i].size > short) {
                     minors.splice(i, 1)
@@ -397,7 +398,7 @@ namespace heading {
             }
         }
 
-        if ((mode == Mode.Trace) || (mode == Mode.Capture)) {
+        if (mode != Mode.Normal) {
             datalogger.setColumnTitles("index", "t", "x", "y", "z")
             for (let i = 0; i < scanTimes.length; i++) {
                 datalogger.log(
