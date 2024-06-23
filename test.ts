@@ -12,10 +12,10 @@ enum Task {
 }
 // NOTE: check in "pxt-heading.ts" that the required test dataset is not commented-out in simulateScan()!
 //const dataset = "angled"
-const dataset = "yup70"
+//const dataset = "yup70"
 //const dataset = "zdown70"
 //const dataset = "zdown15"
-//const dataset = "tldown70"
+const dataset = "tldown70"
 //const dataset = "tldown0"
 //const dataset = "dashboard70"
 
