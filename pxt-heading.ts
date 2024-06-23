@@ -214,9 +214,16 @@ namespace heading {
             }
 
 
-            // form best estimates of the axes
-            let major = averageArrows(majors)
-            let minor = averageArrows(minors)
+            // form consensus averages of the two ends of the two axes
+            let [majorPlus, majorMinus] = juggleArrows(majors)
+            let [minorPlus, minorMinus] = juggleArrows(minors)
+
+            //****************** */
+
+
+            // refine centre offsets {uOff,vOff}
+            this.uOff += (majorPlus.u + majorMinus.u + minorPlus.u + minorMinus.u) / 4
+            this.vOff += (majorPlus.v + majorMinus.v + minorPlus.v + minorMinus.v) / 4
 
             if ((mode = Mode.Trace) || (mode = Mode.Debug)) {
                 datalogger.log(
@@ -852,7 +859,47 @@ namespace heading {
         return new Arrow(uSum, vSum, period)
     }
 
+    function juggleArrows(quiver: Arrow[]) {
+        let noses: Arrow[] = []
+        let tails: Arrow[] = []
+        let front = 0
+        for (let i = 0; i < quiver.length; i++) {
+            if (radiansBetween(quiver[i].angle, front) < HalfPi) {
+                noses.push(quiver[i].cloneMe())
+            } else {
+                tails.push(quiver[i].cloneMe())
+            }
+        }
+        let nose = meanArrow(noses)
+        let tail = meanArrow(tails)
 
+        return [nose, tail]
+
+    }
+
+    // get the vector resultant of some Arrows
+    function meanArrow(sheaf: Arrow[]) {
+        let phase = 0
+        let u = 0
+        let v = 0
+        for (let i = 0; i < sheaf.length; i++) {
+            u += sheaf[i].u
+            v += sheaf[i].v
+        }
+
+        return new Arrow (u,v,phase)
+    }
+
+
+
+    /** returns the difference between angles a & b (allowing for roll-round)
+     * @param a first angle in radians
+     * @param b second angle in radians
+     * @returns the acute (i.e. smaller) difference in angle
+     */
+    function radiansBetween(a:number, b:number){
+        return((ThreePi + b - a) % TwoPi) - Math.PI
+    }
 
 
     // helpful for logging...
