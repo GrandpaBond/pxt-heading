@@ -75,6 +75,51 @@ namespace heading {
         }
     }
 
+    // A Smoother computes a moving average from a sequence of time-stamped values
+    // (magnetometer readings and their derivatives).
+    // Timing irregularites due to scheduler interrupts demand this somewhat complex maths.
+    // The constant {Window} governs the latency of the exponential averaging process.
+    // history[], previous[], latest[] and result[] arrays will be either 3-D, (for initial [X,Y,Z] scanning)
+    // or 2-D, (for analysing chosen the [uDim,vDim]).
+    class Smoother {
+        dims: number; // dimensionality
+        average: number[];
+        lastTime: number;
+        lastInputs: number[];
+
+        constructor(timestamp: number, values: number[]) {
+            this.dims = values.length
+            for (let i = 0; i < this.dims; i++) {
+                this.average.push(values[i])
+                this.lastInputs.push(values[i])
+            }
+        }
+
+        update(timeStamp: number, values: number[]): number[] {
+            // work out appropriate blend, based on time-step
+            let timeFraction = (this.lastTime - timeStamp) / Latency
+            let keepOld = Math.exp(-timeFraction)
+            let inherited = (1 - keepOld) / timeFraction
+            // the component of inherited average due to the most recent sample gets amplified
+            let boostLast = (inherited - keepOld)
+            let addNew = (1 - inherited)
+            // (blending proportions keepOld + boostLast + addNew will always add up to 100%)
+            // apply blending to old and new data
+            let result: number[] = []
+            for (let dim = 0; dim < this.dims; dim++) {
+                result.push(keepOld * this.average[dim]
+                    + boostLast * this.lastInputs[dim]
+                    + addNew * values[dim])
+            }
+            // update history for next time round
+            this.average = result
+            this.lastTime = timeStamp
+            this.lastInputs = values
+
+            return result
+        }
+    }
+
     // An Ellipse is an object holding the characteristics of the (typically) elliptical
     // view formed when projecting the scan Spin-Circle onto a 2-axis View-plane.
     class Ellipse {
@@ -298,9 +343,9 @@ namespace heading {
         // A timestamp for each sample is also recorded in the scanTimes[] array.
 
         // NOTE: To smooth out jitter, each reading is always a moving average of several consecutive readings.
-        // Also (because of scheduled interrupts) sample-times may be irregular, so a special exponential
-        // moving-average function is used that is timing-aware. The minimum sample-grouping
-        // and spacing are controlled respectively by the constants Window and SampleGap.
+        // Because sample-times may be irregular (due to scheduled interrupts), a Smoother is used to provide
+        // a timing-aware exponential moving-average. The sample-grouping and spacing are controlled 
+        // respectively by the constants Window and SampleGap, which together determine the Latency.
 
         scanTimes = []
         scanData = []
@@ -322,16 +367,21 @@ namespace heading {
             /* ===================== */
 
             let timeWas:number
-            let timeFraction: number
             let timeNow: number
+
+            /* *****************
+            let timeFraction: number
             let keepOld: number
             let inherited: number
             let boostLast: number
             let addFresh: number
-            let fresh: number[] = []
             let last: number[] = []
             let history: number[] = []
+            *************/
+
+            let fresh: number[] = []
             let updated: number[] = []
+            
 
             basic.pause(200) // wait for motors to stabilise (after initial kick)
             // get initial reading
@@ -347,10 +397,15 @@ namespace heading {
             index++
             /* ===================== */
 
+
+            let scan = new Smoother(timeStamp,fresh)
+
+            /* *******************
             // echo new [XYZ] as history (NOTE shallow copy, so all four will share the same data!)
             updated = fresh
             last = fresh
             history = fresh
+            ****************** */
 
             let startTime = timeStamp + Latency
             let stopTime = timeStamp + ms
@@ -386,6 +441,11 @@ namespace heading {
                 /* ===================== */
 
                 // Calculate moving average...
+                updated = scan.update(timeStamp, fresh)
+
+
+                /* ****************************
+
                 // On each iteration, blend the history[]; the last[]; and a fresh[] set of samples
                 // in the proportions <keepOld : boostLast : addFresh> respectively
                 timeFraction = (timeStamp - timeWas) / Latency // (uses global constant)
@@ -406,6 +466,8 @@ namespace heading {
                 // (merely relinking pointers to the two sets of [X,Y,Z] triples)
                 history = updated
                 last = fresh
+
+                **********/
 
                 if (mode == Mode.Trace) {
                     datalogger.log(
@@ -784,9 +846,9 @@ namespace heading {
 
         let result = []
 
-        result.push(keepOld * history[0] + boostLast * previous[0] + addNew * latest[0])
-        result.push(keepOld * history[1] + boostLast * previous[1] + addNew * latest[1])
-        result.push(keepOld * history[2] + boostLast * previous[2] + addNew * latest[2])
+        for (let i=0; i<latest; i++) {
+            result.push(keepOld * history[i] + boostLast * previous[i] + addNew * latest[i])
+        }
 
         datalogger.log(
             datalogger.createCV("timeStep", timeStep),
@@ -860,34 +922,39 @@ namespace heading {
     }
 
     function juggleArrows(quiver: Arrow[]) {
-        let noses: Arrow[] = []
+        let heads: Arrow[] = []
         let tails: Arrow[] = []
         let front = 0
         for (let i = 0; i < quiver.length; i++) {
             if (radiansBetween(quiver[i].angle, front) < HalfPi) {
-                noses.push(quiver[i].cloneMe())
+                heads.push(quiver[i].cloneMe())
             } else {
                 tails.push(quiver[i].cloneMe())
             }
         }
-        let nose = meanArrow(noses)
+        let head = meanArrow(heads)
         let tail = meanArrow(tails)
 
-        return [nose, tail]
+        return [head, tail]
 
     }
 
-    // get the vector resultant of some Arrows
-    function meanArrow(sheaf: Arrow[]) {
+    /** get the average of some Arrows.
+     * @param sheaf is an array or Arrow objects
+     * @returns their average (in both space & time)
+     */
+        function meanArrow(sheaf: Arrow[]) {
         let phase = 0
         let u = 0
         let v = 0
-        for (let i = 0; i < sheaf.length; i++) {
+        let t = 0
+        let n = sheaf.length
+        for (let i = 0; i < n; i++) {
             u += sheaf[i].u
             v += sheaf[i].v
+            t += sheaf[i].time
         }
-
-        return new Arrow (u,v,phase)
+        return new Arrow (u/n,v/n,t/n)
     }
 
 
