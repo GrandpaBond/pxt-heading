@@ -75,50 +75,53 @@ namespace heading {
         }
     }
 
-    // A Smoother computes a moving average from a sequence of time-stamped values
-    // (magnetometer readings and their derivatives).
+    // A Smoother object computes a moving average from a sequence of time-stamped values: 
+    // in our case, magnetometer readings and their derivatives.
     // Timing irregularites due to scheduler interrupts demand this somewhat complex maths.
     // The constant {Window} governs the latency of the exponential averaging process.
+    // Smoothers can work with arbitrary-sized vectors of values that share the same timestamp.
     // history[], previous[], latest[] and result[] arrays will be either 3-D, (for initial [X,Y,Z] scanning)
     // or 2-D, (for analysing chosen the [uDim,vDim]).
     class Smoother {
         dims: number; // dimensionality
-        average: number[];
+        average: number[] = []; // 
         lastTime: number;
-        lastInputs: number[];
+        lastInputs: number[] = [];
 
-        constructor(timestamp: number, values: number[]) {
-            this.dims = values.length
+        constructor(first: number[], start: number) {
+            this.dims = first.length
+            this.lastTime = start
             for (let i = 0; i < this.dims; i++) {
-                this.average.push(values[i])
-                this.lastInputs.push(values[i])
+                this.average.push(first[i])
+                this.lastInputs.push(first[i])
             }
         }
 
-        update(timeStamp: number, values: number[]): number[] {
+        update(values: number[], timeStamp: number): number[] {
             // work out appropriate blend, based on time-step
-            let timeFraction = (this.lastTime - timeStamp) / Latency
+            let timeFraction = (timeStamp - this.lastTime) / Latency
             let keepOld = Math.exp(-timeFraction)
             let inherited = (1 - keepOld) / timeFraction
-            // the component of inherited average due to the most recent sample gets amplified
+            // we amplify the most recent sample's contribution to the inherited average
             let boostLast = (inherited - keepOld)
             let addNew = (1 - inherited)
             // (blending proportions keepOld + boostLast + addNew will always add up to 100%)
-            // apply blending to old and new data
+            // apply blending to all elements of old and new data arrays
             let result: number[] = []
-            for (let dim = 0; dim < this.dims; dim++) {
-                result.push(keepOld * this.average[dim]
-                    + boostLast * this.lastInputs[dim]
-                    + addNew * values[dim])
+            for (let i = 0; i < this.dims; i++) {
+                result.push(keepOld * this.average[i]
+                    + boostLast * this.lastInputs[i]
+                    + addNew * values[i])
             }
-            // update history for next time round
-            this.average = result
+            // update history for next time around
             this.lastTime = timeStamp
+            this.average = result
             this.lastInputs = values
 
             return result
         }
     }
+
 
     // An Ellipse is an object holding the characteristics of the (typically) elliptical
     // view formed when projecting the scan Spin-Circle onto a 2-axis View-plane.
@@ -166,7 +169,6 @@ namespace heading {
         analyseView() {
             let majors: Arrow[] = [] // candidate directions for major axis of Ellipse
             let minors: Arrow[] = [] // candidate directions for minor axis of Ellipse
-            let trial = new Arrow(scanData[0][this.uDim], scanData[0][this.vDim], scanTimes[0])
             let longest = 0
             let shortest = 99999
             let spin = 0
@@ -174,12 +176,18 @@ namespace heading {
             let angleWas: number
             let step: number = 99999 // marker for "first time round"
             let stepWas: number
+            // extract coordinates of the first point lying in this.plane
+            let point = [scanData[0][this.uDim], scanData[0][this.vDim]]
+            // set up a 2D Smoother for points on this Ellipse
+            let curve = new Smoother(point, scanTimes[0])
             // compare first one with remaining samples
+            let trial = new Arrow(point[0], point[1], scanTimes[0])
             for (let i = 1; i < scanTimes.length; i++) {
                 sizeWas = trial.size
                 angleWas = trial.angle
-                trial = new Arrow(scanData[i][this.uDim], scanData[i][this.vDim], scanTimes[i])
-
+                // blend the next point into the moving average
+                point = curve.update([scanData[i][this.uDim], scanData[i][this.vDim]], scanTimes[i])
+                trial = new Arrow(point[0], point[1], scanTimes[i])
 
                 if ((mode = Mode.Trace) || (mode = Mode.Debug)) {
                     datalogger.log(
@@ -188,19 +196,18 @@ namespace heading {
                         datalogger.createCV("radius", round2(trial.size)))
                 }
 
-
-
                 // accumulate gradual rotation of the projected field-vector...
                 let delta = trial.angle - angleWas
                 spin += delta
                 // fix roll-rounds in either direction
                 if (delta > HalfPi) spin -= TwoPi // apparent big positive jump is due to underflow
                 if (delta < -HalfPi) spin += TwoPi // apparent big negative jump is due to overflow
+
                 // now collect candidates for axes  
                 stepWas = step
                 step = trial.size - sizeWas // is radius growing or shrinking (or the same!)?
                 if (stepWas == 99999) stepWas = step // (ensure that the first two steps will always match)
-                if (step == 0) step = stepWas // ignore any (rare!) level sequence by propagating last step
+                if (step == 0) step = stepWas // ignore any (rare!) static sequence by propagating last step
 
                 // look for peaks, where we switch from growing to shrinking
                 if ((stepWas > 0) && (step < 0)) {
@@ -224,18 +231,18 @@ namespace heading {
             /* PERIODICITY FROM SPIN?
              Why not simply use the accumulated spin-angle and time-span to calculate the rotation-period?
              --Because the arbitrary start and end angles may be subject to fore-shortening, and hence
-             quite inaccurate! The only dependable angles occur as we pass over the axes (see below).
+             quite inaccurate! The only dependable angles occur just as we pass over the axes (see below).
             */
 
 
             /* We are trying to find a good approximation to the tilt of the Ellipse's major-axis.  
             We could simply nominate the longest candidate detected, but instead we will average them.
 
-            If the Ellipse is quite eccentric, yields neatly
-            alternating candidates with "opposite" angles.passing the major-axis twice per Spin-circle revolution 
+            If the Ellipse is quite eccentric, it will yield neatly alternating candidates with 
+            "opposite" angles.passing the major-axis twice per Spin-circle revolution 
 
-            A more-nearly circular Ellipse, noisy readings can yield alternating clusters of local maxima 
-            near each end of the axis.
+            With a more-nearly circular Ellipse, noisy readings can yield alternating clusters of local maxima 
+            gathered near each end of the axis.
 
             An almost circular Ellipse has no meaningful axis and generally yields multiple spurious candidates. 
             */
@@ -260,8 +267,8 @@ namespace heading {
 
 
             // form consensus averages of the two ends of the two axes
-            let [majorPlus, majorMinus] = juggleArrows(majors)
-            let [minorPlus, minorMinus] = juggleArrows(minors)
+            let majors = juggleArrows(majors)
+            let minors = juggleArrows(minors)
 
             //****************** */
 
@@ -563,7 +570,7 @@ namespace heading {
         if (strength < MarginalField) {
             return -2 // "FIELD STRENGTH TOO WEAK"
         }
-        // The means of the extremes give the central offsets
+        // The means of the extremes give an approximation to the central offsets.
         let xOff = (xhi + xlo) / 2
         let yOff = (yhi + ylo) / 2
         let zOff = (zhi + zlo) / 2
@@ -575,7 +582,7 @@ namespace heading {
             scanData[i][Dimension.Z] -= zOff
         }
 
-        // create three Ellipse instances for analysing each possible view
+        // create three Ellipse instances for analysing each possible view in turn
         views.push(new Ellipse("XY", Dimension.X, Dimension.Y, xOff, yOff))
         views.push(new Ellipse("YZ", Dimension.Y, Dimension.Z, yOff, zOff))
         views.push(new Ellipse("ZX", Dimension.Z, Dimension.X, zOff, xOff))
@@ -600,7 +607,7 @@ namespace heading {
         // periodicity is unreliable in a near-circular View: average just the other two Views' measurements
         period = (views[0].period + views[1].period + views[2].period - views[bestView].period) / 2
 
-        // For efficiency, extract various characteristics from the adopted "bestView" Ellipse
+        // For efficiency, extract various characteristics from our adopted "bestView" Ellipse
         uDim = views[bestView].uDim
         vDim = views[bestView].vDim
         uOff = views[bestView].uOff
@@ -658,10 +665,11 @@ namespace heading {
         return asDegrees((takeSingleReading() - north) * rotationSense)
         // NOTE: that there is a double reversal going on here:
         // Viewed from above, the Field-vector reading in radians INCREASES (anticlockwise) w.r.t "North"
-        // as the buggy's compass-heading increases (clockwise).
-        // So after a right-turn, the reading is HalfPi bigger than the North reading.
+        // as the buggy's compass-heading INCREASES (clockwise).
+        // So after a right-turn while facing North, the reading is HalfPi bigger than the North reading.
         // After subtracting North (cyclically), that converts asDegrees() to +90 
-        // From below, the same right-turn would REDUCE the reading by HalfPi so a third reversal is needed!
+        // From below (when rotationSense = -1), the same right-turn would DECREASE the reading by HalfPi
+        // necessitating a third reversal (after first subtracting North) !
     }
 
     /**
@@ -827,49 +835,6 @@ namespace heading {
         return reading
     }
 
-/** Update the moving averages of [X,Y,Z] magnetometer readings after an irregular time.
- * @param history[] the current moving averages
- * @param previous[] the last set of readings.
- * @param latest[] the fresh set of readings.
- * @param timestep millisecs since the last invocation.
- * @return the updated moving averages
- 
-    function irregularMovingAverage(history: number[], previous: number[],
-                                    latest: number[], timeStep: number): number[] {
-        let timeFraction = timeStep / Latency
-        let keepOld = Math.exp(-timeFraction)
-        let inherited = (1 - keepOld) / timeFraction
-        // the component of inherited average due to the most recent sample gets amplified
-        let boostLast = (inherited - keepOld)
-        let addNew = (1 - inherited)
-        // the blending proportions keepOld + boostLast + addNew will always add up to 100%
-
-        let result = []
-
-        for (let i=0; i<latest; i++) {
-            result.push(keepOld * history[i] + boostLast * previous[i] + addNew * latest[i])
-        }
-
-        datalogger.log(
-            datalogger.createCV("timeStep", timeStep),
-            datalogger.createCV("keepOld", round2(keepOld)),
-            datalogger.createCV("inherited", round2(inherited)),
-            datalogger.createCV("boostLast", round2(boostLast)),
-            datalogger.createCV("addNew", round2(addNew)),
-            datalogger.createCV("history", round2(history[0])),
-            datalogger.createCV("previous", round2(previous[0])),
-            datalogger.createCV("latest", round2(latest[0])),
-            datalogger.createCV("result0", round2(result[0]))
-            )
-        
-
-        return result
-    }
-
-*/
-
-
-
     // Use vector addition to average a sequence of candidate axis Arrows (possibly empty!)
     // The ones pointing away from the first one are assumed to belong to the other end
     // of the axis, so will get reversed.
@@ -926,7 +891,7 @@ namespace heading {
         let tails: Arrow[] = []
         let front = 0
         for (let i = 0; i < quiver.length; i++) {
-            if (radiansBetween(quiver[i].angle, front) < HalfPi) {
+            if (angleSpan(quiver[i].angle, front) < HalfPi) {
                 heads.push(quiver[i].cloneMe())
             } else {
                 tails.push(quiver[i].cloneMe())
@@ -959,12 +924,12 @@ namespace heading {
 
 
 
-    /** returns the difference between angles a & b (allowing for roll-round)
+    /** gives the signed difference between angles a & b (allowing for roll-round)
      * @param a first angle in radians
      * @param b second angle in radians
      * @returns the acute (i.e. smaller) difference in angle
      */
-    function radiansBetween(a:number, b:number){
+    function angleSpan(a:number, b:number){
         return((ThreePi + b - a) % TwoPi) - Math.PI
     }
 
