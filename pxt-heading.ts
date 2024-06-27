@@ -73,6 +73,18 @@ namespace heading {
         cloneMe(): Arrow {
             return new Arrow(this.u, this.v, this.time)
         }
+        // vector addition (used when averaging angleWas)
+        extend(u: number, v: number, t: number) {
+            // 
+            this.u += u
+            this.v += v
+            this.size = Math.sqrt((u * u) + (v * v))
+            this.angle = 0
+            if (this.size > 0) {
+                this.angle = Math.atan2(v, u)
+            }
+            this.time = (this.time + t)/2 // average the time also
+        }
     }
 
     // A Smoother object computes a moving average from a sequence of time-stamped values: 
@@ -157,18 +169,21 @@ namespace heading {
         // 2) It collects possible candidates for the Ellipse major and minor axes by looking for local 
         //    radius peaks and troughs; candidate values are pushed onto two lists of Arrows:
         //    this.majors[] and this.minors[]
-        // 3) These lists are then further split by their orientation into "front-end" and "back-end" groups.
-        // 4) As we do this, we work out the rotation period by clocking each time we pass the 
-        //    same end of an axis and averaging all four estimates.
-        // 5) The coordinates of each group are averaged to get a good fix on the two ends of the two axes.
-        // 6) At this point we can check (and adjust if necessary) our [uOff, vOff] Ellipse centre.
-        // 7) Finally, we finds the consensus angles of the axis-candidates, and average them to define
-        //    the positive U-axis angle --Phew!
+        // 3) These lists are then carefully assessed to evolve a consensus for the two axes. 
+        //    For "pointy" Ellipses we get a single candidate each time we pass either end of the axis.
+        //    For "rounder" Ellipses each transit may deliver multiple candidates. If a candidate points 
+        //    closer to the head of the ongoing mean, it is added in; if it points closer to the tail, 
+        //    then it's inverse is added in (as it must "belong" to the other end of the axis).
+        // 4) As we do this, we work out the rotation period by clocking each time we flip ends of the axis.
+        // 5) All this analysis results in a single Arrow for each axis which can be averaged (after adding
+        //    a right-angle to the minor axis)
  
         
         analyseView() {
             let majors: Arrow[] = [] // candidate directions for major axis of Ellipse
             let minors: Arrow[] = [] // candidate directions for minor axis of Ellipse
+            let major: Arrow = new Arrow(0, 0, 0)
+            let minor: Arrow = new Arrow(0, 0, 0)
             let longest = 0
             let shortest = 99999
             let spin = 0
