@@ -50,7 +50,7 @@ namespace heading {
 
     // An Arrow is an object holding a directed vector {u,v} in both Cartesian and Polar coordinates. 
     // It also carries a time-field, used to timestamp scanned samples.
-    // It is used to hold a 2D magnetometer measurement as a re-centred vector.
+    // An Arrow is used to hold a 2D magnetometer measurement as a re-centred vector.
 
     class Arrow {
         u: number; // horizontal component
@@ -72,18 +72,6 @@ namespace heading {
         // when copying...
         cloneMe(): Arrow {
             return new Arrow(this.u, this.v, this.time)
-        }
-        // vector addition (used when averaging angleWas)
-        extend(u: number, v: number, t: number) {
-            // 
-            this.u += u
-            this.v += v
-            this.size = Math.sqrt((u * u) + (v * v))
-            this.angle = 0
-            if (this.size > 0) {
-                this.angle = Math.atan2(v, u)
-            }
-            this.time = (this.time + t)/2 // average the time also
         }
     }
 
@@ -282,16 +270,13 @@ namespace heading {
 
 
             // form consensus averages of the two ends of the two axes
-            let majors = juggleArrows(majors)
-            let minors = juggleArrows(minors)
+            major = formAxis(majors)
+            minor = formAxis(minors)
 
             //****************** */
 
 
             // refine centre offsets {uOff,vOff}
-            this.uOff += (majorPlus.u + majorMinus.u + minorPlus.u + minorMinus.u) / 4
-            this.vOff += (majorPlus.v + majorMinus.v + minorPlus.v + minorMinus.v) / 4
-
             if ((mode = Mode.Trace) || (mode = Mode.Debug)) {
                 datalogger.log(
                     datalogger.createCV("view", this.plane),
@@ -420,7 +405,7 @@ namespace heading {
             /* ===================== */
 
 
-            let scan = new Smoother(timeStamp,fresh)
+            let scan = new Smoother(fresh,timeStamp)
 
             /* *******************
             // echo new [XYZ] as history (NOTE shallow copy, so all four will share the same data!)
@@ -463,8 +448,7 @@ namespace heading {
                 /* ===================== */
 
                 // Calculate moving average...
-                updated = scan.update(timeStamp, fresh)
-
+                updated = scan.update(fresh, timeStamp)
 
                 /* ****************************
 
@@ -850,7 +834,7 @@ namespace heading {
         return reading
     }
 
-    // Use vector addition to average a sequence of candidate axis Arrows (possibly empty!)
+    /* Use vector addition to average a sequence of candidate axis Arrows (possibly empty!)
     // The ones pointing away from the first one are assumed to belong to the other end
     // of the axis, so will get reversed.
     // The returned Arrow shows the average axis length and angle.
@@ -900,29 +884,60 @@ namespace heading {
         // create an Arrow for the resultant, hijacking its timeStamp property to return the period
         return new Arrow(uSum, vSum, period)
     }
+    */
 
-    function juggleArrows(quiver: Arrow[]) {
-        let heads: Arrow[] = []
-        let tails: Arrow[] = []
-        let front = 0
-        for (let i = 0; i < quiver.length; i++) {
-            if (angleSpan(quiver[i].angle, front) < HalfPi) {
-                heads.push(quiver[i].cloneMe())
-            } else {
-                tails.push(quiver[i].cloneMe())
+    function formAxis(sheaf: Arrow[]): Arrow {
+        let turns = 0
+        let startTime = 0
+        let endTime = 0
+        let flipped = false
+        let uAxis = 0
+        let vAxis = 0
+        let count = sheaf.length
+        if (count > 0) {
+            // initialise axis as first (or only?) candidate
+            uAxis = sheaf[0].u
+            vAxis = sheaf[0].v
+            let angleAxis = sheaf[0].angle
+            let startTime = sheaf[0].time
+            let flipped = false
+            for (let i = 1; i < count; i++) {
+                // does next candidate point nearer the head or the tail of the axis?
+                if (Math.abs(angleSpan(angleAxis, sheaf[i].angle)) < HalfPi) {
+                    // chain this candidate onto the emerging axis
+                    uAxis += sheaf[i].u
+                    vAxis += sheaf[i].v
+                    // the first unflipped candidate after one or more flipped ones clocks a new revolution
+                    if (flipped) {
+                        flipped = false
+                        turns++
+                        endTime = sheaf[i].time
+                    }
+                } else { // flip this arrow before chaining it, as it's pointing the "wrong" way
+                    flipped = true
+                    uAxis -= sheaf[i].u
+                    vAxis -= sheaf[i].v
+                }
+                // get new blended angle
+                angleAxis = Math.atan2(vAxis,uAxis)
+            }
+            // normalise the resultant's vector coordinates
+            uAxis /= count
+            vAxis /= count
+
+            // compute the average rotation time (so long as we've made at least one complete revolution)
+            let period = -1
+            if (endTime > 0) {
+                period = (endTime - startTime) / turns
             }
         }
-        let head = meanArrow(heads)
-        let tail = meanArrow(tails)
-
-        return [head, tail]
-
+        // hijack the time property to return the estimated period
+        return new Arrow(uAxis, vAxis, period)
     }
 
     /** get the average of some Arrows.
      * @param sheaf is an array or Arrow objects
      * @returns their average (in both space & time)
-     */
         function meanArrow(sheaf: Arrow[]) {
         let phase = 0
         let u = 0
@@ -936,6 +951,7 @@ namespace heading {
         }
         return new Arrow (u/n,v/n,t/n)
     }
+     */
 
 
 
