@@ -163,8 +163,8 @@ namespace heading {
         //    closer to the head of the ongoing mean, it is added in; if it points closer to the tail, 
         //    then it's inverse is added in (as it must "belong" to the other end of the axis).
         // 4) As we do this, we work out the rotation period by clocking each time we flip ends of the axis.
-        // 5) All this analysis results in a single Arrow for each axis which can be averaged (after adding
-        //    a right-angle to the minor axis)
+        // 5) All this analysis results in a single Arrow for each axis which can be averaged (after turning
+        //    the minor axis through a right-angle)
  
         
         analyseView() {
@@ -282,13 +282,20 @@ namespace heading {
                     datalogger.createCV("view", this.plane),
                     datalogger.createCV("RADIUS", round2(major.size)),
                     datalogger.createCV("radius", round2(minor.size)),
-                    datalogger.createCV("ANGLE", round2(major.angle)),
-                    datalogger.createCV("angle", round2(minor.angle)),
+                    datalogger.createCV("ANGLE", Math.round(asDegrees(major.angle))),
+                    datalogger.createCV("angle", Math.round(asDegrees(minor.angle))),
                     datalogger.createCV("PERIOD", round2(major.time)),
-                    datalogger.createCV("period", round2(minor.time)))
+                    datalogger.createCV("period", round2(minor.time))
+                    )
             }
-            // adopt the average major axis angle
-            this.majorAngle = major.angle
+
+            // average the axis angles carefully: minor axis is presumed orthgonal, but phase may lead or follow!
+            let minorTurned = minor.angle + HalfPi // assume it leads by 90 degrees
+            if (angleSpan(major.angle, minor.angle) > 0) {
+                minorTurned += Math.PI // no: it follows, so add another 180 degrees
+            }
+            // use the average of the two angles
+            this.majorAngle = ((major.angle + minorTurned)/2) % TwoPi
             // The ratio of the axis lengths gives the eccentricity of this Ellipse
             this.eccentricity = major.size / minor.size
             // average the periodicities detected 
@@ -890,6 +897,7 @@ namespace heading {
         let turns = 0
         let startTime = 0
         let endTime = 0
+        let period = -1
         let flipped = false
         let uAxis = 0
         let vAxis = 0
@@ -899,8 +907,8 @@ namespace heading {
             uAxis = sheaf[0].u
             vAxis = sheaf[0].v
             let angleAxis = sheaf[0].angle
-            let startTime = sheaf[0].time
-            let flipped = false
+            startTime = sheaf[0].time
+            flipped = false
             for (let i = 1; i < count; i++) {
                 // does next candidate point nearer the head or the tail of the axis?
                 if (Math.abs(angleSpan(angleAxis, sheaf[i].angle)) < HalfPi) {
@@ -926,7 +934,6 @@ namespace heading {
             vAxis /= count
 
             // compute the average rotation time (so long as we've made at least one complete revolution)
-            let period = -1
             if (endTime > 0) {
                 period = (endTime - startTime) / turns
             }

@@ -1,1 +1,1 @@
-let degubPossible = true
+let debugPossible = true
