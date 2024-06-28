@@ -192,7 +192,7 @@ namespace heading {
                 point = curve.update([scanData[i][this.uDim], scanData[i][this.vDim]], scanTimes[i])
                 trial = new Arrow(point[0], point[1], scanTimes[i])
 
-                if ((mode = Mode.Trace) || (mode = Mode.Debug)) {
+                if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
                     datalogger.log(
                         datalogger.createCV("view", this.plane),
                         datalogger.createCV("[angle]", round2(asDegrees(trial.size))),
@@ -277,7 +277,7 @@ namespace heading {
 
 
             // refine centre offsets {uOff,vOff}
-            if ((mode = Mode.Trace) || (mode = Mode.Debug)) {
+            if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
                 datalogger.log(
                     datalogger.createCV("view", this.plane),
                     datalogger.createCV("RADIUS", round2(major.size)),
@@ -457,30 +457,6 @@ namespace heading {
                 // Calculate moving average...
                 updated = scan.update(fresh, timeStamp)
 
-                /* ****************************
-
-                // On each iteration, blend the history[]; the last[]; and a fresh[] set of samples
-                // in the proportions <keepOld : boostLast : addFresh> respectively
-                timeFraction = (timeStamp - timeWas) / Latency // (uses global constant)
-                keepOld = Math.exp(-timeFraction)
-                inherited = (1 - keepOld) / timeFraction
-                // we will amplify the fraction of the inherited average that is due to the most recent sample
-                boostLast = (inherited - keepOld)
-                // the blending proportions <keepOld + boostLast + addNew> must always add up to 100%
-                addFresh = (1 - inherited)
-
-                // put everything in the blender and smooth!
-                updated = [
-                    keepOld * history[0] + boostLast * last[0] + addFresh * fresh[0],
-                    keepOld * history[1] + boostLast * last[1] + addFresh * fresh[1],
-                    keepOld * history[2] + boostLast * last[2] + addFresh * fresh[2]]
-
-                // perform shallow array copies for next iteration 
-                // (merely relinking pointers to the two sets of [X,Y,Z] triples)
-                history = updated
-                last = fresh
-
-                **********/
 
                 if (mode == Mode.Trace) {
                     datalogger.log(
@@ -841,58 +817,12 @@ namespace heading {
         return reading
     }
 
-    /* Use vector addition to average a sequence of candidate axis Arrows (possibly empty!)
+    /* Use vector addition to average a sequence of candidate axis Arrows (concievably empty!)
     // The ones pointing away from the first one are assumed to belong to the other end
     // of the axis, so will get reversed.
     // The returned Arrow shows the average axis length and angle.
     // Assuming candidates represent more than one revolution, the periodocity is also calculated.
-    function averageArrows(arrows: Arrow[]): Arrow {
-        let turns = 0
-        let endTime = 0
-        let flipped = false
-        let uSum = 0
-        let vSum = 0
-        let count = arrows.length
-        if (count > 0) {
-            // the first candidate fixes which end of the axis we're choosing as the "front"
-            let front = arrows[0].angle
-            uSum = arrows[0].u
-            vSum = arrows[0].v
-            let startTime = arrows[0].time
-            for (let i = 1; i < count; i++) {
-                // get angle difference, as +/- 2pi
-                let deviate = ((ThreePi + arrows[i].angle - front) % TwoPi) - Math.PI
-                // does it point nearer to the "front"? ...or to the "back"?
-                if (Math.abs(deviate) < HalfPi) {
-                    // add this next arrow directly to the chain (no need to flip)
-                    uSum += arrows[i].u
-                    vSum += arrows[i].v
-                    // the first unflipped Arrow after one or more flipped ones clocks a new revolution
-                    if (flipped) {
-                        flipped = false
-                        turns++
-                        endTime = arrows[i].time
-                    }
-                } else { // flip this arrow before chaining it, as it's pointing the "wrong" way
-                    flipped = true
-                    uSum -= arrows[i].u
-                    vSum -= arrows[i].v
-                }
-            }
-            // compute the average rotation time (so long as we've made at least one complete revolution)
-            let period = -1
-            if (endTime > 0) {
-                period = (endTime - startTime) / turns
-            } 
-            // normalise the resultant's vector coordinates
-            uSum /= count
-            vSum /= count
-        } // else uSum & vSum remain at zero
-        // create an Arrow for the resultant, hijacking its timeStamp property to return the period
-        return new Arrow(uSum, vSum, period)
-    }
     */
-
     function formAxis(sheaf: Arrow[]): Arrow {
         let turns = 0
         let startTime = 0
@@ -926,7 +856,7 @@ namespace heading {
                     uAxis -= sheaf[i].u
                     vAxis -= sheaf[i].v
                 }
-                // get new blended angle
+                // get the new blended angle
                 angleAxis = Math.atan2(vAxis,uAxis)
             }
             // normalise the resultant's vector coordinates
@@ -942,26 +872,7 @@ namespace heading {
         return new Arrow(uAxis, vAxis, period)
     }
 
-    /** get the average of some Arrows.
-     * @param sheaf is an array or Arrow objects
-     * @returns their average (in both space & time)
-        function meanArrow(sheaf: Arrow[]) {
-        let phase = 0
-        let u = 0
-        let v = 0
-        let t = 0
-        let n = sheaf.length
-        for (let i = 0; i < n; i++) {
-            u += sheaf[i].u
-            v += sheaf[i].v
-            t += sheaf[i].time
-        }
-        return new Arrow (u/n,v/n,t/n)
-    }
-     */
-
-
-
+    
     /** gives the signed difference between angles a & b (allowing for roll-round)
      * @param a first angle in radians
      * @param b second angle in radians
