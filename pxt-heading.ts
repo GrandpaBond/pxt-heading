@@ -192,13 +192,6 @@ namespace heading {
                 point = curve.update([scanData[i][this.uDim], scanData[i][this.vDim]], scanTimes[i])
                 trial = new Arrow(point[0], point[1], scanTimes[i])
 
-                if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
-                    datalogger.log(
-                        datalogger.createCV("view", this.plane),
-                        datalogger.createCV("[angle]", round2(asDegrees(trial.size))),
-                        datalogger.createCV("radius", round2(trial.size)))
-                }
-
                 // accumulate gradual rotation of the projected field-vector...
                 let delta = trial.angle - angleWas
                 spin += delta
@@ -216,12 +209,28 @@ namespace heading {
                 if ((stepWas > 0) && (step < 0)) {
                     longest = Math.max(longest, trial.size)
                     majors.push(trial.cloneMe()) // copy the major axis we are passing
+                    if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
+                        datalogger.log(
+                            datalogger.createCV("time", trial.time),
+                            datalogger.createCV("uMajor", round2(trial.u)),
+                            datalogger.createCV("vMajor", round2(trial.v)),
+                            datalogger.createCV("[aMajor]", round2(asDegrees(trial.angle))),
+                            datalogger.createCV("rMajor", round2(trial.size)))
+                    }
                 }
 
                 // look for troughs, where we switch from shrinking to growing
                 if ((stepWas < 0) && (step > 0)) {
                     shortest = Math.min(shortest, trial.size)
                     minors.push(trial.cloneMe()) // copy the minor axis we are passing
+                    if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
+                        datalogger.log(
+                            datalogger.createCV("time", trial.time),
+                            datalogger.createCV("uMinor", round2(trial.u)),
+                            datalogger.createCV("vMinor", round2(trial.v)),
+                            datalogger.createCV("[Minor]", round2(asDegrees(trial.angle))),
+                            datalogger.createCV("rMinor", round2(trial.size)))
+                    }
                 }
 
             }
@@ -475,7 +484,7 @@ namespace heading {
             }
         }
 
-        if (mode != Mode.Normal) {
+        /*if (mode != Mode.Normal) {
             datalogger.setColumnTitles("index", "t", "x", "y", "z")
             for (let i = 0; i < scanTimes.length; i++) {
                 datalogger.log(
@@ -486,6 +495,7 @@ namespace heading {
                     datalogger.createCV("z", round2(scanData[i][Dimension.Z])))
             }
         }
+        */
     }
 
 
