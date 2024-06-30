@@ -209,28 +209,28 @@ namespace heading {
                 if ((stepWas > 0) && (step < 0)) {
                     longest = Math.max(longest, trial.size)
                     majors.push(trial.cloneMe()) // copy the major axis we are passing
-                    if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
+                    /*if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
                         datalogger.log(
                             datalogger.createCV("time", trial.time),
                             datalogger.createCV("uMajor", round2(trial.u)),
                             datalogger.createCV("vMajor", round2(trial.v)),
                             datalogger.createCV("[aMajor]", round2(asDegrees(trial.angle))),
                             datalogger.createCV("rMajor", round2(trial.size)))
-                    }
+                    }*/
                 }
 
                 // look for troughs, where we switch from shrinking to growing
                 if ((stepWas < 0) && (step > 0)) {
                     shortest = Math.min(shortest, trial.size)
                     minors.push(trial.cloneMe()) // copy the minor axis we are passing
-                    if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
+                    /*if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
                         datalogger.log(
                             datalogger.createCV("time", trial.time),
                             datalogger.createCV("uMinor", round2(trial.u)),
                             datalogger.createCV("vMinor", round2(trial.v)),
-                            datalogger.createCV("[Minor]", round2(asDegrees(trial.angle))),
+                            datalogger.createCV("[aMinor]", round2(asDegrees(trial.angle))),
                             datalogger.createCV("rMinor", round2(trial.size)))
-                    }
+                    }*/
                 }
 
             }
@@ -279,8 +279,8 @@ namespace heading {
 
 
             // form consensus averages of the two ends of the two axes
-            major = formAxis(majors)
-            minor = formAxis(minors)
+            major = computeAxis(majors)
+            minor = computeAxis(minors)
 
             //****************** */
 
@@ -833,28 +833,31 @@ namespace heading {
     // The returned Arrow shows the average axis length and angle.
     // Assuming candidates represent more than one revolution, the periodocity is also calculated.
     */
-    function formAxis(sheaf: Arrow[]): Arrow {
+    function computeAxis(sheaf: Arrow[]): Arrow {
+        let result = new Arrow(0, 0, 0)
         let turns = 0
         let startTime = 0
         let endTime = 0
         let period = -1
         let flipped = false
-        let uAxis = 0
-        let vAxis = 0
+        let uSum = 0
+        let vSum = 0
+        let rSum = 0
         let count = sheaf.length
         if (count > 0) {
             // initialise axis as first (or only?) candidate
-            uAxis = sheaf[0].u
-            vAxis = sheaf[0].v
-            let angleAxis = sheaf[0].angle
+            uSum = sheaf[0].u
+            vSum = sheaf[0].v
+            rSum = sheaf[0].size
+            let axis = sheaf[0].angle
             startTime = sheaf[0].time
             flipped = false
             for (let i = 1; i < count; i++) {
                 // does next candidate point nearer the head or the tail of the axis?
-                if (Math.abs(angleSpan(angleAxis, sheaf[i].angle)) < HalfPi) {
+                if (Math.abs(angleSpan(axis, sheaf[i].angle)) < HalfPi) {
                     // chain this candidate onto the emerging axis
-                    uAxis += sheaf[i].u
-                    vAxis += sheaf[i].v
+                    uSum += sheaf[i].u
+                    vSum += sheaf[i].v
                     // the first unflipped candidate after one or more flipped ones clocks a new revolution
                     if (flipped) {
                         flipped = false
@@ -863,23 +866,41 @@ namespace heading {
                     }
                 } else { // flip this arrow before chaining it, as it's pointing the "wrong" way
                     flipped = true
-                    uAxis -= sheaf[i].u
-                    vAxis -= sheaf[i].v
+                    uSum -= sheaf[i].u
+                    vSum -= sheaf[i].v
                 }
                 // get the new blended angle
-                angleAxis = Math.atan2(vAxis,uAxis)
+                axis = Math.atan2(vSum, uSum)
+                rSum += sheaf[i].size
+
+                if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
+                    datalogger.log(
+                        datalogger.createCV("time", sheaf[i].time),
+                        datalogger.createCV("uCand", round2(sheaf[i].u)),
+                        datalogger.createCV("vCand", round2(sheaf[i].v)),
+                        datalogger.createCV("rCand", round2(sheaf[i].size)),
+                        datalogger.createCV("[aCand]", round2(asDegrees(sheaf[i].angle))),
+                        datalogger.createCV("flip?", flipped),
+                        datalogger.createCV("uSum", round2(uSum)),
+                        datalogger.createCV("vSum", round2(vSum)),
+                        datalogger.createCV("rSum", round2(rSum)),
+                        datalogger.createCV("[axis]", round2(asDegrees(axis))))
+                }
             }
-            // normalise the resultant's vector coordinates
-            uAxis /= count
-            vAxis /= count
+
+            // build the result Arrow
+            result.size =  rSum / count  // the average radius
+            result.angle = axis
+            result.u = result.size * Math.cos(axis)
+            result.v = result.size * Math.sin(axis)
 
             // compute the average rotation time (so long as we've made at least one complete revolution)
             if (endTime > 0) {
-                period = (endTime - startTime) / turns
+                result.time = (endTime - startTime) / turns
             }
         }
         // hijack the time property to return the estimated period
-        return new Arrow(uAxis, vAxis, period)
+        return result
     }
 
     
