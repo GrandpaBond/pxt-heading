@@ -484,7 +484,7 @@ namespace heading {
             }
         }
 
-        /*if (mode != Mode.Normal) {
+        if (mode == Mode.Capture) {
             datalogger.setColumnTitles("index", "t", "x", "y", "z")
             for (let i = 0; i < scanTimes.length; i++) {
                 datalogger.log(
@@ -495,7 +495,6 @@ namespace heading {
                     datalogger.createCV("z", round2(scanData[i][Dimension.Z])))
             }
         }
-        */
     }
 
 
@@ -616,7 +615,7 @@ namespace heading {
         // (This is the global fixed bias to be subtracted from all future readings)
         north = takeSingleReading()
 
-        if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
+        if ((mode == Mode.Trace) || (mode == Mode.Debug || (mode == Mode.Capture))) {
             datalogger.log(
                 datalogger.createCV("view", views[bestView].plane),
                 datalogger.createCV("scale", scale),
@@ -807,7 +806,7 @@ namespace heading {
             reading += theta
         }
         
-        if ((mode == Mode.Trace)||(mode == Mode.Debug)) {
+        if ((mode == Mode.Trace) || (mode == Mode.Debug) || (mode == Mode.Capture)) {
             // just for debug, show coordinates of "stretched" reading after undoing rotation
             let uStretch = uFix * cosTheta - vFix * sinTheta
             let vStretch = vFix * cosTheta + uFix * sinTheta
