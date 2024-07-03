@@ -372,6 +372,7 @@ namespace heading {
 
         scanTimes = []
         scanData = []
+        let index = 0
 
         if (mode != Mode.Normal) {
             datalogger.deleteLog()
@@ -382,66 +383,28 @@ namespace heading {
             simulateScan(dataset)
             basic.pause(ms)
         } else { // use live magnetometer
-
-            /* cobbled for testing!
-            /* ===================== 
-            simulateScan(dataset)
-            let index = 0
-            /* ===================== */
-
             let timeWas:number
             let timeNow: number
-
-            /* *****************
-            let timeFraction: number
-            let keepOld: number
-            let inherited: number
-            let boostLast: number
-            let addFresh: number
-            let last: number[] = []
-            let history: number[] = []
-            *************/
-
             let fresh: number[] = []
             let updated: number[] = []
-            
 
             basic.pause(200) // wait for motors to stabilise (after initial kick)
             // get initial reading
             let timeStamp = input.runningTime()
-
-            /* ===================== */
             fresh = [
                 input.magneticForce(Dimension.X),
                 input.magneticForce(Dimension.Y),
                 input.magneticForce(Dimension.Z)]
-            /* =====================
-            fresh = scanData[index]
-            index++
-            /* ===================== */
-
-
-            let scan = new Smoother(fresh,timeStamp)
-
-            /* *******************
-            // echo new [XYZ] as history (NOTE shallow copy, so all four will share the same data!)
-            updated = fresh
-            last = fresh
-            history = fresh
-            ****************** */
-
-            let startTime = timeStamp + Latency
-            let stopTime = timeStamp + ms
+            // use a Smoother to maintain a rolling average
+            let scan = new Smoother(fresh, timeStamp)
 
             // after an initial settling period, continue cranking out updated moving averages 
+            let startTime = timeStamp + Latency
+            let stopTime = timeStamp + ms
+            
             // until we run out of time (or space!)
-            /* ===================== */
             while ((timeStamp < stopTime)
                 && (scanTimes.length < TooManySamples)) {
-            /* =====================
-            while (index < scanData.length) {
-            /* ===================== */
-
                 // After processing, sleep until it's time for next sample.
                 // NOTE: here is where various system subprograms will get scheduled.
                 // If they need more time than we've offered, out next sample will get delayed!
@@ -450,53 +413,35 @@ namespace heading {
                 timeWas = timeStamp // remember time of latest sample
                 timeNow = input.runningTime()
                 basic.pause((timeWas + SampleGap) - timeNow) // pause for remainder of SampleGap (if any!)
+                timeStamp = input.runningTime() // take a fresh set of readings
 
-                timeStamp = input.runningTime() // take a fresh 
-
-                /* ===================== */
                 fresh = [
                     input.magneticForce(Dimension.X),
                     input.magneticForce(Dimension.Y),
                     input.magneticForce(Dimension.Z)]
-                /* ===================== 
-                fresh = scanData[index]
-                index++
-                /* ===================== */
-
-                // Calculate moving average...
                 updated = scan.update(fresh, timeStamp)
-
-
-                if (mode == Mode.Trace) {
-                    datalogger.log(
-                        datalogger.createCV("t", timeStamp),
-                        datalogger.createCV("X", round2(updated[0])),
-                        datalogger.createCV("Y", round2(updated[1])),
-                        datalogger.createCV("Z", round2(updated[2])))
-                }
 
                 // only start recording once the moving average has stabilised
                 if (timeStamp > startTime) {
-                    // store the triple of averaged [X,Y,Z] values as a deep copy
+                    // store the triple of averaged [X,Y,Z] values (as a deep copy!)
                     scanData.push([updated[0], updated[1], updated[2]])
                     scanTimes.push(timeStamp)  // timestamp it
+
+                    if (    (mode == Mode.Capture)
+                        || ((mode == Mode.Trace) && ((index % 10) == 0)) ) {
+                        // Capture logs everything, but only bother Tracing every 10th one
+                        datalogger.log(
+                            datalogger.createCV("t", timeStamp),
+                            datalogger.createCV("X", round2(updated[0])),
+                            datalogger.createCV("Y", round2(updated[1])),
+                            datalogger.createCV("Z", round2(updated[2]))
+                        )
+                    }
+                    index++
                 }
             }
         }
-
-        if (mode == Mode.Capture) {
-            datalogger.setColumnTitles("index", "t", "x", "y", "z")
-            for (let i = 0; i < scanTimes.length; i++) {
-                datalogger.log(
-                    datalogger.createCV("index", i),
-                    datalogger.createCV("t", scanTimes[i]),
-                    datalogger.createCV("x", round2(scanData[i][Dimension.X])),
-                    datalogger.createCV("y", round2(scanData[i][Dimension.Y])),
-                    datalogger.createCV("z", round2(scanData[i][Dimension.Z])))
-            }
-        }
     }
-
 
     /**
      * Analyse the scanned data to prepare for reading compass-bearings.
