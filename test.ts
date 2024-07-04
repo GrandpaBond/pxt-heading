@@ -10,15 +10,8 @@ enum Task {
     SetNorth,
     Measure
 }
-// NOTE: check in "pxt-heading.ts" that the required test dataset is not commented-out in simulateScan()!
-//const dataset = "angled"
-//const dataset = "yup70"
-//const dataset = "zdown70"
-//const dataset = "zdown15"
-const dataset = "tldown70"
-//const dataset = "tldown0"
-//const dataset = "dashboard70"
-
+// NOTE: check in "pxt-heading.ts" that the required test dataset is available in simulateScan()!
+const dataset = "blup70"
 
 function performSetup() {
     let result = 0
