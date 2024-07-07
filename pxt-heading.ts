@@ -51,7 +51,6 @@ namespace heading {
     // An Arrow is an object holding a directed vector {u,v} in both Cartesian and Polar coordinates. 
     // It also carries a time-field, used to timestamp scanned samples.
     // An Arrow is used to hold a 2D magnetometer measurement as a re-centred vector.
-
     class Arrow {
         u: number; // horizontal component
         v: number; // vertical component
@@ -74,7 +73,7 @@ namespace heading {
             return new Arrow(this.u, this.v, this.time)
         }
     }
-
+  
     // A Smoother object computes a moving average from a sequence of time-stamped values: 
     // in our case, magnetometer readings and their derivatives.
     // Timing irregularites due to scheduler interrupts demand this somewhat complex maths.
@@ -608,10 +607,10 @@ namespace heading {
         // NOTE: that there is a double reversal going on here:
         // Viewed from above, the Field-vector reading in radians INCREASES (anticlockwise) w.r.t "North"
         // as the buggy's compass-heading INCREASES (clockwise).
-        // So after a right-turn while facing North, the reading is HalfPi bigger than the North reading.
-        // After subtracting North (cyclically), that converts asDegrees() to +90 
+        // The reading will therefore increase by HalfPi after a right-turn from initially facing "North".
+        // So subtracting North (cyclically), that converts asDegrees() to +90 
         // From below (when rotationSense = -1), the same right-turn would DECREASE the reading by HalfPi
-        // necessitating a third reversal (after first subtracting North) !
+        // necessitating a third reversal, but after first subtracting North !
         return asDegrees(heading)
     }
 
@@ -774,24 +773,25 @@ namespace heading {
         // Unless this Ellipse.isCircular, any {u,v} reading will be foreshortened in this View, and
         // must be stretched along the Ellipse minor-axis to place it correctly onto the Spin-Circle.
 
-            // First rotate CLOCKWISE by theta (so aligning the Ellipse minor-axis angle with the V-axis)
+            // We must first rotate our point CLOCKWISE (by -theta) to align the Ellipse minor-axis 
+            // angle with the V-axis 
             uNew = u * cosTheta + v * sinTheta
             vNew = v * cosTheta - u * sinTheta
 
-            [uNew,vNew] = rotate([u,v], cosTheta, -sinTheta)
-            // Now scale up along V, re-balancing the axes to make the Ellipse circular
+            // Now scale up, just along V, re-balancing the axes to make the Ellipse circular
+            // thereby moving our point outwards onto the rim of the Spin-Circle
             uFix = uNew
             vFix = vNew * scale
             // get the adjusted angle for this corrected {u,v}
             reading = Math.atan2(vFix, uFix)
-            // finally, undo the rotation by theta
-            reading += theta
+            // finally, undo our first rotation by adding theta back in
+            reading = (reading + theta) % TwoPi
         }
         
         if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
             // just for debug, show coordinates of "stretched" reading after undoing rotation
-            let uStretch = uFix * cosTheta - vFix * sinTheta
-            let vStretch = vFix * cosTheta + uFix * sinTheta
+            let uRim = uFix * cosTheta - vFix * sinTheta
+            let vRim = vFix * cosTheta + uFix * sinTheta
             datalogger.log(
                 datalogger.createCV("u", round2(u)),
                 datalogger.createCV("v", round2(v)),
@@ -799,8 +799,8 @@ namespace heading {
                 datalogger.createCV("vNew", round2(vNew)),
                 datalogger.createCV("uFix", round2(uFix)),
                 datalogger.createCV("vFix", round2(vFix)),
-                datalogger.createCV("uStretch", round2(uStretch)),
-                datalogger.createCV("vStretch", round2(vStretch)),
+                datalogger.createCV("uRim", round2(uRim)),
+                datalogger.createCV("vRim", round2(vRim)),
                 datalogger.createCV("reading", round2(reading)),
                 datalogger.createCV("[reading]", round2(asDegrees(reading) * rotationSense))
             )
@@ -808,9 +808,9 @@ namespace heading {
         return reading
     }
 
-    /* Use vector addition to average a sequence of candidate axis Arrows (concievably empty!)
-    // The ones pointing away from the first one are assumed to belong to the other end
-    // of the axis, so will get reversed.
+    /* Use vector addition to average a sequence of candidate axis Arrows (conceivably none!)
+    // The ones pointing away from the evolving average (even slightly) are assumed to belong
+    // to the other end of the axis, so will get reversed.
     // The returned Arrow shows the average axis length and angle.
     // Assuming candidates represent more than one revolution, the periodocity is also calculated.
     */
@@ -907,13 +907,6 @@ namespace heading {
     }
 
 
-    // rotate a 2-D point using the supplied angle components cosa and sina
-    function rotate(point: number[], cosa: number, sina: number): number[] {
-        let result: number[]
-        result[0] = point[0]*cosa - point[1]*sina
-        result[1] = point[0]*sina + point[1]*cosa
-        return result
-    }
 
     
 
