@@ -41,7 +41,7 @@ namespace heading {
     const Circular = 1.03 // maximum eccentricity to consider an Ellipse as "circular" (3% gives ~1 degree error)
     const NearEnough = 0.75 // major-axis candidates must be longer than (longest*NearEnough)
                             // minor-axis candidates must be shorter than (shortest/NearEnough) 
-    const Window = 8 // number of magnetometer samples needed to form a good average
+    const Window = 5 // number of magnetometer samples needed to form a good average
     const SampleGap = 15 // minimum ms to wait between magnetometer readings
     const AverageGap = 25 // (achieved in practice, due to system interrupts)
     const Latency = Window * AverageGap // consequent time taken to collect a good moving average from scratch
@@ -167,8 +167,11 @@ namespace heading {
         //    closer to the head of the ongoing mean, it is added in; if it points closer to the tail, 
         //    then it's inverse is added in (as it must "belong" to the other end of the axis).
         // 4) As we do this, we work out the rotation period by clocking each time we flip ends of the axis.
-        // 5) All this analysis results in an Arrow for the two axes which can be averaged (after turning
-        //    the minor axis through a right-angle)
+        // 5) All of this analysis results in Arrows for the two axes. The major-axis is further refined
+        //    by averaging with the minor one (after first turning that through a right-angle).
+        //
+        // To help eliminate spurious local peaks and troughs, a Smoother is used to generate a rolling average
+        // of the successive radii.
  
         
         analyseView() {
@@ -185,7 +188,7 @@ namespace heading {
             let stepWas: number
             // extract coordinates of the first point lying in this.plane
             let point = [scanData[0][this.uDim], scanData[0][this.vDim]]
-            // set up a 2D Smoother for points on this Ellipse
+            // set up a 2D Smoother for successive points on this Ellipse
             let curve = new Smoother(point, scanTimes[0])
             // compare first one with remaining samples
             let trial = new Arrow(point[0], point[1], scanTimes[0])
@@ -212,29 +215,31 @@ namespace heading {
                 // look for peaks, where we switch from growing to shrinking
                 if ((stepWas > 0) && (step < 0)) {
                     longest = Math.max(longest, trial.size)
-                    majors.push(trial.cloneMe()) // copy the major axis we are passing
-                    /*if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
+                    majors.push(trial.cloneMe()) // copy the peak we are passing
+                    if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
                         datalogger.log(
+                            datalogger.createCV("index", i),
                             datalogger.createCV("time", trial.time),
                             datalogger.createCV("uMajor", round2(trial.u)),
                             datalogger.createCV("vMajor", round2(trial.v)),
                             datalogger.createCV("[aMajor]", round2(asDegrees(trial.angle))),
                             datalogger.createCV("rMajor", round2(trial.size)))
-                    }*/
+                    }
                 }
 
                 // look for troughs, where we switch from shrinking to growing
                 if ((stepWas < 0) && (step > 0)) {
                     shortest = Math.min(shortest, trial.size)
-                    minors.push(trial.cloneMe()) // copy the minor axis we are passing
-                    /*if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
+                    minors.push(trial.cloneMe()) // copy the trough we are passing
+                    if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
                         datalogger.log(
+                            datalogger.createCV("index", i),
                             datalogger.createCV("time", trial.time),
                             datalogger.createCV("uMinor", round2(trial.u)),
                             datalogger.createCV("vMinor", round2(trial.v)),
                             datalogger.createCV("[aMinor]", round2(asDegrees(trial.angle))),
                             datalogger.createCV("rMinor", round2(trial.size)))
-                    }*/
+                    }
                 }
 
             }
@@ -436,9 +441,9 @@ namespace heading {
                         // Capture logs everything, but only bother Tracing every 10th one
                         datalogger.log(
                             datalogger.createCV("t", timeStamp),
-                            datalogger.createCV("X", round2(updated[0])),
-                            datalogger.createCV("Y", round2(updated[1])),
-                            datalogger.createCV("Z", round2(updated[2]))
+                            datalogger.createCV("x", round2(updated[0])),
+                            datalogger.createCV("y", round2(updated[1])),
+                            datalogger.createCV("z", round2(updated[2]))
                         )
                     }
                     index++
@@ -515,13 +520,17 @@ namespace heading {
         let yOff = (yhi + ylo) / 2
         let zOff = (zhi + zlo) / 2
 
-        // re-centre all of the scanData samples, so eliminating "hard-iron" magnetic effects
-        for (let i = 0; i < nSamples; i++) {
-            scanData[i][Dimension.X] -= xOff
-            scanData[i][Dimension.Y] -= yOff
-            scanData[i][Dimension.Z] -= zOff
-        }
+        // re-centre all of the scanData samples, so eliminating "hard-iron" magnetic effects.
+        // At the same time, track the properties of the ellipses traced in the three orthogonal views
 
+
+
+
+
+
+
+
+    /*
         // create three Ellipse instances for analysing each possible view in turn
         views.push(new Ellipse("XY", Dimension.X, Dimension.Y, xOff, yOff))
         views.push(new Ellipse("YZ", Dimension.Y, Dimension.Z, yOff, zOff))
@@ -558,7 +567,7 @@ namespace heading {
         sinTheta = Math.sin(theta)
         isCircular = views[bestView].isCircular
         rotationSense = views[bestView].rotationSense
-
+*/
         // Having successfully set up the projection parameters for the bestView, get a
         // stable fix on the current heading, which we will then designate as "North".
         // (This is the global fixed bias to be subtracted from all future readings)
@@ -730,16 +739,17 @@ namespace heading {
                 }
                 uRaw /= Window
                 vRaw /= Window
-            break
-        
+                break
+
             case Mode.Debug: // just choose the next test-data value
                 uRaw = testData[test][uDim]
                 vRaw = testData[test][vDim]
                 test = (test + 1) % testData.length
-            break
+                break
 
             case Mode.Capture: // capture averages of {Window} consecutive 3D readings, {SampleGap} apart
-                let xyz = [0,0,0]
+            case Mode.Trace:
+                let xyz = [0, 0, 0]
                 for (let i = 0; i < Window; i++) {
                     basic.pause(SampleGap)
                     xyz[Dimension.X] += input.magneticForce(Dimension.X)
@@ -760,18 +770,18 @@ namespace heading {
                 // now pick the coordinates we want for the current view
                 uRaw = xyz[uDim]
                 vRaw = xyz[vDim]
-            break
+                break
         }
-    
+
         // re-centre this latest point w.r.t our Ellipse origin
         u = uRaw - uOff
         v = vRaw - vOff
 
         if (isCircular) {
-            reading = Math.atan2(v, u) 
-        } else { 
-        // Unless this Ellipse.isCircular, any {u,v} reading will be foreshortened in this View, and
-        // must be stretched along the Ellipse minor-axis to place it correctly onto the Spin-Circle.
+            reading = Math.atan2(v, u)
+        } else {
+            // Unless this Ellipse.isCircular, any {u,v} reading will be foreshortened in this View, and
+            // must be stretched along the Ellipse minor-axis to place it correctly onto the Spin-Circle.
 
             // We must first rotate our point CLOCKWISE (by -theta) to align the Ellipse minor-axis 
             // angle with the V-axis 
@@ -787,14 +797,12 @@ namespace heading {
             // finally, undo our first rotation by adding theta back in
             reading = (reading + theta) % TwoPi
         }
-        
+
         if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
             // just for debug, show coordinates of "stretched" reading after undoing rotation
             let uRim = uFix * cosTheta - vFix * sinTheta
             let vRim = vFix * cosTheta + uFix * sinTheta
             datalogger.log(
-                datalogger.createCV("u", round2(u)),
-                datalogger.createCV("v", round2(v)),
                 datalogger.createCV("uNew", round2(uNew)),
                 datalogger.createCV("vNew", round2(vNew)),
                 datalogger.createCV("uFix", round2(uFix)),
@@ -802,7 +810,9 @@ namespace heading {
                 datalogger.createCV("uRim", round2(uRim)),
                 datalogger.createCV("vRim", round2(vRim)),
                 datalogger.createCV("reading", round2(reading)),
-                datalogger.createCV("[reading]", round2(asDegrees(reading) * rotationSense))
+                datalogger.createCV("[reading]", round2(asDegrees(reading) * rotationSense)),
+                datalogger.createCV("bearing", round2(reading - north)),
+                datalogger.createCV("[bearing]", round2(asDegrees(reading - north) * rotationSense))
             )
         }
         return reading
@@ -906,6 +916,58 @@ namespace heading {
         return ((angle * RadianDegrees) + 360) % 360
     }
 
+    class Oval {
+        loRadius: number
+        hiRadius: number
+        scale: number
+        angle: number
+        uDim: number
+        vDim: number
+        wDim: number
+
+    }
+
+    function findEllipse(uDim: number, vDim: number, wDim: number): Oval {
+
+
+        /*
+        For correction of future readings we wast to find the eccentricity and tilt of each ellipse.
+        Since x^2 + y^2 + z^2 == B (the field-strength), it follows that for each plane {XY, YZ, or ZX}
+        a maximal ellipse-radius will always coincide with a minimum in the third dimension, [Z, X,or Y]
+        */
+        let result = new Oval(uDim,vDim, wDim)
+
+        let radiusUV = 0
+        let radiusYZ = 0
+        let radiusZX = 0
+        let nXY = 0
+        let nYZ = 0
+        let nZX = 0
+
+        let xWas = 0
+        let yWas = 0
+        let zWas = 0
+        let x = scanData[0][Dimension.X] - xOff
+        let y = scanData[0][Dimension.Y] - yOff
+        let z = scanData[0][Dimension.Z] - zOff
+
+        for (let i = 1; i < nSamples; i++) {
+            xWas = x
+            yWas = y
+            zWas = z
+            x = scanData[i][Dimension.X] - xOff
+            y = scanData[i][Dimension.Y] - yOff
+            z = scanData[i][Dimension.Z] - zOff
+            // track XY view
+            if ((x == 0) || (x * xWas < 0)) {  // sign change means near minimum
+                radiusYZ += (x * x + y * y)
+                nYZ++
+            }
+
+
+        }
+
+    }
 
 
     
