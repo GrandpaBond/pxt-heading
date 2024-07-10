@@ -917,25 +917,67 @@ namespace heading {
     }
 
     class Oval {
-        loRadius: number
-        hiRadius: number
+        uHi: number
+        vHi: number
+        nHi: number
+        rHiSq: number
+        uLo: number
+        vLo: number
+        nLo: number
+        rLoSq: number
         scale: number
         angle: number
-        uDim: number
-        vDim: number
-        wDim: number
 
+        constructor(){
+            this.uHi = 0
+            this.vHi = 0
+            this.nHi = 0
+        }
+
+        addMajor(u: number, v: number) {
+            this.uHi += u
+            this.vHi += v
+            this.nHi++
+        }
+
+        addMinor(u: number, v: number) {
+            this.uLo += u
+            this.vLo += v
+            this.nLo++
+        }
+
+        calculate() {
+            this.scale = -1
+            this.angle = 0
+            if (this.nHi > 0) {
+                this.uHi /= this.nHi
+                this.vHi /= this.nHi
+                this.rHiSq = this.uHi * this.uHi + this.vHi * this.vHi
+                let angleHi = Math.atan2(this.vHi, this.uHi)
+
+                if (this.nLo > 0) {
+                    this.uLo /= this.nLo
+                    this.vLo /= this.nLo
+                    this.rLoSq = this.uLo * this.uLo + this.vLo * this.vLo
+                    this.scale = Math.sqrt(this.rHiSq / this.rLoSq)
+                    let angleLo = Math.atan2(this.vLo, this.uLo)
+                    this.angle = ((angleLo + Math.PI) + angleHi + TwoPi) % TwoPi
+                }
+            }
+        }
     }
 
-    function findEllipse(uDim: number, vDim: number, wDim: number): Oval {
+    function measureOvals() {
 
 
         /*
-        For correction of future readings we wast to find the eccentricity and tilt of each ellipse.
-        Since x^2 + y^2 + z^2 == B (the field-strength), it follows that for each plane {XY, YZ, or ZX}
-        a maximal ellipse-radius will always coincide with a minimum in the third dimension, [Z, X,or Y]
+        For correction of future readings we will need to find the eccentricity and tilt of each ellipse,
+        and then (for highest accuracy) choose the most circular view.
+        Since x^2 + y^2 + z^2 == B (the constant field-strength), it follows that for the elliptical
+        projection of the Spin-Circle onto each plane {XY, YZ, or ZX}, the maximal ellipse-radius
+        (the major axis) occurs as the orthogonal dimension [Z, X,or Y] crosses zero. 
+        Conversely, the minor axis coincides with a local maximum in the orthogonal dimension
         */
-        let result = new Oval(uDim,vDim, wDim)
 
         let radiusUV = 0
         let radiusYZ = 0
@@ -950,22 +992,45 @@ namespace heading {
         let x = scanData[0][Dimension.X] - xOff
         let y = scanData[0][Dimension.Y] - yOff
         let z = scanData[0][Dimension.Z] - zOff
+        let dx = 0
+        let dy = 0
+        let dz = 0
+        let dxWas = 0
+        let dyWas = 0
+        let dzWas = 0
+        let xy = new Oval()
+        let yz = new Oval()
+        let zx = new Oval()
 
         for (let i = 1; i < nSamples; i++) {
             xWas = x
             yWas = y
             zWas = z
+            dxWas = dx
+            dyWas = dy
+            dzWas = dz
             x = scanData[i][Dimension.X] - xOff
             y = scanData[i][Dimension.Y] - yOff
             z = scanData[i][Dimension.Z] - zOff
+            dx = x-xWas
+            dy = y - yWas
+            dz = z - zWas
             // track XY view
-            if ((x == 0) || (x * xWas < 0)) {  // sign change means near minimum
-                radiusYZ += (x * x + y * y)
-                nYZ++
-            }
-
-
+            if ((z == 0) || (z * zWas < 0)) xy.addMajor(x,y)
+            if ((dz == 0) || (dz*dzWas < 0)) xy.addMinor(x,y)
+            // track YZ view
+            if ((z == 0) || (z * zWas < 0)) xy.addMajor(x, y)
+            if ((dz == 0) || (dz * dzWas < 0)) xy.addMinor(x, y)
+            // track ZX view
+            if ((z == 0) || (z * zWas < 0)) xy.addMajor(x, y)
+            if ((dz == 0) || (dz * dzWas < 0)) xy.addMinor(x, y)
         }
+
+        xy.calculate()
+        yz.calculate()
+        zx.calculate()
+
+
 
     }
 
