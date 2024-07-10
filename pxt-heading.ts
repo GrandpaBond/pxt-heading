@@ -323,6 +323,92 @@ namespace heading {
         }
     }
 
+    // an Oval is a simplified form of Ellipse, used in the new maths analysis of spinData[]
+    class Oval {
+        uHi: number
+        vHi: number
+        nHi: number
+        rHi: number
+
+        uLo: number
+        vLo: number
+        nLo: number
+        rLo: number
+
+        flipped: boolean
+        start: number
+        finish: number
+
+        // calibration characteristics
+        period: number // scan-rotation time as viewed in this plane
+        angleHi: number // direction of the Ellipse major axis 
+        cosa: number
+        sina: number
+        eccentricity: number // ratio of major-axis to minor-axis magnitudes for this Ellipse
+        isCircular: boolean // flag saying this "Ellipse" View is almost circular, simplifying future handling
+        rotationSense: number // rotation reversal sign = +/-1, reflecting this Ellipse's view of the clockwise scan
+
+
+        constructor() {
+            this.uHi = 0
+            this.vHi = 0
+            this.nHi = 0
+            this.flipped = true
+            this.start = 0
+            this.finish = 0
+            this.period = -1
+        }
+
+        addMajor(u: number, v: number, w: number, t: number) {
+            if (w<0) {
+                this.uHi += u
+                this.vHi += v
+            } else {
+                this.uHi -= u
+                this.vHi -= v
+            }
+            this.nHi++
+        }
+
+        addMinor(u: number, v: number, dw: number, t: number) {
+            if (dw < 0) {
+                this.uLo += u
+                this.vLo += v
+            } else {
+                this.uLo -= u
+                this.vLo -= v
+            }
+            this.nLo++
+        }
+
+        calculate() {
+            this.eccentricity = -1
+            this.angleHi = 0
+            if (this.nHi > 0) {
+                this.uHi /= this.nHi
+                this.vHi /= this.nHi
+                this.rHi = Math.sqrt(this.uHi * this.uHi + this.vHi * this.vHi)
+
+                if (this.nLo > 0) {
+                    this.uLo /= this.nLo
+                    this.vLo /= this.nLo
+                    this.rLo = Math.sqrt(this.uLo * this.uLo + this.vLo * this.vLo)
+                    this.eccentricity = this.rHi / this.rLo
+
+                    // use vector addition to average the axis tilt (but only
+                    // after turning the minor one through a right angle)
+                    let uMean = this.uHi + this.vLo
+                    let vMean = this.vHi - this.uLo
+                    let rMean = this.rHi +this.rLo
+                    this.angleHi = Math.atan2(vMean, uMean)
+                    this.cosa = uMean / rMean
+                    this.sina = vMean / rMean
+                }
+            }
+        }
+    }
+
+
 
 
     // GLOBALS
@@ -337,6 +423,10 @@ namespace heading {
     let north = 0 // reading registered as "North"
     let strength = 0 // the average magnetic field-strength observed by the magnetometer
     let period = -1 // overall assessment of average rotation time
+
+    let xOff: number
+    let yOff: number
+    let zOff: number
 
     // correction parameters adopted from bestView Ellipse for future readings
     let rotationSense = 1 // set to -1 if orientation means field-vector projection is "from below"
@@ -353,6 +443,12 @@ namespace heading {
     let dataset: string = "" // test dataset to use
     let testData: number[][] = [] //[X,Y,Z] magnetometer values for test cases
     let test = 0 // global selector for test-cases
+
+    // new maths
+    let xy = new Oval()
+    let yz = new Oval()
+    let zx = new Oval()
+
 
     // EXPORTED USER INTERFACES   
 
@@ -516,21 +612,13 @@ namespace heading {
             return -2 // "FIELD STRENGTH TOO WEAK"
         }
         // The means of the extremes give an approximation to the central offsets.
-        let xOff = (xhi + xlo) / 2
-        let yOff = (yhi + ylo) / 2
-        let zOff = (zhi + zlo) / 2
+        xOff = (xhi + xlo) / 2
+        yOff = (yhi + ylo) / 2
+        zOff = (zhi + zlo) / 2
 
         // re-centre all of the scanData samples, so eliminating "hard-iron" magnetic effects.
         // At the same time, track the properties of the ellipses traced in the three orthogonal views
 
-
-
-
-
-
-
-
-    /*
         // create three Ellipse instances for analysing each possible view in turn
         views.push(new Ellipse("XY", Dimension.X, Dimension.Y, xOff, yOff))
         views.push(new Ellipse("YZ", Dimension.Y, Dimension.Z, yOff, zOff))
@@ -567,7 +655,7 @@ namespace heading {
         sinTheta = Math.sin(theta)
         isCircular = views[bestView].isCircular
         rotationSense = views[bestView].rotationSense
-*/
+
         // Having successfully set up the projection parameters for the bestView, get a
         // stable fix on the current heading, which we will then designate as "North".
         // (This is the global fixed bias to be subtracted from all future readings)
@@ -587,6 +675,8 @@ namespace heading {
                 datalogger.createCV("period", period),
             )
         }
+
+
 
         // we've now finished with the scanning data and Ellipse objects, so release their memory
         scanTimes = []
@@ -916,60 +1006,7 @@ namespace heading {
         return ((angle * RadianDegrees) + 360) % 360
     }
 
-    class Oval {
-        uHi: number
-        vHi: number
-        nHi: number
-        rHiSq: number
-        uLo: number
-        vLo: number
-        nLo: number
-        rLoSq: number
-        scale: number
-        angle: number
-
-        constructor(){
-            this.uHi = 0
-            this.vHi = 0
-            this.nHi = 0
-        }
-
-        addMajor(u: number, v: number) {
-            this.uHi += u
-            this.vHi += v
-            this.nHi++
-        }
-
-        addMinor(u: number, v: number) {
-            this.uLo += u
-            this.vLo += v
-            this.nLo++
-        }
-
-        calculate() {
-            this.scale = -1
-            this.angle = 0
-            if (this.nHi > 0) {
-                this.uHi /= this.nHi
-                this.vHi /= this.nHi
-                this.rHiSq = this.uHi * this.uHi + this.vHi * this.vHi
-                let angleHi = Math.atan2(this.vHi, this.uHi)
-
-                if (this.nLo > 0) {
-                    this.uLo /= this.nLo
-                    this.vLo /= this.nLo
-                    this.rLoSq = this.uLo * this.uLo + this.vLo * this.vLo
-                    this.scale = Math.sqrt(this.rHiSq / this.rLoSq)
-                    let angleLo = Math.atan2(this.vLo, this.uLo)
-                    this.angle = ((angleLo + Math.PI) + angleHi + TwoPi) % TwoPi
-                }
-            }
-        }
-    }
-
     function measureOvals() {
-
-
         /*
         For correction of future readings we will need to find the eccentricity and tilt of each ellipse,
         and then (for highest accuracy) choose the most circular view.
@@ -992,17 +1029,15 @@ namespace heading {
         let x = scanData[0][Dimension.X] - xOff
         let y = scanData[0][Dimension.Y] - yOff
         let z = scanData[0][Dimension.Z] - zOff
+        let t = scanTimes[0]
         let dx = 0
         let dy = 0
         let dz = 0
         let dxWas = 0
         let dyWas = 0
         let dzWas = 0
-        let xy = new Oval()
-        let yz = new Oval()
-        let zx = new Oval()
 
-        for (let i = 1; i < nSamples; i++) {
+        for (let i = 1; i < scanTimes.length; i++) {
             xWas = x
             yWas = y
             zWas = z
@@ -1012,63 +1047,28 @@ namespace heading {
             x = scanData[i][Dimension.X] - xOff
             y = scanData[i][Dimension.Y] - yOff
             z = scanData[i][Dimension.Z] - zOff
+            t = scanTimes[i]
+
             dx = x - xWas
             dy = y - yWas
             dz = z - zWas
             // track XY view
-            if ((z == 0) || (z * zWas < 0)) {
-                if (z < 0) {
-                    xy.addMajor(x, y)
-                } else {
-                    xy.addMajor(-x, -y)
-                }
-            }
-            if ((dz == 0) || (dz * dzWas < 0)) {
-                if (dz < 0) {
-                    xy.addMinor(x, y)
-                } else {
-                    xy.addMinor(-x, -y)
-                }
-            }
+            if ((z == 0) || (z * zWas < 0)) xy.addMajor(x, y, z, t)
+            if ((dz == 0) || (dz * dzWas < 0)) xy.addMinor(x, y, z, t)
 
             // track YZ view
-            if ((x == 0) || (x * xWas < 0)) {
-                if (x < 0) {
-                    yz.addMajor(y, z)
-                } else {
-                    yz.addMajor(-y, -z)
-                }
-            }
-            if ((dx == 0) || (dx * dxWas < 0)) {
-                if (dx < 0) {
-                    yz.addMinor(y, z)
-                } else {
-                    yz.addMinor(-y, -z)
-                }
-            }
+            if ((x == 0) || (x * xWas < 0)) yz.addMajor(y, z, x, t)
+            if ((dx == 0) || (dx * dxWas < 0)) yz.addMinor(y, z, x, t)
 
             // track ZX view
-            if ((y == 0) || (y * yWas < 0)) {
-                if (y < 0) {
-                    zx.addMajor(z, x)
-                } else {
-                    zx.addMajor(z, x)
-                }
-            }
+            if ((y == 0) || (y * yWas < 0)) zx.addMajor(z, x, y, t)
+            if ((dy == 0) || (dy * dyWas < 0)) zx.addMinor(z, x, y, t)
 
-            if ((dy == 0) || (dy * dyWas < 0)) {
-                if (dy < 0) {
-                    zx.addMinor(z, x)
-                } else {
-                    zx.addMinor(z, x)
-                }
-            }
-
-            xy.calculate()
-            yz.calculate()
-            zx.calculate()
         }
-
+        xy.calculate()
+        yz.calculate()
+        zx.calculate()
+    }
 
     
 
