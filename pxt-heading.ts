@@ -1012,27 +1012,62 @@ namespace heading {
             x = scanData[i][Dimension.X] - xOff
             y = scanData[i][Dimension.Y] - yOff
             z = scanData[i][Dimension.Z] - zOff
-            dx = x-xWas
+            dx = x - xWas
             dy = y - yWas
             dz = z - zWas
             // track XY view
-            if ((z == 0) || (z * zWas < 0)) xy.addMajor(x,y)
-            if ((dz == 0) || (dz*dzWas < 0)) xy.addMinor(x,y)
+            if ((z == 0) || (z * zWas < 0)) {
+                if (z < 0) {
+                    xy.addMajor(x, y)
+                } else {
+                    xy.addMajor(-x, -y)
+                }
+            }
+            if ((dz == 0) || (dz * dzWas < 0)) {
+                if (dz < 0) {
+                    xy.addMinor(x, y)
+                } else {
+                    xy.addMinor(-x, -y)
+                }
+            }
+
             // track YZ view
-            if ((z == 0) || (z * zWas < 0)) xy.addMajor(x, y)
-            if ((dz == 0) || (dz * dzWas < 0)) xy.addMinor(x, y)
+            if ((x == 0) || (x * xWas < 0)) {
+                if (x < 0) {
+                    yz.addMajor(y, z)
+                } else {
+                    yz.addMajor(-y, -z)
+                }
+            }
+            if ((dx == 0) || (dx * dxWas < 0)) {
+                if (dx < 0) {
+                    yz.addMinor(y, z)
+                } else {
+                    yz.addMinor(-y, -z)
+                }
+            }
+
             // track ZX view
-            if ((z == 0) || (z * zWas < 0)) xy.addMajor(x, y)
-            if ((dz == 0) || (dz * dzWas < 0)) xy.addMinor(x, y)
+            if ((y == 0) || (y * yWas < 0)) {
+                if (y < 0) {
+                    zx.addMajor(z, x)
+                } else {
+                    zx.addMajor(z, x)
+                }
+            }
+
+            if ((dy == 0) || (dy * dyWas < 0)) {
+                if (dy < 0) {
+                    zx.addMinor(z, x)
+                } else {
+                    zx.addMinor(z, x)
+                }
+            }
+
+            xy.calculate()
+            yz.calculate()
+            zx.calculate()
         }
-
-        xy.calculate()
-        yz.calculate()
-        zx.calculate()
-
-
-
-    }
 
 
     
