@@ -41,10 +41,10 @@ namespace heading {
     const Circular = 1.03 // maximum eccentricity to consider an Ellipse as "circular" (3% gives ~1 degree error)
     const NearEnough = 0.75 // major-axis candidates must be longer than (longest*NearEnough)
                             // minor-axis candidates must be shorter than (shortest/NearEnough) 
-    const Window = 5 // number of magnetometer samples needed to form a good average
+    const Window = 7 // number of magnetometer samples needed to form a good average
     const SampleGap = 15 // minimum ms to wait between magnetometer readings
     const AverageGap = 25 // (achieved in practice, due to system interrupts)
-    const Latency = Window * AverageGap // consequent time taken to collect a good moving average from scratch
+    const Latency = Window * AverageGap // resulting time taken to collect a good moving average from scratch
 
     // SUPPORTING CLASSES
 
@@ -323,7 +323,17 @@ namespace heading {
         }
     }
 
-    // an Oval is a simplified form of Ellipse, used in the new maths analysis of spinData[]
+    
+    /*
+    An Oval is a simplified form of Ellipse, used in the new maths analysis of spinData[].
+
+
+    NOTE: Noisy readings may yield clusters of adjacent peaks & troughs on both sides of our plane.
+    This means that some contributions to the minor-axis vector-sum [uLo,vLo] will partially
+    cancel out. However there will always be one more peak than trough above the plane (and vice versa
+    below the plane), so we will always get a net contribution to the vector-sum from each transit.
+    
+    */
     class Oval {
         plane: string // View name (just for debug)
         uDim: number // horizontal axis of this View
@@ -341,7 +351,8 @@ namespace heading {
         nLo: number
         rLo: number
 
-        flipped: boolean
+        above: boolean
+        distant: boolean
         turns: number
         start: number
         finish: number
@@ -367,40 +378,49 @@ namespace heading {
             this.uLo = 0
             this.vLo = 0
             this.nLo = 0
-            this.flipped = true
+            this.above = true
             this.start = 0
             this.finish = 0
             this.turns = -1
             this.period = -1
+            this.rotationSense = 1
         }
 
+        // Field is just crossing our plane, so we're passing the major-axis
         addMajor(u: number, v: number, w: number, t: number) {
-            if (w < 0) {
+            if (w > 0) { // just surfaced above our plane
+                this.above = true
                 this.uHi += u
                 this.vHi += v
-                if (this.flipped) {
-                    if (this.start == 0) this.start = t
-                    this.finish = t
-                    this.turns++
-                }
-                this.flipped = false
-            } else {
+                if (this.start == 0) this.start = t // start measuring turns
+                this.finish = t
+                this.turns++
+            } else {  // just dipped below our plane
+                this.above = false
                 this.uHi -= u
                 this.vHi -= v
-                this.flipped = true
             }
             this.nHi++
+            this.distant = false
         }
 
+        // Field is most orthogonal to our plane (above or below), so we're passing the minor-axis
         addMinor(u: number, v: number, dw: number) {
-            if (dw < 0) {
-                this.uLo += u
-                this.vLo += v
-            } else {
-                this.uLo -= u
-                this.vLo -= v
+            if (this.start > 0 ) { // don't start adding minor-axes until this.above is clearly known
+                if (dw < 0) {  
+                    this.uLo += u
+                    this.vLo += v
+                } else {
+                    this.uLo -= u
+                    this.vLo -= v
+                }
             }
-            this.nLo++
+            // because of the possibility of clustered peaks/troughs (some of which partially cancel) 
+            // we only clock the first one on each transit
+            if (!this.distant) {
+                this.nLo++
+                this.distant = true
+            }
         }
 
         calculate() {
@@ -419,10 +439,10 @@ namespace heading {
                     this.eccentricity = this.rHi / this.rLo
 
                     // use vector addition to average the axis tilt (but only
-                    // after turning the minor one through a right angle)
+                    // after turning the minor-axis through a right angle)
                     let uMean = this.uHi + this.vLo
                     let vMean = this.vHi - this.uLo
-                    let rMean = this.rHi +this.rLo
+                    let rMean = this.rHi + this.rLo
                     this.angleHi = Math.atan2(vMean, uMean)
                     this.cosa = uMean / rMean
                     this.sina = vMean / rMean
@@ -526,6 +546,7 @@ namespace heading {
                 input.magneticForce(Dimension.X),
                 input.magneticForce(Dimension.Y),
                 input.magneticForce(Dimension.Z)]
+
             // use a Smoother to maintain a rolling average
             let scan = new Smoother(fresh, timeStamp)
 
@@ -646,33 +667,35 @@ namespace heading {
         // At the same time, track the properties of the ellipses traced in the three orthogonal views
 
 /* ***************** */
-        // try the new maths
+
+        // create three Oval instances, for analysing each possible 2D view of the spin-Circle
         xy = new Oval(Dimension.X, Dimension.Y, xOff, yOff)
         yz = new Oval(Dimension.Y, Dimension.Z, yOff, zOff)
         zx = new Oval(Dimension.Z, Dimension.X, zOff, xOff)
+
+        // At the same time, track the properties of the ellipses traced in the three orthogonal views
+   
         measureOvals()
 
         // check that at least one View saw at least one complete rotation (with a measurable period)...
-        if ((xy.period == -1)
-            && (yz.period == -1)
-            && (zx.period == -1)) {
+        if ((xy.period + yz.period + zx.period) < 0 ) {
             return -3 // "NOT ENOUGH SCAN ROTATION"
         }
 
-        // Choose the "roundest" Ellipse  --the one with lowest eccentricity.
+        // Choose the "roundest" Ellipse view  --the one with lowest eccentricity.
         let view: Oval = xy
         if (yz.eccentricity < view.eccentricity) view = yz
         if (zx.eccentricity < view.eccentricity) view = zx
 
-        // periodicity is unreliable in a near-circular View: average just the other two Views' measurements
+        // periodicity is unreliable in a near-circular View: average just the other two views' measurements
         period = (xy.period + yz.period + zx.period - view.period) / 2
 
-        // For efficiency, extract various characteristics from our adopted "bestView" Ellipse
+        // For efficiency, extract various characteristics from our adopted best Ellipse
         uDim = view.uDim
         vDim = view.vDim
         uOff = view.uOff
         vOff = view.vOff
-        scale = view.eccentricity // scaling needed to balance axes
+        scale = view.eccentricity // the scaling needed to balance axes
         isCircular = (scale <= Circular)
         theta = view.angleHi // the rotation (in radians) of the major-axis from the U-axis
         cosTheta = view.cosa
@@ -1070,12 +1093,15 @@ namespace heading {
 
     function measureOvals() {
         /*
+        Re-centre all of the scanData samples, so eliminating "hard-iron" magnetic effects. 
+        This will also re-centre the elliptical projections of the Spin-Circle in each 2D view.
         For correction of future readings we will need to find the eccentricity and tilt of each ellipse,
         and then (for highest accuracy) choose the most circular view.
         Since x^2 + y^2 + z^2 == B (the constant field-strength), it follows that for the elliptical
         projection of the Spin-Circle onto each plane {XY, YZ, or ZX}, the maximal ellipse-radius
         (the major axis) occurs as the orthogonal dimension [Z, X,or Y] crosses zero. 
-        Conversely, the minor axis coincides with a local maximum in the orthogonal dimension
+        Conversely, the minor axis coincides with a local maximum or minimum in the orthogonal dimension.
+        The ratio of the two axes gives the eccentricity, while their angles show the tilt of the ellipse.
         */
 
         let radiusUV = 0
@@ -1100,6 +1126,7 @@ namespace heading {
         let dzWas = 0
 
         for (let i = 1; i < scanTimes.length; i++) {
+            // update history
             xWas = x
             yWas = y
             zWas = z
@@ -1111,22 +1138,23 @@ namespace heading {
             z = scanData[i][Dimension.Z] - zOff
             t = scanTimes[i]
 
+            // get slopes
             dx = x - xWas
             dy = y - yWas
             dz = z - zWas
-            // track XY view
+
+            // crossing a plane implies we're passing the major-axis of its ellipse
             if ((z == 0) || (z * zWas < 0)) xy.addMajor(x, y, z, t)
-            if ((dz == 0) || (dz * dzWas < 0)) xy.addMinor(x, y, dz)
-
-            // track YZ view
             if ((x == 0) || (x * xWas < 0)) yz.addMajor(y, z, x, t)
-            if ((dx == 0) || (dx * dxWas < 0)) yz.addMinor(y, z, dx)
-
-            // track ZX view
             if ((y == 0) || (y * yWas < 0)) zx.addMajor(z, x, y, t)
+
+            // finding a peak or trough implies we're passing the minor-axis of its ellipse
+            if ((dz == 0) || (dz * dzWas < 0)) xy.addMinor(x, y, dz)
+            if ((dx == 0) || (dx * dxWas < 0)) yz.addMinor(y, z, dx)
             if ((dy == 0) || (dy * dyWas < 0)) zx.addMinor(z, x, dy)
 
         }
+        // use collected vector-sums to compute ellipse characteristics
         xy.calculate()
         yz.calculate()
         zx.calculate()
