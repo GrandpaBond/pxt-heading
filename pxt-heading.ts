@@ -325,6 +325,12 @@ namespace heading {
 
     // an Oval is a simplified form of Ellipse, used in the new maths analysis of spinData[]
     class Oval {
+        plane: string // View name (just for debug)
+        uDim: number // horizontal axis of this View
+        vDim: number // vertical axis of this View
+        uOff: number // horizontal offset needed to re-centre this Ellipse along the U-axis
+        vOff: number // vertical offset needed to re-centre this Ellipse along the V-axis
+
         uHi: number
         vHi: number
         nHi: number
@@ -336,6 +342,7 @@ namespace heading {
         rLo: number
 
         flipped: boolean
+        turns: number
         start: number
         finish: number
 
@@ -349,28 +356,43 @@ namespace heading {
         rotationSense: number // rotation reversal sign = +/-1, reflecting this Ellipse's view of the clockwise scan
 
 
-        constructor() {
+        constructor(uDim: number, vDim: number, uOff: number, vOff:number) {
+            this.uDim = uDim
+            this.vDim = vDim
+            this.uOff = uOff
+            this.vOff = vOff
             this.uHi = 0
             this.vHi = 0
             this.nHi = 0
+            this.uLo = 0
+            this.vLo = 0
+            this.nLo = 0
             this.flipped = true
             this.start = 0
             this.finish = 0
+            this.turns = -1
             this.period = -1
         }
 
         addMajor(u: number, v: number, w: number, t: number) {
-            if (w<0) {
+            if (w < 0) {
                 this.uHi += u
                 this.vHi += v
+                if (this.flipped) {
+                    if (this.start == 0) this.start = t
+                    this.finish = t
+                    this.turns++
+                }
+                this.flipped = false
             } else {
                 this.uHi -= u
                 this.vHi -= v
+                this.flipped = true
             }
             this.nHi++
         }
 
-        addMinor(u: number, v: number, dw: number, t: number) {
+        addMinor(u: number, v: number, dw: number) {
             if (dw < 0) {
                 this.uLo += u
                 this.vLo += v
@@ -383,6 +405,7 @@ namespace heading {
 
         calculate() {
             this.eccentricity = -1
+            this.period = -1
             this.angleHi = 0
             if (this.nHi > 0) {
                 this.uHi /= this.nHi
@@ -404,6 +427,9 @@ namespace heading {
                     this.cosa = uMean / rMean
                     this.sina = vMean / rMean
                 }
+            }
+            if (this.turns > 0) {
+                this.period = (this.finish - this.start) / this.turns
             }
         }
     }
@@ -445,9 +471,9 @@ namespace heading {
     let test = 0 // global selector for test-cases
 
     // new maths
-    let xy = new Oval()
-    let yz = new Oval()
-    let zx = new Oval()
+    let xy: Oval
+    let yz: Oval
+    let zx: Oval
 
 
     // EXPORTED USER INTERFACES   
@@ -619,6 +645,42 @@ namespace heading {
         // re-centre all of the scanData samples, so eliminating "hard-iron" magnetic effects.
         // At the same time, track the properties of the ellipses traced in the three orthogonal views
 
+/* ***************** */
+        // try the new maths
+        xy = new Oval(Dimension.X, Dimension.Y, xOff, yOff)
+        yz = new Oval(Dimension.Y, Dimension.Z, yOff, zOff)
+        zx = new Oval(Dimension.Z, Dimension.X, zOff, xOff)
+        measureOvals()
+
+        // check that at least one View saw at least one complete rotation (with a measurable period)...
+        if ((xy.period == -1)
+            && (yz.period == -1)
+            && (zx.period == -1)) {
+            return -3 // "NOT ENOUGH SCAN ROTATION"
+        }
+
+        // Choose the "roundest" Ellipse  --the one with lowest eccentricity.
+        let view: Oval = xy
+        if (yz.eccentricity < view.eccentricity) view = yz
+        if (zx.eccentricity < view.eccentricity) view = zx
+
+        // periodicity is unreliable in a near-circular View: average just the other two Views' measurements
+        period = (xy.period + yz.period + zx.period - view.period) / 2
+
+        // For efficiency, extract various characteristics from our adopted "bestView" Ellipse
+        uDim = view.uDim
+        vDim = view.vDim
+        uOff = view.uOff
+        vOff = view.vOff
+        scale = view.eccentricity // scaling needed to balance axes
+        isCircular = (scale <= Circular)
+        theta = view.angleHi // the rotation (in radians) of the major-axis from the U-axis
+        cosTheta = view.cosa
+        sinTheta = view.sina
+        rotationSense = view.rotationSense // *** TODO
+
+
+/* *****************
         // create three Ellipse instances for analysing each possible view in turn
         views.push(new Ellipse("XY", Dimension.X, Dimension.Y, xOff, yOff))
         views.push(new Ellipse("YZ", Dimension.Y, Dimension.Z, yOff, zOff))
@@ -656,6 +718,8 @@ namespace heading {
         isCircular = views[bestView].isCircular
         rotationSense = views[bestView].rotationSense
 
+**************** */
+
         // Having successfully set up the projection parameters for the bestView, get a
         // stable fix on the current heading, which we will then designate as "North".
         // (This is the global fixed bias to be subtracted from all future readings)
@@ -675,8 +739,6 @@ namespace heading {
                 datalogger.createCV("period", period),
             )
         }
-
-
 
         // we've now finished with the scanning data and Ellipse objects, so release their memory
         scanTimes = []
@@ -1054,15 +1116,15 @@ namespace heading {
             dz = z - zWas
             // track XY view
             if ((z == 0) || (z * zWas < 0)) xy.addMajor(x, y, z, t)
-            if ((dz == 0) || (dz * dzWas < 0)) xy.addMinor(x, y, z, t)
+            if ((dz == 0) || (dz * dzWas < 0)) xy.addMinor(x, y, dz)
 
             // track YZ view
             if ((x == 0) || (x * xWas < 0)) yz.addMajor(y, z, x, t)
-            if ((dx == 0) || (dx * dxWas < 0)) yz.addMinor(y, z, x, t)
+            if ((dx == 0) || (dx * dxWas < 0)) yz.addMinor(y, z, dx)
 
             // track ZX view
             if ((y == 0) || (y * yWas < 0)) zx.addMajor(z, x, y, t)
-            if ((dy == 0) || (dy * dyWas < 0)) zx.addMinor(z, x, y, t)
+            if ((dy == 0) || (dy * dyWas < 0)) zx.addMinor(z, x, dy)
 
         }
         xy.calculate()
