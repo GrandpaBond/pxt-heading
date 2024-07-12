@@ -341,18 +341,18 @@ namespace heading {
         uOff: number // horizontal offset needed to re-centre this Ellipse along the U-axis
         vOff: number // vertical offset needed to re-centre this Ellipse along the V-axis
 
-        uHi: number
-        vHi: number
-        nHi: number
-        rHi: number
+        uHi: number // major-axis u contributions
+        vHi: number // major=axis v contributions
+        nHi: number // major-axis contributors
+        rHi: number // major-axis magnitude (radius)
 
-        uLo: number
-        vLo: number
-        nLo: number
-        rLo: number
+        uLo: number // minor-axis u contributions
+        vLo: number // minor=axis v contributions
+        nLo: number // minor-axis contributors
+        rLo: number // minor-axis magnitude (radius)
 
         above: boolean
-        distant: boolean
+        newMinor: boolean
         turns: number
         start: number
         finish: number
@@ -401,10 +401,15 @@ namespace heading {
                 this.vHi -= v
             }
             this.nHi++
-            this.distant = false
+            this.newMinor = false
         }
 
-        // Field is most orthogonal to our plane (above or below), so we're passing the minor-axis
+        // When the field is most distant from our plane (above or below), we're near the minor-axis.
+        // NOTE: noisy readings may yield multiple inflections in the third coordinate for the same transit. 
+        // (e.g. peak-trough-peak above the plane, or trough-peak-trough below).
+        // Peaks are always added to the sum-vector, while troughs are always subtracted
+        //   
+        // we only clock the first one on each transit
         addMinor(u: number, v: number, dw: number) {
             if (this.start > 0 ) { // don't start adding minor-axes until this.above is clearly known
                 if (dw < 0) {  
@@ -417,9 +422,9 @@ namespace heading {
             }
             // because of the possibility of clustered peaks/troughs (some of which partially cancel) 
             // we only clock the first one on each transit
-            if (!this.distant) {
+            if (!this.newMinor) {
                 this.nLo++
-                this.distant = true
+                this.newMinor = true
             }
         }
 
