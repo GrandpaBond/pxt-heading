@@ -325,14 +325,16 @@ namespace heading {
 
     
     /*
-    An Oval is a simplified form of Ellipse, used in the new maths analysis of spinData[].
+    An Oval characterises the elliptical projection of the Spin-Circle onto one of the three planes 
+    {XY, YZ or ZX}. The three magnetometer readings are related by the formula:  x^2 + y^2 + z^2 = B 
+    (where B is the constant magnetic field), so in the XY plane the ellipse radius x^2 + y^2 is at a
+    maximum (its major-axis) when the field aligns with plane and the z value is at a minimum.
+    Conversely the radius is at a minimum (its minor-axis) where the field is farthest from the plane,
+    and the z value changes from growing to shrinking. The same holds true for the other two planes.
 
+    For each of these mutually-orthogonal views, we re-label its coordinates as {u,v}, with {w} as the
+    third (orthogonal) coordinate.
 
-    NOTE: Noisy readings may yield clusters of adjacent peaks & troughs on both sides of our plane.
-    This means that some contributions to the minor-axis vector-sum [uLo,vLo] will partially
-    cancel out. However there will always be one more peak than trough above the plane (and vice versa
-    below the plane), so we will always get a net contribution to the vector-sum from each transit.
-    
     */
     class Oval {
         plane: string // View name (just for debug)
@@ -351,17 +353,17 @@ namespace heading {
         nLo: number // minor-axis contributors
         rLo: number // minor-axis magnitude (radius)
 
-        above: boolean
-        newMinor: boolean
-        turns: number
-        start: number
-        finish: number
+        above: boolean  // flag saying {w} is currently "above" our plane
+        newMinor: boolean // flag saying we have clocked transit of the minor-axis
+        turns: number // number of full rotations since the first major-axis transit
+        start: number // timestamp of first major-axis transit
+        finish: number // timestamp of latest major-axis transit
 
         // calibration characteristics
         period: number // scan-rotation time as viewed in this plane
-        angleHi: number // direction of the Ellipse major axis 
-        cosa: number
-        sina: number
+        tilt: number // direction of the Ellipse major-axis 
+        cosa: number // helpful cosine of the tilt
+        sina: number // helpful sine of the tilt
         eccentricity: number // ratio of major-axis to minor-axis magnitudes for this Ellipse
         isCircular: boolean // flag saying this "Ellipse" View is almost circular, simplifying future handling
         rotationSense: number // rotation reversal sign = +/-1, reflecting this Ellipse's view of the clockwise scan
@@ -379,6 +381,7 @@ namespace heading {
             this.vLo = 0
             this.nLo = 0
             this.above = true
+            this.tilt = 0
             this.start = 0
             this.finish = 0
             this.turns = -1
@@ -388,14 +391,15 @@ namespace heading {
 
         // Field is just crossing our plane, so we're passing the major-axis
         addMajor(u: number, v: number, w: number, t: number) {
-            if (w > 0) { // just surfaced above our plane
+            if (w > 0) { // just surfaced above our plane so add-in current vector coordinates
                 this.above = true
                 this.uHi += u
                 this.vHi += v
                 if (this.start == 0) this.start = t // start measuring turns
                 this.finish = t
                 this.turns++
-            } else {  // just dipped below our plane
+            } else {  // just dipped below our plane so subtract current vector coordinates
+                    // (as it's the other end of the major-axis)
                 this.above = false
                 this.uHi -= u
                 this.vHi -= v
@@ -404,12 +408,18 @@ namespace heading {
             this.newMinor = false
         }
 
-        // When the field is most distant from our plane (above or below), we're near the minor-axis.
-        // NOTE: noisy readings may yield multiple inflections in the third coordinate for the same transit. 
-        // (e.g. peak-trough-peak above the plane, or trough-peak-trough below).
-        // Peaks are always added to the sum-vector, while troughs are always subtracted
-        //   
-        // we only clock the first one on each transit
+        // addMinor() is called whenever the orthogonal coordinate changes from growing to shrinking.
+        // This means the field-vector is farthest from our plane (above or below), so we're near
+        // the minor-axis of this plane's ellipse.
+        /* 
+        NOTE: noisy readings may yield multiple inflections in this third coordinate 
+         (e.g. peak-trough-peak above the plane, or trough-peak-trough below), leading to this method 
+         being invoked multiple times for the same transit (though always an odd number).
+         At peaks the radius is always added to the sum-vector [uLo, vLo] , while at troughs it is 
+         always subtracted, so redundant matched pairs will always cancel out. However, we must be 
+         careful only to count this transit once (using the flag this.newMinor), however many false 
+         pairs of calls we may get.
+        */
         addMinor(u: number, v: number, dw: number) {
             if (this.start > 0 ) { // don't start adding minor-axes until this.above is clearly known
                 if (dw < 0) {  
@@ -431,7 +441,7 @@ namespace heading {
         calculate() {
             this.eccentricity = -1
             this.period = -1
-            this.angleHi = 0
+            this.tilt = 0
             if (this.nHi > 0) {
                 this.uHi /= this.nHi
                 this.vHi /= this.nHi
@@ -448,7 +458,7 @@ namespace heading {
                     let uMean = this.uHi + this.vLo
                     let vMean = this.vHi - this.uLo
                     let rMean = this.rHi + this.rLo
-                    this.angleHi = Math.atan2(vMean, uMean)
+                    this.tilt = Math.atan2(vMean, uMean)
                     this.cosa = uMean / rMean
                     this.sina = vMean / rMean
                 }
@@ -702,7 +712,7 @@ namespace heading {
         vOff = view.vOff
         scale = view.eccentricity // the scaling needed to balance axes
         isCircular = (scale <= Circular)
-        theta = view.angleHi // the rotation (in radians) of the major-axis from the U-axis
+        theta = view.tilt // the rotation (in radians) of the major-axis from the U-axis
         cosTheta = view.cosa
         sinTheta = view.sina
         rotationSense = view.rotationSense // *** TODO
