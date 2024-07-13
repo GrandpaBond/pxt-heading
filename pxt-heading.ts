@@ -338,6 +338,7 @@ namespace heading {
     */
     class Oval {
         plane: string // View name (just for debug)
+
         uDim: number // horizontal axis of this View
         vDim: number // vertical axis of this View
         uOff: number // horizontal offset needed to re-centre this Ellipse along the U-axis
@@ -369,7 +370,8 @@ namespace heading {
         rotationSense: number // rotation reversal sign = +/-1, reflecting this Ellipse's view of the clockwise scan
 
 
-        constructor(uDim: number, vDim: number, uOff: number, vOff:number) {
+        constructor(plane: string, uDim: number, vDim: number, uOff: number, vOff:number) {
+            this.plane = plane // just for debug...
             this.uDim = uDim
             this.vDim = vDim
             this.uOff = uOff
@@ -429,12 +431,12 @@ namespace heading {
                     this.uLo -= u
                     this.vLo -= v
                 }
-            }
-            // because of the possibility of clustered peaks/troughs (some of which partially cancel) 
-            // we only clock the first one on each transit
-            if (!this.newMinor) {
-                this.nLo++
-                this.newMinor = true
+                // because of the possibility of clustered peaks/troughs (some of which partially cancel) 
+                // we only clock the first one on each transit
+                if (!this.newMinor) {
+                    this.nLo++
+                    this.newMinor = true
+                }
             }
         }
 
@@ -684,9 +686,9 @@ namespace heading {
 /* ***************** */
 
         // create three Oval instances, for analysing each possible 2D view of the spin-Circle
-        xy = new Oval(Dimension.X, Dimension.Y, xOff, yOff)
-        yz = new Oval(Dimension.Y, Dimension.Z, yOff, zOff)
-        zx = new Oval(Dimension.Z, Dimension.X, zOff, xOff)
+        xy = new Oval("XY", Dimension.X, Dimension.Y, xOff, yOff)
+        yz = new Oval("YZ", Dimension.Y, Dimension.Z, yOff, zOff)
+        zx = new Oval("ZX", Dimension.Z, Dimension.X, zOff, xOff)
 
         // At the same time, track the properties of the ellipses traced in the three orthogonal views
    
@@ -1159,14 +1161,26 @@ namespace heading {
             dz = z - zWas
 
             // crossing a plane implies we're passing the major-axis of its ellipse
-            if ((z == 0) || (z * zWas < 0)) xy.addMajor(x, y, z, t)
-            if ((x == 0) || (x * xWas < 0)) yz.addMajor(y, z, x, t)
-            if ((y == 0) || (y * yWas < 0)) zx.addMajor(z, x, y, t)
+            if ((z == 0) || (z * zWas < 0)) {
+                xy.addMajor(x, y, z, t)
+            }
+            if ((x == 0) || (x * xWas < 0)) {
+                yz.addMajor(y, z, x, t)
+            }
+            if ((y == 0) || (y * yWas < 0)) {
+                zx.addMajor(z, x, y, t)
+            }
 
             // finding a peak or trough implies we're passing the minor-axis of its ellipse
-            if ((dz == 0) || (dz * dzWas < 0)) xy.addMinor(x, y, dz)
-            if ((dx == 0) || (dx * dxWas < 0)) yz.addMinor(y, z, dx)
-            if ((dy == 0) || (dy * dyWas < 0)) zx.addMinor(z, x, dy)
+            if ((dz == 0) || (dz * dzWas < 0)) {
+                xy.addMinor(x, y, dz)
+            }
+            if ((dx == 0) || (dx * dxWas < 0)) {
+                yz.addMinor(y, z, dx)
+            }
+            if ((dy == 0) || (dy * dyWas < 0)) {
+                zx.addMinor(z, x, dy)
+            }
 
         }
         // use collected vector-sums to compute ellipse characteristics
