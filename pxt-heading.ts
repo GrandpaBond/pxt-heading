@@ -355,7 +355,7 @@ namespace heading {
         rLo: number // minor-axis magnitude (radius)
 
         above: boolean  // flag saying {w} is currently "above" our plane
-        newMinor: boolean // flag saying we have clocked transit of the minor-axis
+        gotMinor: boolean // flag saying we have clocked next transit of the minor-axis
         turns: number // number of full rotations since the first major-axis transit
         start: number // timestamp of first major-axis transit
         finish: number // timestamp of latest major-axis transit
@@ -383,6 +383,7 @@ namespace heading {
             this.vLo = 0
             this.nLo = 0
             this.above = true
+            this.gotMinor = false
             this.tilt = 0
             this.start = 0
             this.finish = 0
@@ -392,7 +393,7 @@ namespace heading {
         }
 
         // Field is just crossing our plane, so we're passing the major-axis
-        addMajor(u: number, v: number, w: number, t: number) {
+        addMajor(i: number, u: number, v: number, w: number, t: number) {
             if (w > 0) { // just surfaced above our plane so add-in current vector coordinates
                 this.above = true
                 this.uHi += u
@@ -407,7 +408,22 @@ namespace heading {
                 this.vHi -= v
             }
             this.nHi++
-            this.newMinor = false
+            this.gotMinor = false
+
+            if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
+                datalogger.log(
+                    datalogger.createCV("view", this.plane),
+                    datalogger.createCV("index", i),
+                    datalogger.createCV("uHi", round2(this.uHi)),
+                    datalogger.createCV("vHi", round2(this.vHi)),
+                    datalogger.createCV("nHi", round2(this.nHi)),
+                    datalogger.createCV("uLo", round2(this.uLo)),
+                    datalogger.createCV("vLo", round2(this.vLo)),
+                    datalogger.createCV("nLo", round2(this.nLo)),
+                    datalogger.createCV("above", this.above),
+                    datalogger.createCV("newMinor", this.gotMinor)
+                )
+            }
         }
 
         // addMinor() is called whenever the orthogonal coordinate changes from growing to shrinking.
@@ -422,7 +438,7 @@ namespace heading {
          careful only to count this transit once (using the flag this.newMinor), however many false 
          pairs of calls we may get.
         */
-        addMinor(u: number, v: number, dw: number) {
+        addMinor(i: number, u: number, v: number, dw: number) {
             if (this.start > 0 ) { // don't start adding minor-axes until this.above is clearly known
                 if (dw < 0) {  
                     this.uLo += u
@@ -433,10 +449,24 @@ namespace heading {
                 }
                 // because of the possibility of clustered peaks/troughs (some of which partially cancel) 
                 // we only clock the first one on each transit
-                if (!this.newMinor) {
+                if (!this.gotMinor) {
+                    this.gotMinor = true
                     this.nLo++
-                    this.newMinor = true
                 }
+            }
+            if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
+                datalogger.log(
+                    datalogger.createCV("view", this.plane),
+                    datalogger.createCV("index", i),
+                    datalogger.createCV("uHi", round2(this.uHi)),
+                    datalogger.createCV("vHi", round2(this.vHi)),
+                    datalogger.createCV("nHi", round2(this.nHi)),
+                    datalogger.createCV("uLo", round2(this.uLo)),
+                    datalogger.createCV("vLo", round2(this.vLo)),
+                    datalogger.createCV("nLo", round2(this.nLo)),
+                    datalogger.createCV("above", this.above),
+                    datalogger.createCV("newMinor", this.gotMinor)
+                )
             }
         }
 
@@ -455,7 +485,7 @@ namespace heading {
                     this.rLo = Math.sqrt(this.uLo * this.uLo + this.vLo * this.vLo)
                     this.eccentricity = this.rHi / this.rLo
 
-                    // use vector addition to average the axis tilt (but only
+                    /* use vector addition to average the axis tilt (but only
                     // after turning the minor-axis through a right angle)
                     let uMean = this.uHi + this.vLo
                     let vMean = this.vHi - this.uLo
@@ -463,6 +493,11 @@ namespace heading {
                     this.tilt = Math.atan2(vMean, uMean)
                     this.cosa = uMean / rMean
                     this.sina = vMean / rMean
+                    */
+                    // save major-axis and its components
+                    this.tilt = Math.atan2(this.vHi, this.uHi)
+                    this.cosa = this.uHi / this.rHi
+                    this.sina = this.vHi / this.rHi
                 }
             }
             if (this.turns > 0) {
@@ -768,7 +803,7 @@ namespace heading {
 
         if ((mode == Mode.Trace) || (mode == Mode.Debug || (mode == Mode.Capture))) {
             datalogger.log(
-                datalogger.createCV("view", views[bestView].plane),
+                datalogger.createCV("view", view.plane),
                 datalogger.createCV("scale", scale),
                 datalogger.createCV("circular?", isCircular),
                 datalogger.createCV("sense?", rotationSense),
@@ -1162,24 +1197,24 @@ namespace heading {
 
             // crossing a plane implies we're passing the major-axis of its ellipse
             if ((z == 0) || (z * zWas < 0)) {
-                xy.addMajor(x, y, z, t)
+                xy.addMajor(i, x, y, z, t)
             }
             if ((x == 0) || (x * xWas < 0)) {
-                yz.addMajor(y, z, x, t)
+                yz.addMajor(i, y, z, x, t)
             }
             if ((y == 0) || (y * yWas < 0)) {
-                zx.addMajor(z, x, y, t)
+                zx.addMajor(i, z, x, y, t)
             }
 
             // finding a peak or trough implies we're passing the minor-axis of its ellipse
             if ((dz == 0) || (dz * dzWas < 0)) {
-                xy.addMinor(x, y, dz)
+                xy.addMinor(i, x, y, dz)
             }
             if ((dx == 0) || (dx * dxWas < 0)) {
-                yz.addMinor(y, z, dx)
+                yz.addMinor(i, y, z, dx)
             }
             if ((dy == 0) || (dy * dyWas < 0)) {
-                zx.addMinor(z, x, dy)
+                zx.addMinor(i, z, x, dy)
             }
 
         }
