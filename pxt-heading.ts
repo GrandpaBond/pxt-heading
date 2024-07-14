@@ -1151,9 +1151,12 @@ namespace heading {
         and then (for highest accuracy) choose the most circular view.
         Since x^2 + y^2 + z^2 == B (the constant field-strength), it follows that for the elliptical
         projection of the Spin-Circle onto each plane {XY, YZ, or ZX}, the maximal ellipse-radius
-        (the major axis) occurs as the orthogonal dimension [Z, X,or Y] crosses zero. 
-        Conversely, the minor axis coincides with a local maximum or minimum in the orthogonal dimension.
+        (the major axis) occurs as the Normal (the orthogonal dimension [Z, X,or Y]) crosses zero.
+        Conversely, the minor axis coincides with a local maximum or minimum in the Normal.
         The ratio of the two axes gives the eccentricity, while their angles show the tilt of the ellipse.
+
+        Detecting peaks and troughs in noisy data is error-prone, so we use a Smoother to minimise 
+        (but not entirely eliminate) spurious inflection-points.
         */
 
         let radiusUV = 0
@@ -1176,7 +1179,7 @@ namespace heading {
         let dxWas = 0
         let dyWas = 0
         let dzWas = 0
-
+        let delta = new Smoother([dx, dy, dz], t)
         for (let i = 1; i < scanTimes.length; i++) {
             // update history
             xWas = x
@@ -1190,30 +1193,40 @@ namespace heading {
             z = scanData[i][Dimension.Z] - zOff
             t = scanTimes[i]
 
-            // get slopes
-            dx = x - xWas
-            dy = y - yWas
-            dz = z - zWas
+            // use the Smoother to get less noisy slopes
+            delta.update([x - xWas, y - yWas, z - zWas], t)
+            dx = delta.average[Dimension.X]
+            dy = delta.average[Dimension.Y]
+            dz = delta.average[Dimension.Z]
+
+
+            // to aid detection we exclude exactly zero
+            if (x == 0) x = xWas
+            if (y == 0) y = yWas
+            if (z == 0) z = zWas
+            if (dx == 0) dx = dxWas
+            if (dy == 0) dy = dyWas
+            if (dz == 0) dz = dzWas
 
             // crossing a plane implies we're passing the major-axis of its ellipse
-            if ((z == 0) || (z * zWas < 0)) {
+            if (z * zWas < 0) {
                 xy.addMajor(i, x, y, z, t)
             }
-            if ((x == 0) || (x * xWas < 0)) {
+            if (x * xWas < 0) {
                 yz.addMajor(i, y, z, x, t)
             }
-            if ((y == 0) || (y * yWas < 0)) {
+            if (y * yWas < 0) {
                 zx.addMajor(i, z, x, y, t)
             }
 
             // finding a peak or trough implies we're passing the minor-axis of its ellipse
-            if ((dz == 0) || (dz * dzWas < 0)) {
+            if (dz * dzWas < 0) {
                 xy.addMinor(i, x, y, dz)
             }
-            if ((dx == 0) || (dx * dxWas < 0)) {
+            if (dx * dxWas < 0) {
                 yz.addMinor(i, y, z, dx)
             }
-            if ((dy == 0) || (dy * dyWas < 0)) {
+            if (dy * dyWas < 0) {
                 zx.addMinor(i, z, x, dy)
             }
 
