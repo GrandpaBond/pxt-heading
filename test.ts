@@ -2,7 +2,7 @@
 enum Config {
     Live, // Normal usage (but use turntable Jig to pretend it's on a buggy)
     Capture, // Acquire new test datasets, using turntable Jig
-    Debug, // Test & debug (dataset selection is preset in code below)
+    Analyse, // Test & debug (dataset selection is preset in code below)
     Trace, // Gather full diagnostics using dataLogger
 }
 enum Task {
@@ -113,11 +113,11 @@ function nextConfig() {
     basic.clearScreen()
     switch(config) {
         case Config.Live:
-            config = Config.Debug
-            heading.resetMode(Mode.Debug, dataset)
-            basic.showString("D") // use sample data while debugging...
+            config = Config.Analyse
+            heading.resetMode(Mode.Analyse, dataset)
+            basic.showString("A") // use sample data while debugging...
             break
-        case Config.Debug:
+        case Config.Analyse:
             config = Config.Capture
             heading.resetMode(Mode.Capture, "")
             basic.showString("C") // no buggy, but use live magnetometer

@@ -8,7 +8,7 @@
 enum Mode {
     Normal, // Normal usage, mounted in a buggy
     Capture, // Acquire a new test dataset, using a special rotating jig
-    Debug, // Test & debug (NOTE: named sets of test-dataset are hard-coded below)
+    Analyse, // Test & debug (NOTE: named sets of test-dataset are hard-coded below)
     Trace // Collect full trace (= Capture + Debug) 
 }
 
@@ -216,7 +216,7 @@ namespace heading {
                 if ((stepWas > 0) && (step < 0)) {
                     longest = Math.max(longest, trial.size)
                     majors.push(trial.cloneMe()) // copy the peak we are passing
-                    if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
+                    if ((mode == Mode.Trace) || (mode == Mode.Analyse)) {
                         datalogger.log(
                             datalogger.createCV("index", i),
                             datalogger.createCV("time", trial.time),
@@ -231,7 +231,7 @@ namespace heading {
                 if ((stepWas < 0) && (step > 0)) {
                     shortest = Math.min(shortest, trial.size)
                     minors.push(trial.cloneMe()) // copy the trough we are passing
-                    if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
+                    if ((mode == Mode.Trace) || (mode == Mode.Analyse)) {
                         datalogger.log(
                             datalogger.createCV("index", i),
                             datalogger.createCV("time", trial.time),
@@ -295,7 +295,7 @@ namespace heading {
 
 
             // refine centre offsets {uOff,vOff}
-            if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
+            if ((mode == Mode.Trace) || (mode == Mode.Analyse)) {
                 datalogger.log(
                     datalogger.createCV("view", this.plane),
                     datalogger.createCV("RADIUS", round2(major.size)),
@@ -410,7 +410,7 @@ namespace heading {
             this.nHi++
             this.gotMinor = false
 
-            if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
+            if ((mode == Mode.Trace) || (mode == Mode.Analyse)) {
                 datalogger.log(
                     datalogger.createCV("view", this.plane),
                     datalogger.createCV("index", i),
@@ -454,7 +454,7 @@ namespace heading {
                     this.nLo++
                 }
             }
-            if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
+            if ((mode == Mode.Trace) || (mode == Mode.Analyse)) {
                 datalogger.log(
                     datalogger.createCV("view", this.plane),
                     datalogger.createCV("index", i),
@@ -582,7 +582,7 @@ namespace heading {
             datalogger.includeTimestamp(FlashLogTimeStampFormat.Milliseconds)
         }
 
-        if (mode == Mode.Debug) {
+        if (mode == Mode.Analyse) {
             simulateScan(dataset)
             basic.pause(ms)
         } else { // use live magnetometer
@@ -631,16 +631,29 @@ namespace heading {
                     scanData.push([updated[0], updated[1], updated[2]])
                     scanTimes.push(timeStamp)  // timestamp it
 
-                    if (    (mode == Mode.Capture)
-                        || ((mode == Mode.Trace) && ((index % 10) == 0)) ) {
-                        // Capture logs everything, but only bother Tracing every 10th one
-                        datalogger.log(
-                            datalogger.createCV("t", timeStamp),
-                            datalogger.createCV("x", round2(updated[0])),
-                            datalogger.createCV("y", round2(updated[1])),
-                            datalogger.createCV("z", round2(updated[2]))
-                        )
+                    if ( (mode == Mode.Capture) || (mode == Mode.Trace)) {
+                            // Capture logs everything, but only bother Tracing every 10th one
+                            datalogger.log(
+                                datalogger.createCV("t", timeStamp),
+                                datalogger.createCV("x", round2(updated[0])),
+                                datalogger.createCV("y", round2(updated[1])),
+                                datalogger.createCV("z", round2(updated[2]))
+                            )
+                        } else {
+                        if (mode == Mode.Analyse) {
+
+                            if ((index % 10) == 0)  {
+                                    // Capture logs everything, but only bother Tracing every 10th one
+                                    datalogger.log(
+                                        datalogger.createCV("t", timeStamp),
+                                        datalogger.createCV("x", round2(updated[0])),
+                                        datalogger.createCV("y", round2(updated[1])),
+                                        datalogger.createCV("z", round2(updated[2]))
+                                    )
+                            }
+                        }
                     }
+
                     index++
                 }
             }
@@ -801,7 +814,7 @@ namespace heading {
         north = 0
         north = takeSingleReading()
 
-        if ((mode == Mode.Trace) || (mode == Mode.Debug || (mode == Mode.Capture))) {
+        if ((mode == Mode.Trace) || (mode == Mode.Analyse || (mode == Mode.Capture))) {
             datalogger.log(
                 datalogger.createCV("view", view.plane),
                 datalogger.createCV("scale", scale),
@@ -968,7 +981,7 @@ namespace heading {
                 vRaw /= Window
                 break
 
-            case Mode.Debug: // just choose the next test-data value
+            case Mode.Analyse: // just choose the next test-data value
                 uRaw = testData[test][uDim]
                 vRaw = testData[test][vDim]
                 test = (test + 1) % testData.length
@@ -1025,7 +1038,7 @@ namespace heading {
             reading = (reading + theta) % TwoPi
         }
 
-        if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
+        if ((mode == Mode.Trace) || (mode == Mode.Analyse)) {
             // just for debug, show coordinates of "stretched" reading after undoing rotation
             let uRim = uFix * cosTheta - vFix * sinTheta
             let vRim = vFix * cosTheta + uFix * sinTheta
@@ -1091,7 +1104,7 @@ namespace heading {
                 axis = Math.atan2(vSum, uSum)
                 rSum += sheaf[i].size
 
-                if ((mode == Mode.Trace) || (mode == Mode.Debug)) {
+                if ((mode == Mode.Trace) || (mode == Mode.Analyse)) {
                     datalogger.log(
                         datalogger.createCV("time", sheaf[i].time),
                         datalogger.createCV("uCand", round2(sheaf[i].u)),
