@@ -586,7 +586,7 @@ namespace heading {
             simulateScan(dataset)
             basic.pause(ms)
         } else { // use live magnetometer
-            let timeWas:number
+            let timeWas: number
             let timeNow: number
             let fresh: number[] = []
             let updated: number[] = []
@@ -605,7 +605,7 @@ namespace heading {
             // after an initial settling period, continue cranking out updated moving averages 
             let startTime = timeStamp + Latency
             let stopTime = timeStamp + ms
-            
+
             // until we run out of time (or space!)
             while ((timeStamp < stopTime)
                 && (scanTimes.length < TooManySamples)) {
@@ -631,31 +631,16 @@ namespace heading {
                     scanData.push([updated[0], updated[1], updated[2]])
                     scanTimes.push(timeStamp)  // timestamp it
 
-                    if ( (mode == Mode.Capture) || (mode == Mode.Trace)) {
-                            // Capture logs everything, but only bother Tracing every 10th one
-                            datalogger.log(
-                                datalogger.createCV("t", timeStamp),
-                                datalogger.createCV("x", round2(updated[0])),
-                                datalogger.createCV("y", round2(updated[1])),
-                                datalogger.createCV("z", round2(updated[2]))
-                            )
-                        } else {
-                        if (mode == Mode.Analyse) {
-
-                            if ((index % 10) == 0)  {
-                                    // Capture logs everything, but only bother Tracing every 10th one
-                                    datalogger.log(
-                                        datalogger.createCV("t", timeStamp),
-                                        datalogger.createCV("x", round2(updated[0])),
-                                        datalogger.createCV("y", round2(updated[1])),
-                                        datalogger.createCV("z", round2(updated[2]))
-                                    )
-                            }
-                        }
+                    if (mode != Mode.Normal) {
+                        datalogger.log(
+                            datalogger.createCV("t", timeStamp),
+                            datalogger.createCV("x", round2(updated[0])),
+                            datalogger.createCV("y", round2(updated[1])),
+                            datalogger.createCV("z", round2(updated[2]))
+                        )
                     }
-
-                    index++
                 }
+                index++
             }
         }
     }
@@ -1300,12 +1285,21 @@ namespace heading {
         }
 
         // transpose the three arrays into array of triples
-        for (let n = 0; n < scanTimes.length; n++) {
+        for (let i = 0; i < scanTimes.length; i++) {
             let xyz = []
-            xyz.push(xData[n])
-            xyz.push(yData[n])
-            xyz.push(zData[n])
+            xyz.push(xData[i])
+            xyz.push(yData[i])
+            xyz.push(zData[i])
             scanData.push(xyz)
+            // when simulating, only bother Tracing every 10th sample
+            if ((i % 10) == 0) {
+                datalogger.log(
+                    datalogger.createCV("t", scanTimes[i]),
+                    datalogger.createCV("x", xData[i]),
+                    datalogger.createCV("y", yData[i]),
+                    datalogger.createCV("z", zData[i])
+                )
+            }
         }
         // do the same for the test cases
         for (let n = 0; n < xTest.length; n++) {
