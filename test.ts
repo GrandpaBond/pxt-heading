@@ -11,7 +11,7 @@ enum Task {
     Measure
 }
 // NOTE: check in "pxt-heading.ts" that the required test dataset is available in simulateScan()!
-const dataset = "blup70"
+const dataset = "blup70_0714_1743"
 
 function performSetup() {
     let result = 0
