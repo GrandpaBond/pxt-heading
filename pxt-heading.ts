@@ -1192,6 +1192,7 @@ namespace heading {
             dxWas = dx
             dyWas = dy
             dzWas = dz
+            
             // re-centre the next sample reading
             x = scanData[i][Dimension.X] - xOff
             y = scanData[i][Dimension.Y] - yOff
@@ -1229,18 +1230,18 @@ namespace heading {
 
             // finding a peak or trough in the Normal implies we already passed the minor-axis
             // so recover the delayed sample
-            x = delay[0][Dimension.X]
-            y = delay[0][Dimension.Y]
-            z = delay[0][Dimension.Z]
+            let xOld = delay[0][Dimension.X]
+            let yOld = delay[0][Dimension.Y]
+            let zOld = delay[0][Dimension.Z]
 
             if (dz * dzWas < 0) {
-                xy.addMinor(i, x, y, dz)
+                xy.addMinor(i, xOld, yOld, dz)
             }
             if (dx * dxWas < 0) {
-                yz.addMinor(i, y, z, dx)
+                yz.addMinor(i, yOld, zOld, dx)
             }
             if (dy * dyWas < 0) {
-                zx.addMinor(i, z, x, dy)
+                zx.addMinor(i, zOld, xOld, dy)
             }
 
         }
