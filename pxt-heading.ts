@@ -120,223 +120,49 @@ namespace heading {
             return result
         }
     }
+   
+    /*
+    An Ellipse is an object holding the characteristics of the (typically) elliptical
+    view formed when projecting the scan Spin-Circle onto a 2-axis View-plane {XY, YZ or ZX} 
+    This foreshortened view means that evenly spaced headings will appear bunched around the ends 
+    of the ellipse. In the extreme "side-on" case, the ellipse collapses to just a straight line!
+    
+    To correct for foreshortening we must stretch the ellipse back into a circle, by rescaling
+    parallel to the minor axis of the ellipse until it matches the major axis. 
+    The ratio of major-axis to minor-axis gives the necessary scaling factor {eccentricity}.
 
+    Depending on the exact mounting orientation of the microbit in the buggy, this ellipse may be
+    tilted with respect to a particular view's axes, so correction then becomes a three stage process:
+    1) rotate a new point [u,v] by {-tilt} so the minor-axis lines up with the V-axis.
+    2) stretch the V coordinate by {eccentricity}
+    3) rotate back by {tilt} to give the corrected [u,v] from which the heading can be derived.
+  
+    This correction can in theory be applied in any of the three views (unless exactly side on to
+    the Spin-Circle), but the best accuracy is obtained from the most circular of the three views.
+    Readings on a near-circular Ellipse are barely fore-shortened at all, so we can skip correction!
 
-    // An Ellipse is an object holding the characteristics of the (typically) elliptical
-    // view formed when projecting the scan Spin-Circle onto a 2-axis View-plane.
-    class Ellipse {
-        plane: string; // View name (just for debug)
-        uDim: number; // horizontal axis of this View
-        vDim: number; // vertical axis of this View
-        uOff: number; // horizontal offset needed to re-centre this Ellipse along the U-axis
-        vOff: number; // vertical offset needed to re-centre this Ellipse along the V-axis
+    So for each view the two important Ellipse properties we must derive are its {tilt} and {eccentricity}, 
+    which first requires detection of its major and minor axes. The maths for fitting an ellipse to noisy
+    2D data is both complex and fairly inaccurate. Luckily we make use of the orthogonal third dimension
+    (the Normal) to give a simpler, faster solution.
 
-        // calibration characteristics
-        majorAngle: number; // direction of the Ellipse major axis 
-        period: number; // scan-rotation time as viewed in this plane
-        eccentricity: number; // ratio of major-axis to minor-axis magnitudes for this Ellipse
-        isCircular: boolean; // flag saying this "Ellipse" View is almost circular, simplifying future handling
-        rotationSense: number; // rotation reversal sign = +/-1, reflecting this Ellipse's view of the clockwise scan
+    The three magnetometer readings are related by the formula:  {x^2 + y^2 + z^2 = B} (where B is the 
+    constant magnetic field). So, for example in the XY plane, the ellipse radius {x^2 + y^2} is at a maximum
+    (i.e. passing its major-axis) when the field aligns with this plane and the z-value is basically zero.
+    Conversely the radius is at a minimum (its minor-axis) where the field points farthest from the plane,
+    and the z-value changes from growing to shrinking (either poitive or negative). 
+    
+    The same holds true for the other two planes: the Normal helps us find the two axes. For each of these
+    three mutually-orthogonal views, we re-label its coordinates as {u,v}, with {w} as the
+    third (orthogonal) coordinate.
 
-        constructor(plane: string, uDim: number, vDim: number, uOff: number, vOff: number) {
-            this.plane = plane // (as a DEBUG aid)
-            this.uDim = uDim
-            this.vDim = vDim
-            this.uOff = uOff
-            this.vOff = vOff
-            this.isCircular = false // until proved otherwise!
-            this.period = -1
-        }
-
-        // This method analyses a 2-D subset of the scanData for a projected View of the Spin-Circle,
-        // creating an Arrow indicating the major-axis direction of the elliptical View.
-
-        // While scanning clockwise, the projection of the field direction will appear to trace out an 
+        // While scanning clockwise, the projection of the field direction will appear to trace out an
         // elliptical view of the anti-clockwise Spin-Circle. If viewed from "above" the polar angles of
         // successive readings (in radians) INCREASE (anti-clockwise); if viewed from "below" they DECREASE.
 
-        // This method performs several tasks:
-        // 1) By comparing the longest and shortest radii, this method works out the eccentricity of 
-        //    the Ellipse, as seen from this View. Also notes whether being viewed "from below".
-        // 2) It collects possible candidates for the Ellipse major and minor axes by looking for local 
-        //    radius peaks and troughs; candidate values are pushed onto two lists of Arrows:
-        //    this.majors[] and this.minors[]
-        // 3) These lists are then carefully assessed to evolve a consensus for the two axes. 
-        //    For "pointy" Ellipses we get a single candidate each time we pass either end of the axis.
-        //    For "rounder" Ellipses each transit may deliver multiple candidates. If a candidate points 
-        //    closer to the head of the ongoing mean, it is added in; if it points closer to the tail, 
-        //    then it's inverse is added in (as it must "belong" to the other end of the axis).
-        // 4) As we do this, we work out the rotation period by clocking each time we flip ends of the axis.
-        // 5) All of this analysis results in Arrows for the two axes. The major-axis is further refined
-        //    by averaging with the minor one (after first turning that through a right-angle).
-        //
-        // To help eliminate spurious local peaks and troughs, a Smoother is used to generate a rolling average
-        // of the successive radii.
- 
-        
-        analyseView() {
-            let majors: Arrow[] = [] // candidate directions for major axis of Ellipse
-            let minors: Arrow[] = [] // candidate directions for minor axis of Ellipse
-            let major: Arrow = new Arrow(0, 0, 0)
-            let minor: Arrow = new Arrow(0, 0, 0)
-            let longest = 0
-            let shortest = 99999
-            let spin = 0
-            let sizeWas: number
-            let angleWas: number
-            let step: number = 99999 // marker for "first time round"
-            let stepWas: number
-            // extract coordinates of the first point lying in this.plane
-            let point = [scanData[0][this.uDim], scanData[0][this.vDim]]
-            // set up a 2D Smoother for successive points on this Ellipse
-            let curve = new Smoother(point, scanTimes[0])
-            // compare first one with remaining samples
-            let trial = new Arrow(point[0], point[1], scanTimes[0])
-            for (let i = 1; i < scanTimes.length; i++) {
-                sizeWas = trial.size
-                angleWas = trial.angle
-                // blend the next point into the moving average
-                point = curve.update([scanData[i][this.uDim], scanData[i][this.vDim]], scanTimes[i])
-                trial = new Arrow(point[0], point[1], scanTimes[i])
-
-                // accumulate gradual rotation of the projected field-vector...
-                let delta = trial.angle - angleWas
-                spin += delta
-                // fix roll-rounds in either direction
-                if (delta > HalfPi) spin -= TwoPi // apparent big positive jump is due to underflow
-                if (delta < -HalfPi) spin += TwoPi // apparent big negative jump is due to overflow
-
-                // now collect candidates for axes  
-                stepWas = step
-                step = trial.size - sizeWas // is radius growing or shrinking (or the same!)?
-                if (stepWas == 99999) stepWas = step // (ensure that the first two steps will always match)
-                if (step == 0) step = stepWas // ignore any (rare!) static sequence by propagating last step
-
-                // look for peaks, where we switch from growing to shrinking
-                if ((stepWas > 0) && (step < 0)) {
-                    longest = Math.max(longest, trial.size)
-                    majors.push(trial.cloneMe()) // copy the peak we are passing
-                    if ((mode == Mode.Trace) || (mode == Mode.Analyse)) {
-                        datalogger.log(
-                            datalogger.createCV("index", i),
-                            datalogger.createCV("time", trial.time),
-                            datalogger.createCV("uMajor", round2(trial.u)),
-                            datalogger.createCV("vMajor", round2(trial.v)),
-                            datalogger.createCV("[aMajor]", round2(asDegrees(trial.angle))),
-                            datalogger.createCV("rMajor", round2(trial.size)))
-                    }
-                }
-
-                // look for troughs, where we switch from shrinking to growing
-                if ((stepWas < 0) && (step > 0)) {
-                    shortest = Math.min(shortest, trial.size)
-                    minors.push(trial.cloneMe()) // copy the trough we are passing
-                    if ((mode == Mode.Trace) || (mode == Mode.Analyse)) {
-                        datalogger.log(
-                            datalogger.createCV("index", i),
-                            datalogger.createCV("time", trial.time),
-                            datalogger.createCV("uMinor", round2(trial.u)),
-                            datalogger.createCV("vMinor", round2(trial.v)),
-                            datalogger.createCV("[aMinor]", round2(asDegrees(trial.angle))),
-                            datalogger.createCV("rMinor", round2(trial.size)))
-                    }
-                }
-
-            }
-            // During a clockwise scan, the projection-angle of the field-vector as viewed from above 
-            // will appear to rotate anticlockwise (increasing radians) from the perspective of the Buggy. 
-            // If we find it rotates clockwise (decreasing radians) then this projection-plane must be 
-            // viewing the field-vector from below.
-            this.rotationSense = spin/Math.abs(spin) // == -1 if viewing from below
-
-            /* PERIODICITY FROM SPIN?
-             Why not simply use the accumulated spin-angle and time-span to calculate the rotation-period?
-             --Because the arbitrary start and end angles may be subject to fore-shortening, and hence
-             quite inaccurate! The only dependable angles occur just as we pass over the axes (see below).
-            */
-
-
-            /* We are trying to find a good approximation to the tilt of the Ellipse's major-axis.  
-            We could simply nominate the longest candidate detected, but instead we will average them.
-
-            If the Ellipse is quite eccentric, it will yield neatly alternating candidates with 
-            "opposite" angles.passing the major-axis twice per Spin-circle revolution 
-
-            With a more-nearly circular Ellipse, noisy readings can yield alternating clusters of local maxima 
-            gathered near each end of the axis.
-
-            An almost circular Ellipse has no meaningful axis and generally yields multiple spurious candidates. 
-            */
-
-            // purge any local maximum whose vector length is too short --it's nowhere near the major-axis!
-            let long = longest * NearEnough
-            for (let i = 0; i < majors.length; i++) {
-                if (majors[i].size < long) {
-                    majors.splice(i, 1)  // disqualified!
-                    i-- // (all subsequent candidates now shuffle up by one place!)
-                }
-            }
-
-            // similarly purge all errant local minima that are too big
-            let short = shortest / NearEnough
-            for (let i = 0; i < minors.length; i++) {
-                if (minors[i].size > short) {
-                    minors.splice(i, 1)
-                    i--
-                }
-            }
-
-
-            // form consensus averages of the two ends of the two axes
-            major = computeAxis(majors)
-            minor = computeAxis(minors)
-
-            //****************** */
-
-
-            // refine centre offsets {uOff,vOff}
-            if ((mode == Mode.Trace) || (mode == Mode.Analyse)) {
-                datalogger.log(
-                    datalogger.createCV("view", this.plane),
-                    datalogger.createCV("RADIUS", round2(major.size)),
-                    datalogger.createCV("radius", round2(minor.size)),
-                    datalogger.createCV("ANGLE", Math.round(asDegrees(major.angle))),
-                    datalogger.createCV("angle", Math.round(asDegrees(minor.angle))),
-                    datalogger.createCV("PERIOD", round2(major.time)),
-                    datalogger.createCV("period", round2(minor.time))
-                    )
-            }
-
-            // average the axis angles carefully: minor axis is presumed orthgonal, but phase may lead or follow!
-            let minorTurned = minor.angle + HalfPi // assume it leads by 90 degrees
-            if (angleSpan(major.angle, minor.angle) > 0) {
-                minorTurned += Math.PI // no: it follows, so add another 180 degrees
-            }
-            // use the average of the two angles
-            this.majorAngle = ((major.angle + minorTurned)/2) % TwoPi
-            // The ratio of the axis lengths gives the eccentricity of this Ellipse
-            this.eccentricity = major.size / minor.size
-            // average the periodicities detected 
-            this.period = (major.time + minor.time) / 2
-            // Readings on a near-circular Ellipse won't ever be fore-shortened, so we can skip correction!
-            this.isCircular = (this.eccentricity < Circular)
-        }
-    }
-
-    
-    /*
-    An Oval characterises the elliptical projection of the Spin-Circle onto one of the three planes 
-    {XY, YZ or ZX}. The three magnetometer readings are related by the formula:  x^2 + y^2 + z^2 = B 
-    (where B is the constant magnetic field), so in the XY plane the ellipse radius x^2 + y^2 is at a
-    maximum (its major-axis) when the field aligns with plane and the z value is at a minimum.
-    Conversely the radius is at a minimum (its minor-axis) where the field is farthest from the plane,
-    and the z value changes from growing to shrinking. The same holds true for the other two planes.
-
-    For each of these mutually-orthogonal views, we re-label its coordinates as {u,v}, with {w} as the
-    third (orthogonal) coordinate.
 
     */
-    class Oval {
+    class Ellipse {
         plane: string // View name (just for debug)
 
         uDim: number // horizontal axis of this View
@@ -367,7 +193,7 @@ namespace heading {
         sina: number // helpful sine of the tilt
         eccentricity: number // ratio of major-axis to minor-axis magnitudes for this Ellipse
         isCircular: boolean // flag saying this "Ellipse" View is almost circular, simplifying future handling
-        rotationSense: number // rotation reversal sign = +/-1, reflecting this Ellipse's view of the clockwise scan
+        rotationSense: number // rotation sign = +/-1, reflecting this Ellipse's view of the clockwise scan
 
 
         constructor(plane: string, uDim: number, vDim: number, uOff: number, vOff:number) {
@@ -392,7 +218,8 @@ namespace heading {
             this.rotationSense = 1
         }
 
-        // Field is just crossing our plane, so we're passing the major-axis
+        // addMajor() is called whenever the Normal coordinate changes sign, indicating
+        // that the Field is just crossing our plane and we're passing the major-axis.
         addMajor(i: number, u: number, v: number, w: number, t: number) {
             if (w > 0) { // just surfaced above our plane so add-in current vector coordinates
                 this.above = true
@@ -421,12 +248,12 @@ namespace heading {
                     datalogger.createCV("vLo", round2(this.vLo)),
                     datalogger.createCV("nLo", round2(this.nLo)),
                     datalogger.createCV("above", this.above),
-                    datalogger.createCV("newMinor", this.gotMinor)
+                    datalogger.createCV("gotMinor", this.gotMinor)
                 )
             }
         }
 
-        // addMinor() is called whenever the orthogonal coordinate changes from growing to shrinking.
+        // addMinor() is called whenever the Normal coordinate changes from growing to shrinking.
         // This means the field-vector is farthest from our plane (above or below), so we're near
         // the minor-axis of this plane's ellipse.
         /* 
@@ -543,9 +370,9 @@ namespace heading {
     let test = 0 // global selector for test-cases
 
     // new maths
-    let xy: Oval
-    let yz: Oval
-    let zx: Oval
+    let xy: Ellipse
+    let yz: Ellipse
+    let zx: Ellipse
 
 
     // EXPORTED USER INTERFACES   
@@ -713,19 +540,12 @@ namespace heading {
         yOff = (yhi + ylo) / 2
         zOff = (zhi + zlo) / 2
 
-        // re-centre all of the scanData samples, so eliminating "hard-iron" magnetic effects.
-        // At the same time, track the properties of the ellipses traced in the three orthogonal views
+        // create three Ellipse instances, for analysing each possible 2D view of the spin-Circle
+        xy = new Ellipse("XY", Dimension.X, Dimension.Y, xOff, yOff)
+        yz = new Ellipse("YZ", Dimension.Y, Dimension.Z, yOff, zOff)
+        zx = new Ellipse("ZX", Dimension.Z, Dimension.X, zOff, xOff)
 
-/* ***************** */
-
-        // create three Oval instances, for analysing each possible 2D view of the spin-Circle
-        xy = new Oval("XY", Dimension.X, Dimension.Y, xOff, yOff)
-        yz = new Oval("YZ", Dimension.Y, Dimension.Z, yOff, zOff)
-        zx = new Oval("ZX", Dimension.Z, Dimension.X, zOff, xOff)
-
-        // At the same time, track the properties of the ellipses traced in the three orthogonal views
-   
-        measureOvals()
+        extractAxes()
 
         // check that at least one View saw at least one complete rotation (with a measurable period)...
         if ((xy.period + yz.period + zx.period) < 0 ) {
@@ -733,7 +553,7 @@ namespace heading {
         }
 
         // Choose the "roundest" Ellipse view  --the one with lowest eccentricity.
-        let view: Oval = xy
+        let view: Ellipse = xy
         if (yz.eccentricity < view.eccentricity) view = yz
         if (zx.eccentricity < view.eccentricity) view = zx
 
@@ -750,49 +570,7 @@ namespace heading {
         theta = view.tilt // the rotation (in radians) of the major-axis from the U-axis
         cosTheta = view.cosa
         sinTheta = view.sina
-        rotationSense = view.rotationSense // *** TODO
-
-
-/* *****************
-        // create three Ellipse instances for analysing each possible view in turn
-        views.push(new Ellipse("XY", Dimension.X, Dimension.Y, xOff, yOff))
-        views.push(new Ellipse("YZ", Dimension.Y, Dimension.Z, yOff, zOff))
-        views.push(new Ellipse("ZX", Dimension.Z, Dimension.X, zOff, xOff))
-
-        // For each View, perform the analysis of eccentricity and Ellipse tilt-angle
-        views[View.XY].analyseView()
-        views[View.YZ].analyseView()
-        views[View.ZX].analyseView()
-
-        // check that at least one View saw at least one complete rotation (with a measurable period)...
-        if ((views[View.XY].period == -1)
-            && (views[View.YZ].period == -1)
-            && (views[View.ZX].period == -1)) {
-            return -3 // "NOT ENOUGH SCAN ROTATION"
-        }
-
-        // Choose the "roundest" Ellipse  --the one with lowest eccentricity.
-        bestView = View.XY
-        if (views[View.YZ].eccentricity < views[bestView].eccentricity) bestView = View.YZ
-        if (views[View.ZX].eccentricity < views[bestView].eccentricity) bestView = View.ZX
         
-        // periodicity is unreliable in a near-circular View: average just the other two Views' measurements
-        period = (views[0].period + views[1].period + views[2].period - views[bestView].period) / 2
-
-        // For efficiency, extract various characteristics from our adopted "bestView" Ellipse
-        uDim = views[bestView].uDim
-        vDim = views[bestView].vDim
-        uOff = views[bestView].uOff
-        vOff = views[bestView].vOff
-        scale = views[bestView].eccentricity // scaling needed to balance axes
-        theta = views[bestView].majorAngle // the rotation (in radians) of the major-axis from the U-axis
-        cosTheta = Math.cos(theta)
-        sinTheta = Math.sin(theta)
-        isCircular = views[bestView].isCircular
-        rotationSense = views[bestView].rotationSense
-
-**************** */
-
         // Having successfully set up the projection parameters for the bestView, get a
         // stable fix on the current heading, which we will then designate as "North".
         // (This is the global fixed bias to be subtracted from all future readings)
@@ -1141,21 +919,17 @@ namespace heading {
         return ((angle * RadianDegrees) + 360) % 360
     }
 
-    function measureOvals() {
+    function extractAxes() {
         /*
         Re-centre all of the scanData samples, so eliminating "hard-iron" magnetic effects. 
         This will also re-centre the elliptical projections of the Spin-Circle in each 2D view.
         For correction of future readings we will need to find the eccentricity and tilt of each ellipse,
         and then (for highest accuracy) choose the most circular view.
-        Since x^2 + y^2 + z^2 == B (the constant field-strength), it follows that for the elliptical
-        projection of the Spin-Circle onto each plane {XY, YZ, or ZX}, the maximal ellipse-radius
-        (the major axis) occurs as the Normal (the orthogonal dimension [Z, X,or Y]) crosses zero.
-        Conversely, the minor axis coincides with a local maximum or minimum in the Normal.
-        The ratio of the two axes gives the eccentricity, while their angles show the tilt of the ellipse.
 
         Detecting peaks and troughs in noisy data is error-prone, so we use a Smoother to minimise 
         (but not entirely eliminate) spurious inflection-points. Due to the latency of this moving average,
-        (given by the constant Window) the minor-axis was actually passed several samples earlier.
+        (given by the constant Window) the minor-axis was actually passed {Window} samples earlier 
+        than its actual detection.
         */
 
         let radiusUV = 0
@@ -1190,16 +964,14 @@ namespace heading {
             dxWas = dx
             dyWas = dy
             dzWas = dz
-            
-            // re-centre the next sample reading
+        // re-centre the next scanData sample
             x = scanData[i][Dimension.X] - xOff
             y = scanData[i][Dimension.Y] - yOff
             z = scanData[i][Dimension.Z] - zOff
             t = scanTimes[i]
 
-           
-            delay.push([x, y, z])  // a rolling array remembers recent sample history
-            if (i > (Window + 1)) delay.splice(0,1) // maintain {Window} samples in the queue
+            delay.push([x, y, z])  // this rolling array remembers recent sample history...
+
 
             // use the Smoother to get less noisy slopes
             delta.update([x - xWas, y - yWas, z - zWas], t)
@@ -1225,23 +997,24 @@ namespace heading {
             if (y * yWas < 0) {
                 zx.addMajor(i, z, x, y, t)
             }
-
-            // finding a peak or trough in the Normal implies we already passed the minor-axis
-            // so recover the delayed sample
-            let xOld = delay[0][Dimension.X]
-            let yOld = delay[0][Dimension.Y]
-            let zOld = delay[0][Dimension.Z]
-
-            if (dz * dzWas < 0) {
-                xy.addMinor(i, xOld, yOld, dz)
+            // don't start checking for minor axis until delta Smoother has stabilised
+            if (i > Window) {
+                delay.splice(0, 1) // always maintain exactly {Window} samples in the queue 
+                // in case of minor-axis detections, recover readings for scanData[i-Window] 
+                let xOld = delay[0][Dimension.X]
+                let yOld = delay[0][Dimension.Y]
+                let zOld = delay[0][Dimension.Z]
+            
+                if (dz * dzWas < 0) {
+                    xy.addMinor(i, xOld, yOld, dz)
+                }
+                if (dx * dxWas < 0) {
+                    yz.addMinor(i, yOld, zOld, dx)
+                }
+                if (dy * dyWas < 0) {
+                    zx.addMinor(i, zOld, xOld, dy)
+                }
             }
-            if (dx * dxWas < 0) {
-                yz.addMinor(i, yOld, zOld, dx)
-            }
-            if (dy * dyWas < 0) {
-                zx.addMinor(i, zOld, xOld, dy)
-            }
-
         }
         // use collected vector-sums to compute ellipse characteristics
         xy.calculate()
