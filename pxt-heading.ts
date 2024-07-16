@@ -315,8 +315,10 @@ namespace heading {
                     this.rLo = Math.sqrt(this.uLo * this.uLo + this.vLo * this.vLo)
                     this.eccentricity = this.rHi / this.rLo
 
-                    /* use vector addition to refine the axis tilt (but only
-                    // after turning the minor-axis through a right angle)
+                    /* ? We have both axes, so we could use vector addition to refine the axis tilt a bit
+                     (but only after turning the minor-axis through a right angle)
+                     On balance --skip this!
+
                     let uMean = this.uHi + this.vLo
                     let vMean = this.vHi - this.uLo
                     let rMean = this.rHi + this.rLo
@@ -325,7 +327,7 @@ namespace heading {
                     this.sina = vMean / rMean
                     */
 
-                    // save major-axis and its components
+                    // save major-axis, and its components
                     this.tilt = Math.atan2(this.vHi, this.uHi)
                     this.cosa = this.uHi / this.rHi
                     this.sina = this.vHi / this.rHi
@@ -346,7 +348,7 @@ namespace heading {
     let scanData: number[][] = [] // scanned sequence of [X,Y,Z] magnetometer readings
     let scanTime: number = 0 // duration of scan in ms
     //let views: Ellipse[] = [] // the three possible elliptical views of the Spin-Circle
-    let bestView = -1
+    let plane = "undefined"
     let uDim = -1 // the "horizontal" axis (called U) for the best View
     let vDim = -1 // the "vertical" axis (called V) for the best View
     let north = 0 // reading registered as "North"
@@ -383,9 +385,17 @@ namespace heading {
 
     /** 
      * Assuming the buggy is currently spinning clockwise on the spot, capture a time-stamped
-     * sequence of magnetometer readings (TODO: and when finished, process them to set up the compass.)
+     * sequence of magnetometer readings, and when finished, process them to set up the compass.
      *
-     * @param ms scanning-time in millisecs (long enough for more than one full rotation)    
+     * @param ms scanning-time in millisecs (long enough for more than one full rotation)
+     * @return zero if successful, or a negative error code:
+     *
+     *      -1 : NOT ENOUGH SCAN DATA
+
+     *      -2 : FIELD STRENGTH TOO WEAK
+     *
+     *      -3 : NOT ENOUGH SCAN ROTATION
+     *
      */
 
     //% block="scan clockwise for (ms) $ms" 
@@ -394,7 +404,7 @@ namespace heading {
     //% ms.defl=0 
     //% weight=90 
 
-    export function scanClockwise(ms: number) {
+    export function scanClockwise(ms: number): number {
         // Sample magnetometer readings periodically over the specified duration (generally a couple
         // of seconds), and append a new [X,Y,Z] triple to the scanData[] array.
         // A timestamp for each sample is also recorded in the scanTimes[] array.
@@ -404,10 +414,12 @@ namespace heading {
         // a timing-aware exponential moving-average. The sample-grouping and spacing are controlled 
         // respectively by the constants Window and SampleGap, which together determine the Latency.
 
+        strength = -1
+        period = -1
         scanTimes = []
         scanData = []
-        let index = 0
 
+        let index = 0
         if (mode != Mode.Normal) {
             datalogger.deleteLog()
             datalogger.includeTimestamp(FlashLogTimeStampFormat.Milliseconds)
@@ -474,40 +486,12 @@ namespace heading {
                 index++
             }
         }
-    }
 
-    /**
-     * Analyse the scanned data to prepare for reading compass-bearings.
-     * Then read the magnetometer and register the buggy's current direction as "North",
-     * (i.e. the direction that will in future return zero as its heading).
-     * 
-     * The actual direction of the buggy when this function is called is arbitrary:
-     * it could be Magnetic North; or True North (compensating for local declination); 
-     * or any convenient direction from which to measure subsequent heading angles.
-     * 
-     * @return zero if successful, or a negative error code:
-     *
-     *      -1 : NOT ENOUGH SCAN DATA
-
-     *      -2 : FIELD STRENGTH TOO WEAK
-     *
-     *      -3 : NOT ENOUGH SCAN ROTATION
-     *
-     */
-    //% block="set North" 
-    //% inlineInputMode=inline 
-    //% weight=80 
-    export function setNorth(): number {
-        // reset global defaults
-        bestView = -1
-        strength = -1
-        period = -1
-
-        // First analyse the scan-data to decide how best to use the magnetometer readings.
+        // Now analyse the scan-data to decide how best to use the magnetometer readings.
         // we'll typically need about a couple of second's worth of scanned readings...
         let nSamples = scanTimes.length
         scanTime = scanTimes[nSamples - 1] - scanTimes[0]
-        
+
         if ((nSamples < EnoughSamples) || (scanTime < EnoughScanTime)) {
             return -1 // "NOT ENOUGH SCAN DATA"
         }
@@ -539,7 +523,7 @@ namespace heading {
         if (strength < MarginalField) {
             return -2 // "FIELD STRENGTH TOO WEAK"
         }
-        // The means of the extremes give an approximation to the central offsets.
+        // The means of the extremes give a good approximation to the central offsets.
         xOff = (xhi + xlo) / 2
         yOff = (yhi + ylo) / 2
         zOff = (zhi + zlo) / 2
@@ -549,10 +533,10 @@ namespace heading {
         yz = new Ellipse("YZ", Dimension.Y, Dimension.Z, yOff, zOff)
         zx = new Ellipse("ZX", Dimension.Z, Dimension.X, zOff, xOff)
 
-        extractAxes()
+        extractAxes() // do as it says on the tin...
 
-        // check that at least one View saw at least one complete rotation (with a measurable period)...
-        if ((xy.period + yz.period + zx.period) < 0 ) {
+        // check that at least one view saw at least one complete rotation (with a measurable period)...
+        if ((xy.period + yz.period + zx.period) < 0) {
             return -3 // "NOT ENOUGH SCAN ROTATION"
         }
 
@@ -561,10 +545,12 @@ namespace heading {
         if (yz.eccentricity < view.eccentricity) view = yz
         if (zx.eccentricity < view.eccentricity) view = zx
 
-        // periodicity is unreliable in a near-circular View: average just the other two views' measurements
+        // periodicity may be unreliable in a near-circular View: 
+        // average just the other two views' measurements
         period = (xy.period + yz.period + zx.period - view.period) / 2
 
-        // For efficiency, extract various characteristics from our adopted best Ellipse
+        // For efficiency, extract various characteristics from the best Ellipse
+        plane = view.plane
         uDim = view.uDim
         vDim = view.vDim
         uOff = view.uOff
@@ -575,6 +561,28 @@ namespace heading {
         theta = view.tilt // the rotation (in radians) of the major-axis from the U-axis
         cosTheta = view.cosa
         sinTheta = view.sina
+        return 0
+    }
+
+    /**
+     * Read the magnetometer and register the buggy's current direction as "North",
+     * (i.e. the direction that will in future return zero as its heading).
+     * 
+     * The actual direction of the buggy when this function is called is arbitrary:
+     * it could be Magnetic North; or True North (compensating for local declination); 
+     * or any convenient direction from which to measure subsequent heading angles.
+     * 
+     * @return zero if successful, or a negative error code:
+     *
+     *      -1 : SCAN NEEDED FIRST
+     */
+    //% block="set North" 
+    //% inlineInputMode=inline 
+    //% weight=80 
+    export function setNorth(): number {
+        // reset global defaults
+        //bestView = -1
+
         // Having successfully set up the projection parameters for the bestView, get a
         // stable fix on the current heading, which we will then designate as "North".
         // (This is the global fixed bias to be subtracted from all future readings)
@@ -583,7 +591,7 @@ namespace heading {
 
         if ((mode == Mode.Trace) || (mode == Mode.Analyse || (mode == Mode.Capture))) {
             datalogger.log(
-                datalogger.createCV("view", view.plane),
+                datalogger.createCV("view", plane),
                 datalogger.createCV("scale", scale),
                 datalogger.createCV("circular?", isCircular),
                 datalogger.createCV("sense?", rotationSense),
@@ -705,8 +713,6 @@ namespace heading {
         // always reinitialise key data
         scanTimes = []
         scanData = []
-        //views = []
-        bestView = -1
         uDim = -1
         vDim = -1
         period = -1
@@ -825,99 +831,12 @@ namespace heading {
         return reading
     }
 
-    /* Use vector addition to average a sequence of candidate axis Arrows (conceivably none!)
-    // The ones pointing away from the evolving average (even slightly) are assumed to belong
-    // to the other end of the axis, so will get reversed.
-    // The returned Arrow shows the average axis length and angle.
-    // Assuming candidates represent more than one revolution, the periodocity is also calculated.
-    
-    function computeAxis(sheaf: Arrow[]): Arrow {
-        let result = new Arrow(0, 0, 0)
-        let turns = 0
-        let startTime = 0
-        let endTime = 0
-        let period = -1
-        let flipped = false
-        let uSum = 0
-        let vSum = 0
-        let rSum = 0
-        let count = sheaf.length
-        if (count > 0) {
-            // initialise axis as first (or only?) candidate
-            uSum = sheaf[0].u
-            vSum = sheaf[0].v
-            rSum = sheaf[0].size
-            let axis = sheaf[0].angle
-            startTime = sheaf[0].time
-            flipped = false
-            for (let i = 1; i < count; i++) {
-                // does next candidate point nearer the head or the tail of the axis?
-                if (Math.abs(angleSpan(axis, sheaf[i].angle)) < HalfPi) {
-                    // chain this candidate onto the emerging axis
-                    uSum += sheaf[i].u
-                    vSum += sheaf[i].v
-                    // the first unflipped candidate after one or more flipped ones clocks a new revolution
-                    if (flipped) {
-                        flipped = false
-                        turns++
-                        endTime = sheaf[i].time
-                    }
-                } else { // flip this arrow before chaining it, as it's pointing the "wrong" way
-                    flipped = true
-                    uSum -= sheaf[i].u
-                    vSum -= sheaf[i].v
-                }
-                // get the new blended angle
-                axis = Math.atan2(vSum, uSum)
-                rSum += sheaf[i].size
-
-                if ((mode == Mode.Trace) || (mode == Mode.Analyse)) {
-                    datalogger.log(
-                        datalogger.createCV("time", sheaf[i].time),
-                        datalogger.createCV("uCand", round2(sheaf[i].u)),
-                        datalogger.createCV("vCand", round2(sheaf[i].v)),
-                        datalogger.createCV("rCand", round2(sheaf[i].size)),
-                        datalogger.createCV("[aCand]", round2(asDegrees(sheaf[i].angle))),
-                        datalogger.createCV("flip?", flipped),
-                        datalogger.createCV("uSum", round2(uSum)),
-                        datalogger.createCV("vSum", round2(vSum)),
-                        datalogger.createCV("rSum", round2(rSum)),
-                        datalogger.createCV("[axis]", round2(asDegrees(axis))))
-                }
-            }
-
-            // build the result Arrow
-            result.size =  rSum / count  // the average radius
-            result.angle = axis
-            result.u = result.size * Math.cos(axis)
-            result.v = result.size * Math.sin(axis)
-
-            // compute the average rotation time (so long as we've made at least one complete revolution)
-            if (endTime > 0) {
-                result.time = (endTime - startTime) / turns
-            }
-        }
-        // hijack the time property to return the estimated period
-        return result
-    }
-    */
-
-    
-    /** gives the signed difference between angles a & b (allowing for roll-round)
-     * @param a first angle in radians
-     * @param b second angle in radians
-     * @returns the acute (i.e. smaller) difference in angle
-     */
-    function angleSpan(a:number, b:number){
-        return((ThreePi + b - a) % TwoPi) - Math.PI
-    }
 
 
     // helpful for logging...
     function round2(v: number): number {
         return (Math.round(100 * v) / 100)
     }
-
 
     // Convert an angle measured in radians to degrees.
     function asDegrees(angle: number): number {
