@@ -48,6 +48,7 @@ namespace heading {
 
     // SUPPORTING CLASSES
 
+    /* =================================================================
     // An Arrow is an object holding a directed vector {u,v} in both Cartesian and Polar coordinates. 
     // It also carries a time-field, used to timestamp scanned samples.
     // An Arrow is used to hold a 2D magnetometer measurement as a re-centred vector.
@@ -73,6 +74,7 @@ namespace heading {
             return new Arrow(this.u, this.v, this.time)
         }
     }
+    */
   
     // A Smoother object computes a moving average from a sequence of time-stamped values: 
     // in our case, magnetometer readings and their derivatives.
@@ -297,6 +299,7 @@ namespace heading {
             }
         }
 
+        // calculate() method is called once all scandata has been processed
         calculate() {
             this.eccentricity = -1
             this.period = -1
@@ -312,7 +315,7 @@ namespace heading {
                     this.rLo = Math.sqrt(this.uLo * this.uLo + this.vLo * this.vLo)
                     this.eccentricity = this.rHi / this.rLo
 
-                    /* use vector addition to average the axis tilt (but only
+                    /* use vector addition to refine the axis tilt (but only
                     // after turning the minor-axis through a right angle)
                     let uMean = this.uHi + this.vLo
                     let vMean = this.vHi - this.uLo
@@ -321,6 +324,7 @@ namespace heading {
                     this.cosa = uMean / rMean
                     this.sina = vMean / rMean
                     */
+
                     // save major-axis and its components
                     this.tilt = Math.atan2(this.vHi, this.uHi)
                     this.cosa = this.uHi / this.rHi
@@ -341,7 +345,7 @@ namespace heading {
     let scanTimes: number[] = [] // sequence of time-stamps for scanned readings 
     let scanData: number[][] = [] // scanned sequence of [X,Y,Z] magnetometer readings
     let scanTime: number = 0 // duration of scan in ms
-    let views: Ellipse[] = [] // the three possible elliptical views of the Spin-Circle
+    //let views: Ellipse[] = [] // the three possible elliptical views of the Spin-Circle
     let bestView = -1
     let uDim = -1 // the "horizontal" axis (called U) for the best View
     let vDim = -1 // the "vertical" axis (called V) for the best View
@@ -378,8 +382,8 @@ namespace heading {
     // EXPORTED USER INTERFACES   
 
     /** 
-     * Assuming the buggy is currently spinning clockwise on the spot, capture a 
-     * time-stamped sequence of magnetometer readings from which to set up the compass.
+     * Assuming the buggy is currently spinning clockwise on the spot, capture a time-stamped
+     * sequence of magnetometer readings (TODO: and when finished, process them to set up the compass.)
      *
      * @param ms scanning-time in millisecs (long enough for more than one full rotation)    
      */
@@ -418,7 +422,7 @@ namespace heading {
             let fresh: number[] = []
             let updated: number[] = []
 
-            basic.pause(200) // wait for motors to stabilise (after initial kick)
+            basic.pause(200) // wait for motors to stabilise (after initial kick-start)
             // get initial reading
             let timeStamp = input.runningTime()
             fresh = [
@@ -429,16 +433,16 @@ namespace heading {
             // use a Smoother to maintain a rolling average
             let scan = new Smoother(fresh, timeStamp)
 
-            // after an initial settling period, continue cranking out updated moving averages 
+            // after an initial settling period, continue cranking out updated moving averages... 
             let startTime = timeStamp + Latency
             let stopTime = timeStamp + ms
 
-            // until we run out of time (or space!)
+            // ...until we run out of time (or space!)
             while ((timeStamp < stopTime)
                 && (scanTimes.length < TooManySamples)) {
                 // After processing, sleep until it's time for next sample.
                 // NOTE: here is where various system subprograms will get scheduled.
-                // If they need more time than we've offered, out next sample will get delayed!
+                // If they need more time than we've offered, our next sample will get delayed!
                 // (This seems to incur extra delays of ~44 ms every 100ms, plus ~26ms every 400ms)
 
                 timeWas = timeStamp // remember time of latest sample
@@ -594,7 +598,7 @@ namespace heading {
         // we've now finished with the scanning data and Ellipse objects, so release their memory
         scanTimes = []
         scanData = []
-        views = []
+        //views = []
 
         // SUCCESS!
         return 0
@@ -701,7 +705,7 @@ namespace heading {
         // always reinitialise key data
         scanTimes = []
         scanData = []
-        views = []
+        //views = []
         bestView = -1
         uDim = -1
         vDim = -1
@@ -826,7 +830,7 @@ namespace heading {
     // to the other end of the axis, so will get reversed.
     // The returned Arrow shows the average axis length and angle.
     // Assuming candidates represent more than one revolution, the periodocity is also calculated.
-    */
+    
     function computeAxis(sheaf: Arrow[]): Arrow {
         let result = new Arrow(0, 0, 0)
         let turns = 0
@@ -896,6 +900,7 @@ namespace heading {
         // hijack the time property to return the estimated period
         return result
     }
+    */
 
     
     /** gives the signed difference between angles a & b (allowing for roll-round)
@@ -923,6 +928,7 @@ namespace heading {
         /*
         Re-centre all of the scanData samples, so eliminating "hard-iron" magnetic effects. 
         This will also re-centre the elliptical projections of the Spin-Circle in each 2D view.
+        
         For correction of future readings we will need to find the eccentricity and tilt of each ellipse,
         and then (for highest accuracy) choose the most circular view.
 
@@ -964,7 +970,8 @@ namespace heading {
             dxWas = dx
             dyWas = dy
             dzWas = dz
-        // re-centre the next scanData sample
+
+            // re-centre the next scanData sample
             x = scanData[i][Dimension.X] - xOff
             y = scanData[i][Dimension.Y] - yOff
             z = scanData[i][Dimension.Z] - zOff
@@ -979,7 +986,7 @@ namespace heading {
             dy = delta.average[Dimension.Y]
             dz = delta.average[Dimension.Z]
 
-            // to aid detection of change of sign, we exclude exactly zero values
+            // to aid detection of change of sign, we doctor any values that are exactly zero
             if (x == 0) x = xWas
             if (y == 0) y = yWas
             if (z == 0) z = zWas
@@ -1016,10 +1023,16 @@ namespace heading {
                 }
             }
         }
+
         // use collected vector-sums to compute ellipse characteristics
         xy.calculate()
         yz.calculate()
         zx.calculate()
+
+        // compare cross-products of last two samples to detect rotation-sense for each plane
+        xy.rotationSense = (dx * dyWas) > (dy * dxWas) ? 1 : -1
+        yz.rotationSense = (dy * dzWas) > (dz * dyWas) ? 1 : -1
+        xy.rotationSense = (dz * dxWas) > (dx * dzWas) ? 1 : -1
     }
 
     
