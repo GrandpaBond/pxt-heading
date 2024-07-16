@@ -569,12 +569,12 @@ namespace heading {
         vDim = view.vDim
         uOff = view.uOff
         vOff = view.vOff
+        rotationSense = view.rotationSense // whether reading from above or below the plane
         scale = view.eccentricity // the scaling needed to balance axes
         isCircular = (scale <= Circular)
         theta = view.tilt // the rotation (in radians) of the major-axis from the U-axis
         cosTheta = view.cosa
         sinTheta = view.sina
-        
         // Having successfully set up the projection parameters for the bestView, get a
         // stable fix on the current heading, which we will then designate as "North".
         // (This is the global fixed bias to be subtracted from all future readings)
@@ -938,13 +938,9 @@ namespace heading {
         than its actual detection.
         */
 
-        let radiusUV = 0
-        let radiusYZ = 0
-        let radiusZX = 0
-        let nXY = 0
-        let nYZ = 0
-        let nZX = 0
-
+        let crossXY = 0
+        let crossYZ = 0
+        let crossZX = 0
         let xWas = 0
         let yWas = 0
         let zWas = 0
@@ -1022,17 +1018,23 @@ namespace heading {
                     zx.addMinor(i, zOld, xOld, dy)
                 }
             }
+            // accumulate cross-products of consecutive samples to measure rotation for each plane
+            // (jitter means we can't just rely on a single consecutive pair)
+            crossXY += ((x * yWas) > (y * xWas) ? -1 : 1)
+            crossYZ += ((y * zWas) > (z * yWas) ? -1 : 1)
+            crossZX += ((z * xWas) > (x * zWas) ? -1 : 1)
         }
+
+        // get sign of consensus rotation-sense
+        xy.rotationSense = crossXY / Math.abs(crossXY)
+        yz.rotationSense = crossYZ / Math.abs(crossYZ)
+        zx.rotationSense = crossZX / Math.abs(crossZX)
 
         // use collected vector-sums to compute ellipse characteristics
         xy.calculate()
         yz.calculate()
         zx.calculate()
 
-        // compare cross-products of last two samples to detect rotation-sense for each plane
-        xy.rotationSense = (dx * dyWas) > (dy * dxWas) ? 1 : -1
-        yz.rotationSense = (dy * dzWas) > (dz * dyWas) ? 1 : -1
-        xy.rotationSense = (dz * dxWas) > (dx * dzWas) ? 1 : -1
     }
 
     
