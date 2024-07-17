@@ -4,10 +4,7 @@
     "description": "orientation-independent compass extension for microbit",
     "license": "MIT",
     "dependencies": {
-        "core": "*",
-        "radio": "*",
-        "microphone": "*",
-        "datalogger": "*"
+        "core": "*"
     },
     "files": [
         "README.md",
