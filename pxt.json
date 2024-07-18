@@ -1,10 +1,13 @@
 {
     "name": "pxt-heading",
-    "version": "1.0.0",
+    "version": "0.0.12",
     "description": "orientation-independent compass extension for microbit",
     "license": "MIT",
     "dependencies": {
-        "core": "*"
+        "core": "*",
+        "radio": "*",
+        "microphone": "*",
+        "datalogger": "*"
     },
     "files": [
         "README.md",
