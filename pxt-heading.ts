@@ -241,14 +241,14 @@ namespace heading {
 
             if ((mode == Mode.Trace) || (mode == Mode.Analyse)) {
                 datalogger.log(
-                    datalogger.createCV("view", this.plane),
-                    datalogger.createCV("index", i),
+                    datalogger.createCV("view", this.plane + "Major"),
+                    datalogger.createCV("u", round2(u)),
+                    datalogger.createCV("v", round2(v)),
+                    datalogger.createCV("w|dw", round2(w)),
                     datalogger.createCV("uHi", round2(this.uHi)),
                     datalogger.createCV("vHi", round2(this.vHi)),
-                    datalogger.createCV("nHi", round2(this.nHi)),
                     datalogger.createCV("uLo", round2(this.uLo)),
                     datalogger.createCV("vLo", round2(this.vLo)),
-                    datalogger.createCV("nLo", round2(this.nLo)),
                     datalogger.createCV("above", this.above),
                     datalogger.createCV("gotMinor", this.gotMinor)
                 )
@@ -285,14 +285,14 @@ namespace heading {
             }
             if ((mode == Mode.Trace) || (mode == Mode.Analyse)) {
                 datalogger.log(
-                    datalogger.createCV("view", this.plane),
-                    datalogger.createCV("index", i),
+                    datalogger.createCV("view", this.plane + "Minor"),
+                    datalogger.createCV("u", round2(u)),
+                    datalogger.createCV("v", round2(v)),
+                    datalogger.createCV("w|dw", round2(dw)),
                     datalogger.createCV("uHi", round2(this.uHi)),
                     datalogger.createCV("vHi", round2(this.vHi)),
-                    datalogger.createCV("nHi", round2(this.nHi)),
                     datalogger.createCV("uLo", round2(this.uLo)),
                     datalogger.createCV("vLo", round2(this.vLo)),
-                    datalogger.createCV("nLo", round2(this.nLo)),
                     datalogger.createCV("above", this.above),
                     datalogger.createCV("newMinor", this.gotMinor)
                 )
@@ -744,6 +744,7 @@ namespace heading {
         let reading = 0
         switch (mode) {
             case Mode.Normal:
+            case Mode.Trace:
                 // get a new sample as the average of {Window} consecutive 2D readings, {SampleGap} apart
                 for (let i = 0; i < Window; i++) {
                     basic.pause(SampleGap)
@@ -761,7 +762,6 @@ namespace heading {
                 break
 
             case Mode.Capture: // capture averages of {Window} consecutive 3D readings, {SampleGap} apart
-            case Mode.Trace:
                 let xyz = [0, 0, 0]
                 for (let i = 0; i < Window; i++) {
                     basic.pause(SampleGap)
