@@ -48,34 +48,6 @@ namespace heading {
 
     // SUPPORTING CLASSES
 
-    /* =================================================================
-    // An Arrow is an object holding a directed vector {u,v} in both Cartesian and Polar coordinates. 
-    // It also carries a time-field, used to timestamp scanned samples.
-    // An Arrow is used to hold a 2D magnetometer measurement as a re-centred vector.
-    class Arrow {
-        u: number; // horizontal component
-        v: number; // vertical component
-        size: number; // polar magnitude of vector
-        angle: number; // polar angle (radians anticlockwise from East)
-        time: number; // for scan samples, timestamp of when this was collected
-
-        constructor(u: number, v: number, t: number) {
-            this.u = u
-            this.v = v
-            this.size = Math.sqrt((u * u) + (v * v))
-            this.angle = 0
-            if (this.size > 0) { // defend against zero-divide
-                this.angle = Math.atan2(v, u)
-            }
-            this.time = t
-        }
-        // when copying...
-        cloneMe(): Arrow {
-            return new Arrow(this.u, this.v, this.time)
-        }
-    }
-    */
-  
     // A Smoother object computes a moving average from a sequence of time-stamped values: 
     // in our case, magnetometer readings and their derivatives.
     // Timing irregularites due to scheduler interrupts demand this somewhat complex maths.
@@ -124,18 +96,23 @@ namespace heading {
     }
    
     /*
-    An Ellipse is an object holding the characteristics of the (typically) elliptical
-    view formed when projecting the scan Spin-Circle onto a 2-axis View-plane {XY, YZ or ZX} 
-    This foreshortened view means that evenly spaced headings will appear bunched around the ends 
-    of the ellipse. In the extreme "side-on" case, the ellipse collapses to just a straight line!
+    An Ellipse is an object holding the characteristics of the view formed when projecting the 
+    magnetic fieldrvector onto a 2-axis View-plane {XY, YZ or ZX}.
     
-    To correct for foreshortening we must stretch the ellipse back into a circle, by rescaling
+    While scanning clockwise, the projection of the field-vector will appear to trace out anti-clockwise
+    a (typically) elliptical view of the Spin-Circle. If viewed from "above" the polar angles of
+    successive readings (in radians) will INCREASE (anti-clockwise); if viewed from "below" they DECREASE.
+
+    The foreshortened view means that evenly spaced heading angles will appear bunched around the ends 
+    of the ellipse. (In the extreme "side-on" case, the ellipse collapses to just a straight line!)
+
+    To correct for foreshortening we must stretch points on the ellipse back onto a circle, by rescaling
     parallel to the minor axis of the ellipse until it matches the major axis. 
     The ratio of major-axis to minor-axis gives the necessary scaling factor {eccentricity}.
 
     Depending on the exact mounting orientation of the microbit in the buggy, this ellipse may be
     tilted with respect to a particular view's axes, so correction then becomes a three stage process:
-    1) rotate a new point [u,v] by {-tilt} so the minor-axis lines up with the V-axis.
+    1) rotate the new point [u,v] by {-tilt} so the minor-axis lines up with the V-axis.
     2) stretch the V coordinate by {eccentricity}
     3) rotate back by {tilt} to give the corrected [u,v] from which the heading can be derived.
   
@@ -143,24 +120,20 @@ namespace heading {
     the Spin-Circle), but the best accuracy is obtained from the most circular of the three views.
     Readings on a near-circular Ellipse are barely fore-shortened at all, so we can skip correction!
 
-    So for each view the two important Ellipse properties we must derive are its {tilt} and {eccentricity}, 
-    which first requires detection of its major and minor axes. The maths for fitting an ellipse to noisy
-    2D data is both complex and fairly inaccurate. Luckily we make use of the orthogonal third dimension
-    (the Normal) to give a simpler, faster solution.
+    So for each view we must derive the two important Ellipse properties: {tilt} and {eccentricity}. 
+    This first requires detection of its major and minor axes. The maths for fitting an ellipse to noisy
+    2D data is both complex and fairly inaccurate. Luckily we can make use of the orthogonal third dimension
+    (the Normal) to give us a simpler, faster solution.
 
     The three magnetometer readings are related by the formula:  {x^2 + y^2 + z^2 = B} (where B is the 
     constant magnetic field). So, for example in the XY plane, the ellipse radius {x^2 + y^2} is at a maximum
     (i.e. passing its major-axis) when the field aligns with this plane and the z-value is basically zero.
     Conversely the radius is at a minimum (its minor-axis) where the field points farthest from the plane,
-    and the z-value changes from growing to shrinking (either poitive or negative). 
+    and the z-value changes from growing to shrinking (either positive or negative). 
     
     The same holds true for the other two planes: the Normal helps us find the two axes. For each of these
-    three mutually-orthogonal views, we re-label its coordinates as {u,v}, with {w} as the
+    three mutually-orthogonal views, we re-label its coordinates as {u,v}, with {w} being the
     third (orthogonal) coordinate.
-
-        // While scanning clockwise, the projection of the field direction will appear to trace out an
-        // elliptical view of the anti-clockwise Spin-Circle. If viewed from "above" the polar angles of
-        // successive readings (in radians) INCREASE (anti-clockwise); if viewed from "below" they DECREASE.
 
 
     */
@@ -473,7 +446,7 @@ namespace heading {
                     // store the triple of averaged [X,Y,Z] values (as a deep copy!)
                     scanData.push([updated[0], updated[1], updated[2]])
                     scanTimes.push(timeStamp)  // timestamp it
-
+                    /*
                     if (mode != Mode.Normal) {
                         datalogger.log(
                             datalogger.createCV("t", timeStamp),
@@ -482,6 +455,8 @@ namespace heading {
                             datalogger.createCV("z", round2(updated[2]))
                         )
                     }
+                    */
+
                 }
                 index++
             }
@@ -603,10 +578,9 @@ namespace heading {
             )
         }
 
-        // we've now finished with the scanning data and Ellipse objects, so release their memory
+        // we've now finished with the scanning data, so release the memory
         scanTimes = []
         scanData = []
-        //views = []
 
         // SUCCESS!
         return 0
@@ -624,18 +598,23 @@ namespace heading {
     //% inlineInputMode=inline 
     //% weight=70
     export function degrees(): number {
-    // Depending on mounting orientation, the bestView might possibly be seeing the Spin-Circle from
-    // "underneath", with the field-vector appearing to move clockwise  --effectively experiencing an
-    // anti-clockwise scan. In this case the rotationSense will be negative.
-        let heading = (takeSingleReading() - north) * rotationSense
-        // NOTE: that there is a double reversal going on here:
-        // Viewed from above, the Field-vector reading in radians INCREASES (anticlockwise) w.r.t "North"
-        // as the buggy's compass-heading INCREASES (clockwise).
-        // The reading will therefore increase by HalfPi after a right-turn from initially facing "North".
-        // So subtracting North (cyclically), that converts asDegrees() to +90 
-        // From below (when rotationSense = -1), the same right-turn would DECREASE the reading by HalfPi
-        // necessitating a third reversal, but after first subtracting North !
-        return asDegrees(heading)
+
+        if (period == -1) {
+            return -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
+        } else {
+            let heading = (takeSingleReading() - north) * rotationSense
+
+            /* NOTE: that there is a double reversal going on here:
+            Viewed from above, the Field-vector reading in radians INCREASES (anticlockwise) w.r.t "North"
+            as the buggy's compass-heading INCREASES (clockwise).
+            The reading will therefore increase by HalfPi after a right-turn from initially facing "North".
+            So subtracting North (cyclically), that converts asDegrees() to +90 
+            From below (when rotationSense = -1), the same right-turn would DECREASE the reading by HalfPi
+            necessitating a third reversal, but only after first subtracting North !
+            */
+
+            return asDegrees(heading)
+        }
     }
 
     /**
@@ -808,7 +787,7 @@ namespace heading {
             // get the adjusted angle for this corrected {u,v}
             reading = Math.atan2(vFix, uFix)
             // finally, undo our first rotation by adding theta back in
-            reading = (reading + theta) % TwoPi
+            reading = (reading + theta + TwoPi) % TwoPi
         }
 
         if ((mode == Mode.Trace) || (mode == Mode.Analyse)) {
@@ -853,7 +832,7 @@ namespace heading {
 
         Detecting peaks and troughs in noisy data is error-prone, so we use a Smoother to minimise 
         (but not entirely eliminate) spurious inflection-points. Due to the latency of this moving average,
-        (given by the constant Window) the minor-axis was actually passed {Window} samples earlier 
+        (given by the constant {Window}) the minor-axis was actually passed {Window} samples earlier 
         than its actual detection.
         */
 
@@ -910,6 +889,7 @@ namespace heading {
             if (dz == 0) dz = dzWas
 
             // crossing a plane implies we're passing the major-axis of its ellipse
+            // so look for coordinate sign-changes in its Normal axis
             if (z * zWas < 0) {
                 xy.addMajor(i, x, y, z, t)
             }
@@ -926,7 +906,7 @@ namespace heading {
                 let xOld = delay[0][Dimension.X]
                 let yOld = delay[0][Dimension.Y]
                 let zOld = delay[0][Dimension.Z]
-            
+                // look for slope sign-change at peak or trough
                 if (dz * dzWas < 0) {
                     xy.addMinor(i, xOld, yOld, dz)
                 }
@@ -942,6 +922,22 @@ namespace heading {
             crossXY += ((x * yWas) > (y * xWas) ? -1 : 1)
             crossYZ += ((y * zWas) > (z * yWas) ? -1 : 1)
             crossZX += ((z * xWas) > (x * zWas) ? -1 : 1)
+
+
+            if (mode != Mode.Normal) {
+                datalogger.log(
+                    datalogger.createCV("t", t),
+                    datalogger.createCV("x", round2(x)),
+                    datalogger.createCV("y", round2(y)),
+                    datalogger.createCV("z", round2(z)),
+                    datalogger.createCV("dx", round2(dx)),
+                    datalogger.createCV("dy", round2(dy)),
+                    datalogger.createCV("dz", round2(dz)),
+                    datalogger.createCV("crossYZ", round2(crossYZ)),
+                    datalogger.createCV("crossZX", round2(crossZX)),
+                    datalogger.createCV("crossXY", round2(crossXY))
+                )
+            }
         }
 
         // get sign of consensus rotation-sense
