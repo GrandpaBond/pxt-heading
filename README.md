@@ -27,16 +27,22 @@ After the block definitions below, you can read more about The Earth's Magnetic 
 ```sig
 heading.scanClockwise(ms): number
 ```
-
-It is obviously not feasible for this extension to know how to turn every buggy in any particular direction, so you 
-must first set it spinning clockwise on-the-spot (by running its motors in opposite directions)
-and then call the ``||heading:scanClockwise()||`` function to perform a magnetic scan of 3-D readings.
-When enough data has been collected, it will be analysed and if OK, calibration parameters will be set up for taking 
-(and if necessary correcting future readings.
+Before navigating by compass, your buggy must first perform a magnetic scan.
+It is obviously not feasible for this extension to know how to turn every buggy in any particular direction,
+so you must first set it spinning clockwise on-the-spot (by running its motors in opposite directions),
+and then call the ``||heading:scanClockwise()||`` function to take 3-D magnetometer readings all around.
+When enough data has been collected, it will be analysed, and if OK, calibration parameters will be set up
+for taking and correcting future readings.
 
 > ``||heading:ms||`` is the scanning time in ms (sufficient to complete at least three full rotations).
 
-If successful, zero is returned; otherwise an error code
+Returns zero if successful, or a negative error code:
+
+- -1 : NOT ENOUGH SCAN DATA
+
+- -2 : FIELD STRENGTH TOO WEAK
+
+- -3 : NOT ENOUGH SCAN ROTATION
 
 ## Where's North?
 
@@ -48,14 +54,19 @@ Because this extension can't know exactly how the microbit is mounted on your pa
 "North" and then call this function (after first performing a ``||heading:scanClockwise()||`` ).
 It will then take a fix on the current heading and register that direction as zero degrees.
 
+### ~reminder
+    The actual direction of the buggy when this function is called is arbitrary: it could be Magnetic North; or True North (compensating for local declination); or any convenient direction from which to measure subsequent heading angles.
+### ~
+
 ## Where am I pointing?
 
 ```sig
 heading.degrees(): number
 ```
 
-Having performed the scan using ``||heading:scanClockwise()||``, and calibrated the measuring set-up using ``||heading:setNorth()||`` , 
-this is the function that actually returns the current compass heading in degrees (0 to 360) clockwise from North.
+Having first performed the scan, and calibrated the measuring set-up using ``||heading:scanClockwise()||``,
+and then specified the zero-degrees direction using ``||heading:setNorth()||``, 
+this is the function that actually returns the current compass heading in degrees (0 to 360), clockwise from "North".
 
 ## Rotation Time
 
@@ -97,8 +108,7 @@ Also, on slower power settings, some buggies may complicate matters by automatic
 just to get the motor going!
 ### ~
 
-
-
+# Background Information
 
 ## Earth's Magnetic Field
 A simplified view is that the Earth's magnetic field loops round from the magnetic South pole towards the magnetic North 
