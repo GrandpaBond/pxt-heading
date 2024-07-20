@@ -27,14 +27,14 @@ After the block definitions below, you can read more about The Earth's Magnetic 
 ```sig
 heading.scanClockwise(ms): number
 ```
-Before navigating by compass, your buggy must first perform a magnetic scan.
+Before navigating by compass headings, your buggy must first perform a magnetic scan of its environment.
 It is obviously not feasible for this extension to know how to turn every buggy in any particular direction,
 so you must first set it spinning clockwise on-the-spot (by running its motors in opposite directions),
 and then call the ``||heading:scanClockwise()||`` function to take 3-D magnetometer readings all around.
-When enough data has been collected, it will be analysed, and if OK, calibration parameters will be set up
-for taking and correcting future readings.
+When enough data has been collected it will be analysed, and if OK, calibration parameters will be set up
+for taking future readings.
 
-> ``||heading:ms||`` is the scanning time in ms (sufficient to complete at least three full rotations).
+> ``||heading:ms||`` is the scanning time in ms (sufficient to complete about three full rotations).
 
 Returns zero if successful, or a negative error code:
 
@@ -43,6 +43,12 @@ Returns zero if successful, or a negative error code:
 - -2 : FIELD STRENGTH TOO WEAK
 
 - -3 : NOT ENOUGH SCAN ROTATION
+
+
+### ~reminder
+    If your buggy turns in small circles rather than spinning on-the-spot, you'll need to balance the power of the two wheel motors by adjusting its motor bias.
+### ~
+
 
 ## Where's North?
 
@@ -64,7 +70,7 @@ It will then take a fix on the current heading and register that direction as ze
 heading.degrees(): number
 ```
 
-Having first performed the scan, and calibrated the measuring set-up using ``||heading:scanClockwise()||``,
+Having first calibrated the measuring set-up using ``||heading:scanClockwise()||``,
 and then specified the zero-degrees direction using ``||heading:setNorth()||``, 
 this is the function that actually returns the current compass heading in degrees (0 to 360), clockwise from "North".
 
@@ -92,9 +98,9 @@ This function returns the latest scan rotation rate, expressed in revs-per-minut
 heading.equivalentSpeed(axleLength: number): number
 ```
 
-A utility function to help (a little) with motor calibration, this function converts the spin-rate achieved with wheels turning 
+A utility function to help (somewhat) with motor calibration, this function converts the spin-rate achieved with wheels turning 
 in opposite directions into the equivalent linear speed (in mm/sec) if both wheels were going forwards. 
-To calculate this we need to know how far apart the wheels are,
+To calculate this we just need to know how far apart the wheels are.
 
 > ``||heading:axleLength||`` is the wheel separation (in mm). 
 
@@ -105,10 +111,11 @@ For a given power setting, inertial effects and tyre-friction may mean that the 
 actually achieved will differ between moving forwards and spinning on the spot.
 
 Also, on slower power settings, some buggies may complicate matters by automatically giving an initial high-power "kick", 
-just to get the motor going!
+just to get the motors going!
 ### ~
 
 # Background Information
+This section delves a bit deeper into the physics and maths underpinning this extension.
 
 ## Earth's Magnetic Field
 A simplified view is that the Earth's magnetic field loops round from the magnetic South pole towards the magnetic North 
@@ -124,13 +131,15 @@ into the ground; near the Equator it is roughly horizontal.
 
 
 ## Magnetometer Calibration
-The microBit magnetometer reads the field strength in three independent directions (X, Y & Z), giving the dimensions of a 3D box 
-with the local magnetic field-vector as its diagonal. Some part of this measurement will be due to Earth's magnetic field.
+The microBit magnetometer reads the field strength in three independent directions (X, Y & Z), giving a 3-D vector. 
+You could think of the three readings as the dimensions of a 3D box with the local magnetic field-vector as its diagonal. 
+Some part of this measurement will be due to Earth's magnetic field, though there may be contributions from other magnetic sources 
+(see "Field Distortions "below)
 
 In our calibration approach, we imagine the situation from the perspective of a buggy spinning on the spot.
-As the buggy turns clockwise, the end of the magnetic field-vector sweeps out an anti-clockwise path we call the Spin-Circle.
+As the buggy turns clockwise, the end of the magnetic field-vector appears to sweep out an anti-clockwise path we call the Spin-Circle.
 
-Although the magnetometer provides three readings (X,Y & Z), we will only ever be needing to use two of them to get our 
+Although the magnetometer provides three readings (X,Y & Z), we will only ever be needing to use two of them to fix our 
 heading angle; the challenge is to choose the best two for the job! 
 
 ### Square Mounting
@@ -139,8 +148,8 @@ magnetometer axis is pointing "up". The simple sine-wave readings taken from the
 interpreted to give us the heading angle. 
 
 ### Slanted Mounting
-However, in the fully general situation where the microbit might be mounted on a slant, the Spin-Circle appears 
-fore-shortened into an Ellipse when looking down any particular axis onto the plane of the other two axes (YZ, ZX or XY).
+However, in the fully general situation where the microbit might be mounted on a slant (e.g. as a "dashboard"), the Spin-Circle 
+will appear fore-shortened into an Ellipse when looking down any particular axis onto the plane of the other two axes (YZ, ZX or XY).
 
 This Ellipse will have an arbitrary centre, a degree of eccentricity, and maybe a tilt. Fore-shortening means that
 equally-spaced heading angles will appear bunched around the pointed ends of the Ellipse. 
@@ -151,22 +160,42 @@ Using the calibration data, we compute the different Ellipse eccentricities in e
 We will always get the most accurate heading discrimination from the "roundest", most "square-on" view (i.e. the one with the 
 least eccentric Ellipse).
 
-
 ### Transforming Readings
 Having selected the best view to use (and thus the two most useful axes), we'll need to transform each new 2-D reading from its
 fore-shortened position on the Ellipse to its equivalent position on the Spin-Circle. This can require up to four transformation steps:
 
-
-1) First we will need to shift each coordinate by a fixed offset (effectively moving the Ellipse's centre to the origin), 
+1) First we will need to shift each coordinate by a fixed offset (effectively moving the Ellipse's centre to the Origin), 
 
 2) If we are unlucky and the Ellipse appears tilted, we may then have to rotate our reading so that the Ellipse lies squarely 
 over the axes;
 
 3) Then we must scale one value in proportion to the eccentricity (so stretching the Ellipse back into a perfect circle);
 
-4) Finally, for a tilted Ellipse, we must undo the axis-alignment rotation in step 2 
+4) Finally, for a tilted Ellipse, we must undo the axis-alignment rotation in step 2. 
 
 Taking the the angle of this final "stretched" position on the circle and subtracting the "North" angle then gives us the true heading.
+
+### Finding Ellipse Properties
+
+This correction can in theory be applied in any of the three views (unless exactly side on to
+the Spin-Circle), but the best accuracy is obtained from the most circular of the three views.
+Readings on a near-circular Ellipse are barely fore-shortened at all, so we can skip correction!
+
+So for each view we must derive the two important Ellipse properties: {tilt} and {eccentricity}. 
+This first requires detection of its major and minor axes. The maths for fitting an ellipse to noisy
+2D data is both complex and fairly inaccurate. Luckily we can make use of the orthogonal third dimension
+(the Normal) to give us a simpler, faster solution.
+
+The three magnetometer readings are related by the formula:  {x^2 + y^2 + z^2 = B} (where B is the 
+constant magnetic field). So, for example in the XY plane, the ellipse radius {x^2 + y^2} is at a maximum
+(i.e. passing its major-axis) when the field aligns with this plane and the z-value is basically zero.
+Conversely the radius is at a minimum (its minor-axis) where the field points farthest from the plane,
+and the z-value changes from growing to shrinking (either positive or negative). 
+
+The same holds true for the other two planes: the Normal helps us find the two axes. For each of these
+three mutually-orthogonal views, we re-label its coordinates as {u,v}, with {w} being the
+third (orthogonal) coordinate.
+
 
 ## Field Distortions
 So much for the theory! In the real world there are several factors which conspire to distort the actual local field, as 
