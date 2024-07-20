@@ -212,7 +212,7 @@ namespace heading {
             this.nHi++
             this.gotMinor = false
 
-            if ((mode == Mode.Trace) || (mode == Mode.Analyse)) {
+            /* if ((mode == Mode.Trace) || (mode == Mode.Analyse)) {
                 datalogger.log(
                     datalogger.createCV("view", this.plane + "Major"),
                     datalogger.createCV("u", round2(u)),
@@ -226,6 +226,7 @@ namespace heading {
                     datalogger.createCV("gotMinor", this.gotMinor)
                 )
             }
+            */
         }
 
         // addMinor() is called whenever the Normal coordinate changes from growing to shrinking.
@@ -256,6 +257,7 @@ namespace heading {
                     this.nLo++
                 }
             }
+            /*
             if ((mode == Mode.Trace) || (mode == Mode.Analyse)) {
                 datalogger.log(
                     datalogger.createCV("view", this.plane + "Minor"),
@@ -270,6 +272,7 @@ namespace heading {
                     datalogger.createCV("newMinor", this.gotMinor)
                 )
             }
+            */
         }
 
         // calculate() method is called once all scandata has been processed
@@ -392,7 +395,9 @@ namespace heading {
         scanTimes = []
         scanData = []
 
+        /*
         let index = 0
+
         if (mode != Mode.Normal) {
             datalogger.deleteLog()
             datalogger.includeTimestamp(FlashLogTimeStampFormat.Milliseconds)
@@ -402,6 +407,7 @@ namespace heading {
             simulateScan(dataset)
             basic.pause(ms)
         } else { // use live magnetometer
+        */
             let timeWas: number
             let timeNow: number
             let fresh: number[] = []
@@ -458,8 +464,8 @@ namespace heading {
                     */
 
                 }
-                index++
-            }
+        //    index++
+        //  }
         }
 
         // Now analyse the scan-data to decide how best to use the magnetometer readings.
@@ -564,6 +570,7 @@ namespace heading {
         north = 0
         north = takeSingleReading()
 
+        /*
         if ((mode == Mode.Trace) || (mode == Mode.Analyse || (mode == Mode.Capture))) {
             datalogger.log(
                 datalogger.createCV("view", plane),
@@ -577,6 +584,7 @@ namespace heading {
                 datalogger.createCV("period", period),
             )
         }
+        */
 
         // we've now finished with the scanning data, so release the memory
         scanTimes = []
@@ -752,13 +760,14 @@ namespace heading {
                 xyz[Dimension.Y] /= Window
                 xyz[Dimension.Z] /= Window
 
+                /*
                 datalogger.setColumnTitles("t", "x", "y", "z")
                 datalogger.log(
                     datalogger.createCV("t", input.runningTime()),
                     datalogger.createCV("x", round2(xyz[Dimension.X])),
                     datalogger.createCV("y", round2(xyz[Dimension.Y])),
                     datalogger.createCV("z", round2(xyz[Dimension.Z])))
-
+                */
                 // now pick the coordinates we want for the current view
                 uRaw = xyz[uDim]
                 vRaw = xyz[vDim]
@@ -790,6 +799,7 @@ namespace heading {
             reading = (reading + theta + TwoPi) % TwoPi
         }
 
+        /*
         if ((mode == Mode.Trace) || (mode == Mode.Analyse)) {
             // just for debug, show coordinates of "stretched" reading after undoing rotation
             let uRim = uFix * cosTheta - vFix * sinTheta
@@ -807,6 +817,7 @@ namespace heading {
                 datalogger.createCV("[bearing]", round2(asDegrees(reading - north) * rotationSense))
             )
         }
+        */
         return reading
     }
 
@@ -923,7 +934,7 @@ namespace heading {
             crossYZ += ((y * zWas) > (z * yWas) ? -1 : 1)
             crossZX += ((z * xWas) > (x * zWas) ? -1 : 1)
 
-
+            /*
             if (mode != Mode.Normal) {
                 datalogger.log(
                     datalogger.createCV("t", t),
@@ -938,6 +949,7 @@ namespace heading {
                     datalogger.createCV("crossXY", round2(crossXY))
                 )
             }
+            */
         }
 
         // get sign of consensus rotation-sense
@@ -953,7 +965,7 @@ namespace heading {
     }
 
     
-
+/*
     // While debugging, it is necessary to re-use predictable sample data for a variety of use-cases 
     // captured (using the datalogger) from earlier live runs. 
     // [This function is greedy on memory and can be commented-out once the extension has been fully debugged.]
@@ -1013,4 +1025,5 @@ namespace heading {
             testData.push(xyz)
         }
     }
+    */
 }
