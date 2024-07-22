@@ -4,13 +4,14 @@
  // so applying tilt-compensation could actually make compass-heading accuracy worse!
 
 
-// OPERATIONAL MODES (controlling data-logging)
+/* OPERATIONAL MODES (controlling data-logging)
 enum Mode {
     Normal, // Normal usage, mounted in a buggy
     Capture, // Acquire a new test dataset, using a special rotating jig
     Analyse, // Test & debug (NOTE: named sets of test-dataset are hard-coded below)
     Trace // Collect full trace (= Capture + Debug) 
 }
+*/
 
 //% color=#6080e0 weight=40 icon="\uf14e" block="Heading" 
 /**
@@ -346,7 +347,7 @@ namespace heading {
     let scale: number // stretch-factor for correcting foreshortened readings (= eccentricity)
 
     // test-related globals
-    let mode:Mode = Mode.Normal // mode switch for logging
+    //let mode:Mode = Mode.Normal // mode switch for logging
     let dataset: string = "" // test dataset to use
     let testData: number[][] = [] //[X,Y,Z] magnetometer values for test cases
     let test = 0 // global selector for test-cases
@@ -687,12 +688,11 @@ namespace heading {
 
   
 
-    /**
+    /*
      * Choose mode: whether to run normally,
      *  - or to use Data Logger to grab a new test dataset,
      *  - or to debug processing using a named test dataset
      * (new datasets need editing externally before compiling into simulateScan)
-     */
     //% block="reset to mode $newMode using $name"
     //% inlineInputMode=inline 
     //% weight=10
@@ -711,6 +711,7 @@ namespace heading {
         dataset = name
     }
 
+     */
     // UTILITY FUNCTIONS
 
     /** Take the sum of several new readings to get a stable fix on the current heading.
@@ -729,6 +730,7 @@ namespace heading {
         let uFix = 0
         let vFix = 0
         let reading = 0
+        /*
         switch (mode) {
             case Mode.Normal:
             case Mode.Trace:
@@ -767,13 +769,21 @@ namespace heading {
                     datalogger.createCV("x", round2(xyz[Dimension.X])),
                     datalogger.createCV("y", round2(xyz[Dimension.Y])),
                     datalogger.createCV("z", round2(xyz[Dimension.Z])))
-                */
+               
                 // now pick the coordinates we want for the current view
                 uRaw = xyz[uDim]
                 vRaw = xyz[vDim]
                 break
         }
-
+ */
+        // get a new sample as the average of {Window} consecutive 2D readings, {SampleGap} apart
+        for (let i = 0; i < Window; i++) {
+            basic.pause(SampleGap)
+            uRaw += input.magneticForce(uDim)
+            vRaw += input.magneticForce(vDim)
+        }
+        uRaw /= Window
+        vRaw /= Window
         // re-centre this latest point w.r.t our Ellipse origin
         u = uRaw - uOff
         v = vRaw - vOff
@@ -823,28 +833,32 @@ namespace heading {
 
 
 
-    // helpful for logging...
+    /* helpful for logging...
     function round2(v: number): number {
         return (Math.round(100 * v) / 100)
     }
-
+*/
     // Convert an angle measured in radians to degrees.
     function asDegrees(angle: number): number {
         return ((angle * RadianDegrees) + 360) % 360
     }
 
     function extractAxes() {
-        /*
-        Re-centre all of the scanData samples, so eliminating "hard-iron" magnetic effects. 
-        This will also re-centre the elliptical projections of the Spin-Circle in each 2D view.
-        
-        For correction of future readings we will need to find the eccentricity and tilt of each ellipse,
-        and then (for highest accuracy) choose the most circular view.
+        /* Each of our three views {XY, YZ, ZX} sees the Spin-circle as an ellipse.
+        For correction of future readings we will need to find the eccentricity and axis-tilt of
+        each ellipse, and then (for highest accuracy) choose the most circular view. 
 
+        After re-centering all of the scanData samples (so eliminating "hard-iron" environmental 
+        magnetic effects), this function finds the major-axes (where the orthogonal reading crosses
+        the plane), and the minor-axes (at peaks or troughs in the orthogonal reading).
+        
         Detecting peaks and troughs in noisy data is error-prone, so we use a Smoother to minimise 
         (but not entirely eliminate) spurious inflection-points. Due to the latency of this moving average,
         (given by the constant {Window}) the minor-axis was actually passed {Window} samples earlier 
-        than its actual detection.
+        than its actual detection, so we need to keep a delayed queue of points.
+
+        By comparing sign-changes across the three coordinates, we infer the rotation direction 
+        (the rotationSense) seen by each view.
         */
 
         let crossXY = 0
@@ -929,7 +943,7 @@ namespace heading {
                 }
             }
             // accumulate cross-products of consecutive samples to measure rotation for each plane
-            // (jitter means we can't just rely on a single consecutive pair)
+            // (jitter means we can't always rely on  checking just a single consecutive pair)
             crossXY += ((x * yWas) > (y * xWas) ? -1 : 1)
             crossYZ += ((y * zWas) > (z * yWas) ? -1 : 1)
             crossZX += ((z * xWas) > (x * zWas) ? -1 : 1)
@@ -952,7 +966,7 @@ namespace heading {
             */
         }
 
-        // get sign of consensus rotation-sense
+        // get the sign of the consensus rotation-sense
         xy.rotationSense = crossXY / Math.abs(crossXY)
         yz.rotationSense = crossYZ / Math.abs(crossYZ)
         zx.rotationSense = crossZX / Math.abs(crossZX)
