@@ -387,8 +387,6 @@ namespace heading {
     export function scanClockwise(ms: number): number {
         strength = -1
         period = -1
-        scanTimes = []
-        scanData = []
 
         if (!debugMode) collectSamples(ms)  // take repeated magnetometer readings
         // ... else data will have beed pre-loaded
