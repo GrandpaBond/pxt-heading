@@ -55,7 +55,7 @@ namespace heading {
     // The constant {Window} governs the latency of the exponential averaging process.
     // Smoothers can work with arbitrary-sized vectors of values that share the same timestamp.
     // history[], previous[], latest[] and result[] arrays will be either 3-D, (for initial [X,Y,Z] scanning)
-    // or 2-D, (for analysing chosen the [uDim,vDim]).
+    // or 2-D, (for analysing the chosen [uDim,vDim]).
     class Smoother {
         dims: number; // dimensionality
         average: number[] = []; // 
@@ -98,10 +98,10 @@ namespace heading {
    
     /*
     An Ellipse is an object holding the characteristics of the view formed when projecting the 
-    magnetic fieldrvector onto a 2-axis View-plane {XY, YZ or ZX}.
+    magnetic field-vector onto a 2-axis View-plane {XY, YZ or ZX}.
     
-    While scanning clockwise, the projection of the field-vector will appear to trace out anti-clockwise
-    a (typically) elliptical view of the Spin-Circle. If viewed from "above" the polar angles of
+    While scanning clockwise, the projection of the field-vector will appear to trace out a (typically)
+    elliptical view of the Spin-Circle, anti-clockwise. If viewed from "above" the polar angles of
     successive readings (in radians) will INCREASE (anti-clockwise); if viewed from "below" they DECREASE.
 
     The foreshortened view means that evenly spaced heading angles will appear bunched around the ends 
@@ -389,7 +389,7 @@ namespace heading {
         period = -1
 
         if (!debugMode) collectSamples(ms)  // take repeated magnetometer readings
-        // ... else data will have beed pre-loaded
+        // ... unless test data has already been pre-loaded
 
         // Now analyse the scan-data to decide how best to use the magnetometer readings.
         // we'll typically need about a couple of second's worth of scanned readings...
@@ -423,7 +423,7 @@ namespace heading {
         strength = Math.sqrt((xField * xField) + (yField * yField) + (zField * zField))
 
         // Bail out early if the scan didn't properly detect the Earth's magnetic field,
-        // (perhaps due to magnetic shielding)
+        // (perhaps due to magnetic shielding?)
         if (strength < MarginalField) {
             return -2 // "FIELD STRENGTH TOO WEAK"
         }
@@ -478,7 +478,7 @@ namespace heading {
      * 
      * @return zero if successful, or a negative error code:
      *
-     *      -1 : SCAN NEEDED FIRST
+     *      -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
      */
     //% block="set North" 
     //% inlineInputMode=inline 
@@ -487,11 +487,14 @@ namespace heading {
         // reset global defaults
         //bestView = -1
 
-        // Having successfully set up the projection parameters for the bestView, get a
-        // stable fix on the current heading, which we will then designate as "North".
-        // (This is the global fixed bias to be subtracted from all future readings)
-        north = 0
-        north = takeSingleReading()
+        if (period == -1) {
+            return -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
+        } else {
+            // Having successfully set up the projection parameters for the bestView, get a
+            // stable fix on the current heading, which we will then designate as "North".
+            // (This is the global fixed bias to be subtracted from all future readings)
+            north = 0
+            north = takeSingleReading()
 
         /*
         if ((mode == Mode.Trace) || (mode == Mode.Analyse || (mode == Mode.Capture))) {
@@ -508,6 +511,7 @@ namespace heading {
             )
         }
         */
+        }
 
         // we've now finished with the scanning data, so release the memory
         scanTimes = []
@@ -608,32 +612,7 @@ namespace heading {
         }
     }
 
-  
 
-    /*
-     * Choose mode: whether to run normally,
-     *  - or to use Data Logger to grab a new test dataset,
-     *  - or to debug processing using a named test dataset
-     * (new datasets need editing externally before compiling into simulateScan)
-    //% block="reset to mode $newMode using $name"
-    //% inlineInputMode=inline 
-    //% weight=10
-    export function resetMode(newMode:Mode, name: string) {
-        // always reinitialise key data
-        scanTimes = []
-        scanData = []
-        uDim = -1
-        vDim = -1
-        period = -1
-        north = 0
-        testData = []
-        test = 0
-        // now adopt the new mode
-        mode = newMode
-        dataset = name
-    }
-
-     */
     // UTILITY FUNCTIONS
 
     /* Take magnetometer readings periodically over the specified duration (generally a couple
@@ -645,9 +624,11 @@ namespace heading {
       a timing-aware exponential moving-average. The sample-grouping and spacing are controlled 
       respectively by the constants Window and SampleGap, which together determine the Latency.
 
+     NOTE:
       If (ms == 0) we are in debug-mode, and the scanData[] and scanTimes[] will have been pre-loaded.
+      This function is exported to allow new test datasets to be captured 
     */
-    function collectSamples( ms: number) {
+    export function collectSamples( ms: number) {
         let timeWas: number
         let timeNow: number
         let fresh: number[] = []
@@ -703,7 +684,6 @@ namespace heading {
                     )
                 }
                 */
-
             }
         }
     }
@@ -712,9 +692,11 @@ namespace heading {
      *  @return the angle of the magnetic field-vector (in radians anticlockwise
      * from the horizontal U-axis), corrected for any fore-shortening due to projection
      * onto the bestView plane.
+     * 
+     * 
      */
 
-    function takeSingleReading(): number {
+    export function takeSingleReading(): number {
         let uRaw = 0
         let vRaw = 0
         let u = 0
