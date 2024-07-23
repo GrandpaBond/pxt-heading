@@ -47,284 +47,15 @@ namespace heading {
     const AverageGap = 25 // (achieved in practice, due to system interrupts)
     const Latency = Window * AverageGap // resulting time taken to collect a good moving average from scratch
 
-    // SUPPORTING CLASSES
-
-    // A Smoother object computes a moving average from a sequence of time-stamped values: 
-    // in our case, magnetometer readings and their derivatives.
-    // Timing irregularites due to scheduler interrupts demand this somewhat complex maths.
-    // The constant {Window} governs the latency of the exponential averaging process.
-    // Smoothers can work with arbitrary-sized vectors of values that share the same timestamp.
-    // history[], previous[], latest[] and result[] arrays will be either 3-D, (for initial [X,Y,Z] scanning)
-    // or 2-D, (for analysing the chosen [uDim,vDim]).
-    class Smoother {
-        dims: number; // dimensionality
-        average: number[] = []; // 
-        lastTime: number;
-        lastInputs: number[] = [];
-
-        constructor(first: number[], start: number) {
-            this.dims = first.length
-            this.lastTime = start
-            for (let i = 0; i < this.dims; i++) {
-                this.average.push(first[i])
-                this.lastInputs.push(first[i])
-            }
-        }
-
-        update(values: number[], timeStamp: number): number[] {
-            // work out appropriate blend, based on time-step
-            let timeFraction = (timeStamp - this.lastTime) / Latency
-            let keepOld = Math.exp(-timeFraction)
-            let inherited = (1 - keepOld) / timeFraction
-            // we amplify the most recent sample's contribution to the inherited average
-            let boostLast = (inherited - keepOld)
-            let addNew = (1 - inherited)
-            // (blending proportions keepOld + boostLast + addNew will always add up to 100%)
-            // apply blending to all elements of old and new data arrays
-            let result: number[] = []
-            for (let i = 0; i < this.dims; i++) {
-                result.push(keepOld * this.average[i]
-                    + boostLast * this.lastInputs[i]
-                    + addNew * values[i])
-            }
-            // update history for next time around
-            this.lastTime = timeStamp
-            this.average = result
-            this.lastInputs = values
-
-            return result
-        }
-    }
-   
-    /*
-    An Ellipse is an object holding the characteristics of the view formed when projecting the 
-    magnetic field-vector onto a 2-axis View-plane {XY, YZ or ZX}.
-    
-    While scanning clockwise, the projection of the field-vector will appear to trace out a (typically)
-    elliptical view of the Spin-Circle, anti-clockwise. If viewed from "above" the polar angles of
-    successive readings (in radians) will INCREASE (anti-clockwise); if viewed from "below" they DECREASE.
-
-    The foreshortened view means that evenly spaced heading angles will appear bunched around the ends 
-    of the ellipse. (In the extreme "side-on" case, the ellipse collapses to just a straight line!)
-
-    To correct for foreshortening we must stretch points on the ellipse back onto a circle, by rescaling
-    parallel to the minor axis of the ellipse until it matches the major axis. 
-    The ratio of major-axis to minor-axis gives the necessary scaling factor {eccentricity}.
-
-    Depending on the exact mounting orientation of the microbit in the buggy, this ellipse may be
-    tilted with respect to a particular view's axes, so correction then becomes a three stage process:
-    1) rotate the new point [u,v] by {-tilt} so the minor-axis lines up with the V-axis.
-    2) stretch the V coordinate by {eccentricity}
-    3) rotate back by {tilt} to give the corrected [u,v] from which the heading can be derived.
-  
-    This correction can in theory be applied in any of the three views (unless exactly side on to
-    the Spin-Circle), but the best accuracy is obtained from the most circular of the three views.
-    Readings on a near-circular Ellipse are barely fore-shortened at all, so we can skip correction!
-
-    So for each view we must derive the two important Ellipse properties: {tilt} and {eccentricity}. 
-    This first requires detection of its major and minor axes. The maths for fitting an ellipse to noisy
-    2D data is both complex and fairly inaccurate. Luckily we can make use of the orthogonal third dimension
-    (the Normal) to give us a simpler, faster solution.
-
-    The three magnetometer readings are related by the formula:  {x^2 + y^2 + z^2 = B} (where B is the 
-    constant magnetic field). So, for example in the XY plane, the ellipse radius {x^2 + y^2} is at a maximum
-    (i.e. passing its major-axis) when the field aligns with this plane and the z-value is basically zero.
-    Conversely the radius is at a minimum (its minor-axis) where the field points farthest from the plane,
-    and the z-value changes from growing to shrinking (either positive or negative). 
-    
-    The same holds true for the other two planes: the Normal helps us find the two axes. For each of these
-    three mutually-orthogonal views, we re-label its coordinates as {u,v}, with {w} being the
-    third (orthogonal) coordinate.
-
-
-    */
-    class Ellipse {
-        plane: string // View name (just for debug)
-
-        uDim: number // horizontal axis of this View
-        vDim: number // vertical axis of this View
-        uOff: number // horizontal offset needed to re-centre this Ellipse along the U-axis
-        vOff: number // vertical offset needed to re-centre this Ellipse along the V-axis
-
-        uHi: number // major-axis u contributions
-        vHi: number // major=axis v contributions
-        nHi: number // major-axis contributors
-        rHi: number // major-axis magnitude (radius)
-
-        uLo: number // minor-axis u contributions
-        vLo: number // minor=axis v contributions
-        nLo: number // minor-axis contributors
-        rLo: number // minor-axis magnitude (radius)
-
-        above: boolean  // flag saying {w} is currently "above" our plane
-        gotMinor: boolean // flag saying we have clocked next transit of the minor-axis
-        turns: number // number of full rotations since the first major-axis transit
-        start: number // timestamp of first major-axis transit
-        finish: number // timestamp of latest major-axis transit
-
-        // calibration characteristics
-        period: number // scan-rotation time as viewed in this plane
-        tilt: number // direction of the Ellipse major-axis 
-        cosa: number // helpful cosine of the tilt
-        sina: number // helpful sine of the tilt
-        eccentricity: number // ratio of major-axis to minor-axis magnitudes for this Ellipse
-        isCircular: boolean // flag saying this "Ellipse" View is almost circular, simplifying future handling
-        rotationSense: number // rotation sign = +/-1, reflecting this Ellipse's view of the clockwise scan
-
-
-        constructor(plane: string, uDim: number, vDim: number, uOff: number, vOff:number) {
-            this.plane = plane // just for debug...
-            this.uDim = uDim
-            this.vDim = vDim
-            this.uOff = uOff
-            this.vOff = vOff
-            this.uHi = 0
-            this.vHi = 0
-            this.nHi = 0
-            this.uLo = 0
-            this.vLo = 0
-            this.nLo = 0
-            this.above = true
-            this.gotMinor = false
-            this.tilt = 0
-            this.start = 0
-            this.finish = 0
-            this.turns = -1
-            this.period = -1
-            this.rotationSense = 1
-        }
-
-        // addMajor() is called whenever the Normal coordinate changes sign, indicating
-        // that the Field is just crossing our plane and we're passing the major-axis.
-        addMajor(i: number, u: number, v: number, w: number, t: number) {
-            if (w > 0) { // just surfaced above our plane so add-in current vector coordinates
-                this.above = true
-                this.uHi += u
-                this.vHi += v
-                if (this.start == 0) this.start = t // start measuring turns
-                this.finish = t
-                this.turns++
-            } else {  // just dipped below our plane so subtract current vector coordinates
-                    // (as it's the other end of the major-axis)
-                this.above = false
-                this.uHi -= u
-                this.vHi -= v
-            }
-            this.nHi++
-            this.gotMinor = false
-
-            /* if ((mode == Mode.Trace) || (mode == Mode.Analyse)) {
-                datalogger.log(
-                    datalogger.createCV("view", this.plane + "Major"),
-                    datalogger.createCV("u", round2(u)),
-                    datalogger.createCV("v", round2(v)),
-                    datalogger.createCV("w|dw", round2(w)),
-                    datalogger.createCV("uHi", round2(this.uHi)),
-                    datalogger.createCV("vHi", round2(this.vHi)),
-                    datalogger.createCV("uLo", round2(this.uLo)),
-                    datalogger.createCV("vLo", round2(this.vLo)),
-                    datalogger.createCV("above", this.above),
-                    datalogger.createCV("gotMinor", this.gotMinor)
-                )
-            }
-            */
-        }
-
-        // addMinor() is called whenever the Normal coordinate changes from growing to shrinking.
-        // This means the field-vector is farthest from our plane (above or below), so we're near
-        // the minor-axis of this plane's ellipse.
-        /* 
-        NOTE: noisy readings may yield multiple inflections in this third coordinate 
-         (e.g. peak-trough-peak above the plane, or trough-peak-trough below), leading to this method 
-         being invoked multiple times for the same transit (though always an odd number).
-         At peaks the radius is always added to the sum-vector [uLo, vLo] , while at troughs it is 
-         always subtracted, so redundant matched pairs will always cancel out. However, we must be 
-         careful only to count this transit once (using the flag this.newMinor), however many false 
-         pairs of calls we may get.
-        */
-        addMinor(i: number, u: number, v: number, dw: number) {
-            if (this.start > 0 ) { // don't start adding minor-axes until this.above is clearly known
-                if (dw < 0) {  
-                    this.uLo += u
-                    this.vLo += v
-                } else {
-                    this.uLo -= u
-                    this.vLo -= v
-                }
-                // because of the possibility of clustered peaks/troughs (some of which partially cancel) 
-                // we only clock the first one on each transit
-                if (!this.gotMinor) {
-                    this.gotMinor = true
-                    this.nLo++
-                }
-            }
-            /*
-            if ((mode == Mode.Trace) || (mode == Mode.Analyse)) {
-                datalogger.log(
-                    datalogger.createCV("view", this.plane + "Minor"),
-                    datalogger.createCV("u", round2(u)),
-                    datalogger.createCV("v", round2(v)),
-                    datalogger.createCV("w|dw", round2(dw)),
-                    datalogger.createCV("uHi", round2(this.uHi)),
-                    datalogger.createCV("vHi", round2(this.vHi)),
-                    datalogger.createCV("uLo", round2(this.uLo)),
-                    datalogger.createCV("vLo", round2(this.vLo)),
-                    datalogger.createCV("above", this.above),
-                    datalogger.createCV("newMinor", this.gotMinor)
-                )
-            }
-            */
-        }
-
-        // calculate() method is called once all scandata has been processed
-        calculate() {
-            this.eccentricity = -1
-            this.period = -1
-            this.tilt = 0
-            if (this.nHi > 0) {
-                this.uHi /= this.nHi
-                this.vHi /= this.nHi
-                this.rHi = Math.sqrt(this.uHi * this.uHi + this.vHi * this.vHi)
-
-                if (this.nLo > 0) {
-                    this.uLo /= this.nLo
-                    this.vLo /= this.nLo
-                    this.rLo = Math.sqrt(this.uLo * this.uLo + this.vLo * this.vLo)
-                    this.eccentricity = this.rHi / this.rLo
-
-                    /* ? We have both axes, so we could use vector addition to refine the axis tilt a bit
-                     (but only after turning the minor-axis through a right angle).
-
-                    But minor-axis angle can be quite inaccurate, so on balance --skip this!
-
-                    let uMean = this.uHi + this.vLo
-                    let vMean = this.vHi - this.uLo
-                    let rMean = this.rHi + this.rLo
-                    this.tilt = Math.atan2(vMean, uMean)
-                    this.cosa = uMean / rMean
-                    this.sina = vMean / rMean
-                    */
-
-                    // save major-axis, and its components
-                    this.tilt = Math.atan2(this.vHi, this.uHi)
-                    this.cosa = this.uHi / this.rHi
-                    this.sina = this.vHi / this.rHi
-                }
-            }
-            if (this.turns > 0) {
-                this.period = (this.finish - this.start) / this.turns
-            }
-        }
-    }
-
-
+ 
 
 
     // GLOBALS
-   
-    export let debugMode = false // For testing purposes, data can be externally pre-loaded:
+    // For testing purposes data is made externally visible:
+    export let debugMode = false // in debugMode we use pre-loaded data
     export let scanTimes: number[] = [] // sequence of time-stamps for scanned readings 
     export let scanData: number[][] = [] // scanned sequence of [X,Y,Z] magnetometer readings
+    export let xyz: number[] = [0,0,0] // a single 3D magnetometer reading (averaged for stability).
 
     // Other test-related globals
     export let dataset: string = "" // test dataset to use
@@ -333,7 +64,6 @@ namespace heading {
 
 
     let scanTime: number = 0 // duration of scan in ms
-    //let views: Ellipse[] = [] // the three possible elliptical views of the Spin-Circle
     let plane = "undefined"
     let uDim = -1 // the "horizontal" axis (called U) for the best View
     let vDim = -1 // the "vertical" axis (called V) for the best View
@@ -465,6 +195,10 @@ namespace heading {
         theta = view.tilt // the rotation (in radians) of the major-axis from the U-axis
         cosTheta = view.cosa
         sinTheta = view.sina
+
+        // NOTE: although we have now finished with the scanData, its memory is not released yet
+        //       but left accessible for potential capture as a test dataset.
+
         return 0
     }
 
@@ -513,7 +247,7 @@ namespace heading {
         */
         }
 
-        // we've now finished with the scanning data, so release the memory
+        // we've now definitely finished with the scanning data, so release the memory
         scanTimes = []
         scanData = []
 
@@ -612,6 +346,276 @@ namespace heading {
         }
     }
 
+    // SUPPORTING CLASSES
+
+    // A Smoother object computes a moving average from a sequence of time-stamped values: 
+    // in our case, magnetometer readings and their derivatives.
+    // Timing irregularites due to scheduler interrupts demand this somewhat complex maths.
+    // The constant {Window} governs the latency of the exponential averaging process.
+    // Smoothers can work with arbitrary-sized vectors of values that share the same timestamp.
+    // history[], previous[], latest[] and result[] arrays will be either 3-D, (for initial [X,Y,Z] scanning)
+    // or 2-D, (for analysing the chosen [uDim,vDim]).
+    class Smoother {
+        dims: number; // dimensionality
+        average: number[] = []; // 
+        lastTime: number;
+        lastInputs: number[] = [];
+
+        constructor(first: number[], start: number) {
+            this.dims = first.length
+            this.lastTime = start
+            for (let i = 0; i < this.dims; i++) {
+                this.average.push(first[i])
+                this.lastInputs.push(first[i])
+            }
+        }
+
+        update(values: number[], timeStamp: number): number[] {
+            // work out appropriate blend, based on time-step
+            let timeFraction = (timeStamp - this.lastTime) / Latency
+            let keepOld = Math.exp(-timeFraction)
+            let inherited = (1 - keepOld) / timeFraction
+            // we amplify the most recent sample's contribution to the inherited average
+            let boostLast = (inherited - keepOld)
+            let addNew = (1 - inherited)
+            // (blending proportions keepOld + boostLast + addNew will always add up to 100%)
+            // apply blending to all elements of old and new data arrays
+            let result: number[] = []
+            for (let i = 0; i < this.dims; i++) {
+                result.push(keepOld * this.average[i]
+                    + boostLast * this.lastInputs[i]
+                    + addNew * values[i])
+            }
+            // update history for next time around
+            this.lastTime = timeStamp
+            this.average = result
+            this.lastInputs = values
+
+            return result
+        }
+    }
+
+    /*
+    An Ellipse is an object holding the characteristics of the view formed when projecting the 
+    magnetic field-vector onto a 2-axis View-plane {XY, YZ or ZX}.
+    
+    While scanning clockwise, the projection of the field-vector will appear to trace out a (typically)
+    elliptical view of the Spin-Circle, anti-clockwise. If viewed from "above" the polar angles of
+    successive readings (in radians) will INCREASE (anti-clockwise); if viewed from "below" they DECREASE.
+
+    The foreshortened view means that evenly spaced heading angles will appear bunched around the ends 
+    of the ellipse. (In the extreme "side-on" case, the ellipse collapses to just a straight line!)
+
+    To correct for foreshortening we must stretch points on the ellipse back onto a circle, by rescaling
+    parallel to the minor axis of the ellipse until it matches the major axis. 
+    The ratio of major-axis to minor-axis gives the necessary scaling factor {eccentricity}.
+
+    Depending on the exact mounting orientation of the microbit in the buggy, this ellipse may be
+    tilted with respect to a particular view's axes, so correction then becomes a three stage process:
+    1) rotate the new point [u,v] by {-tilt} so the minor-axis lines up with the V-axis.
+    2) stretch the V coordinate by {eccentricity}
+    3) rotate back by {tilt} to give the corrected [u,v] from which the heading can be derived.
+  
+    This correction can in theory be applied in any of the three views (unless exactly side on to
+    the Spin-Circle), but the best accuracy is obtained from the most circular of the three views.
+    Readings on a near-circular Ellipse are barely fore-shortened at all, so we can skip correction!
+
+    So for each view we must derive the two important Ellipse properties: {tilt} and {eccentricity}. 
+    This first requires detection of its major and minor axes. The maths for fitting an ellipse to noisy
+    2D data is both complex and fairly inaccurate. Luckily we can make use of the orthogonal third dimension
+    (the Normal) to give us a simpler, faster solution.
+
+    The three magnetometer readings are related by the formula:  {x^2 + y^2 + z^2 = B} (where B is the 
+    constant magnetic field). So, for example in the XY plane, the ellipse radius {x^2 + y^2} is at a maximum
+    (i.e. passing its major-axis) when the field aligns with this plane and the z-value is basically zero.
+    Conversely the radius is at a minimum (its minor-axis) where the field points farthest from the plane,
+    and the z-value changes from growing to shrinking (either positive or negative). 
+    
+    The same holds true for the other two planes: the Normal helps us find the two axes. For each of these
+    three mutually-orthogonal views, we re-label its coordinates as {u,v}, with {w} being the
+    third (orthogonal) coordinate.
+
+
+    */
+    class Ellipse {
+        plane: string // View name (just for debug)
+
+        uDim: number // horizontal axis of this View
+        vDim: number // vertical axis of this View
+        uOff: number // horizontal offset needed to re-centre this Ellipse along the U-axis
+        vOff: number // vertical offset needed to re-centre this Ellipse along the V-axis
+
+        uHi: number // major-axis u contributions
+        vHi: number // major=axis v contributions
+        nHi: number // major-axis contributors
+        rHi: number // major-axis magnitude (radius)
+
+        uLo: number // minor-axis u contributions
+        vLo: number // minor=axis v contributions
+        nLo: number // minor-axis contributors
+        rLo: number // minor-axis magnitude (radius)
+
+        above: boolean  // flag saying {w} is currently "above" our plane
+        gotMinor: boolean // flag saying we have clocked next transit of the minor-axis
+        turns: number // number of full rotations since the first major-axis transit
+        start: number // timestamp of first major-axis transit
+        finish: number // timestamp of latest major-axis transit
+
+        // calibration characteristics
+        period: number // scan-rotation time as viewed in this plane
+        tilt: number // direction of the Ellipse major-axis 
+        cosa: number // helpful cosine of the tilt
+        sina: number // helpful sine of the tilt
+        eccentricity: number // ratio of major-axis to minor-axis magnitudes for this Ellipse
+        isCircular: boolean // flag saying this "Ellipse" View is almost circular, simplifying future handling
+        rotationSense: number // rotation sign = +/-1, reflecting this Ellipse's view of the clockwise scan
+
+
+        constructor(plane: string, uDim: number, vDim: number, uOff: number, vOff: number) {
+            this.plane = plane // just for debug...
+            this.uDim = uDim
+            this.vDim = vDim
+            this.uOff = uOff
+            this.vOff = vOff
+            this.uHi = 0
+            this.vHi = 0
+            this.nHi = 0
+            this.uLo = 0
+            this.vLo = 0
+            this.nLo = 0
+            this.above = true
+            this.gotMinor = false
+            this.tilt = 0
+            this.start = 0
+            this.finish = 0
+            this.turns = -1
+            this.period = -1
+            this.rotationSense = 1
+        }
+
+        // addMajor() is called whenever the Normal coordinate changes sign, indicating
+        // that the Field is just crossing our plane and we're passing the major-axis.
+        addMajor(i: number, u: number, v: number, w: number, t: number) {
+            if (w > 0) { // just surfaced above our plane so add-in current vector coordinates
+                this.above = true
+                this.uHi += u
+                this.vHi += v
+                if (this.start == 0) this.start = t // start measuring turns
+                this.finish = t
+                this.turns++
+            } else {  // just dipped below our plane so subtract current vector coordinates
+                // (as it's the other end of the major-axis)
+                this.above = false
+                this.uHi -= u
+                this.vHi -= v
+            }
+            this.nHi++
+            this.gotMinor = false
+
+            /* if ((mode == Mode.Trace) || (mode == Mode.Analyse)) {
+                datalogger.log(
+                    datalogger.createCV("view", this.plane + "Major"),
+                    datalogger.createCV("u", round2(u)),
+                    datalogger.createCV("v", round2(v)),
+                    datalogger.createCV("w|dw", round2(w)),
+                    datalogger.createCV("uHi", round2(this.uHi)),
+                    datalogger.createCV("vHi", round2(this.vHi)),
+                    datalogger.createCV("uLo", round2(this.uLo)),
+                    datalogger.createCV("vLo", round2(this.vLo)),
+                    datalogger.createCV("above", this.above),
+                    datalogger.createCV("gotMinor", this.gotMinor)
+                )
+            }
+            */
+        }
+
+        // addMinor() is called whenever the Normal coordinate changes from growing to shrinking.
+        // This means the field-vector is farthest from our plane (above or below), so we're near
+        // the minor-axis of this plane's ellipse.
+        /* 
+        NOTE: noisy readings may yield multiple inflections in this third coordinate 
+         (e.g. peak-trough-peak above the plane, or trough-peak-trough below), leading to this method 
+         being invoked multiple times for the same transit (though always an odd number).
+         At peaks the radius is always added to the sum-vector [uLo, vLo] , while at troughs it is 
+         always subtracted, so redundant matched pairs will always cancel out. However, we must be 
+         careful only to count this transit once (using the flag this.newMinor), however many false 
+         pairs of calls we may get.
+        */
+        addMinor(i: number, u: number, v: number, dw: number) {
+            if (this.start > 0) { // don't start adding minor-axes until this.above is clearly known
+                if (dw < 0) {
+                    this.uLo += u
+                    this.vLo += v
+                } else {
+                    this.uLo -= u
+                    this.vLo -= v
+                }
+                // because of the possibility of clustered peaks/troughs (some of which partially cancel) 
+                // we only clock the first one on each transit
+                if (!this.gotMinor) {
+                    this.gotMinor = true
+                    this.nLo++
+                }
+            }
+            /*
+            if ((mode == Mode.Trace) || (mode == Mode.Analyse)) {
+                datalogger.log(
+                    datalogger.createCV("view", this.plane + "Minor"),
+                    datalogger.createCV("u", round2(u)),
+                    datalogger.createCV("v", round2(v)),
+                    datalogger.createCV("w|dw", round2(dw)),
+                    datalogger.createCV("uHi", round2(this.uHi)),
+                    datalogger.createCV("vHi", round2(this.vHi)),
+                    datalogger.createCV("uLo", round2(this.uLo)),
+                    datalogger.createCV("vLo", round2(this.vLo)),
+                    datalogger.createCV("above", this.above),
+                    datalogger.createCV("newMinor", this.gotMinor)
+                )
+            }
+            */
+        }
+
+        // calculate() method is called once all scandata has been processed
+        calculate() {
+            this.eccentricity = -1
+            this.period = -1
+            this.tilt = 0
+            if (this.nHi > 0) {
+                this.uHi /= this.nHi
+                this.vHi /= this.nHi
+                this.rHi = Math.sqrt(this.uHi * this.uHi + this.vHi * this.vHi)
+
+                if (this.nLo > 0) {
+                    this.uLo /= this.nLo
+                    this.vLo /= this.nLo
+                    this.rLo = Math.sqrt(this.uLo * this.uLo + this.vLo * this.vLo)
+                    this.eccentricity = this.rHi / this.rLo
+
+                    /* ? We have both axes, so we could use vector addition to refine the axis tilt a bit
+                     (but only after turning the minor-axis through a right angle).
+
+                    But minor-axis angle can be quite inaccurate, so on balance --skip this!
+
+                    let uMean = this.uHi + this.vLo
+                    let vMean = this.vHi - this.uLo
+                    let rMean = this.rHi + this.rLo
+                    this.tilt = Math.atan2(vMean, uMean)
+                    this.cosa = uMean / rMean
+                    this.sina = vMean / rMean
+                    */
+
+                    // save major-axis, and its components
+                    this.tilt = Math.atan2(this.vHi, this.uHi)
+                    this.cosa = this.uHi / this.rHi
+                    this.sina = this.vHi / this.rHi
+                }
+            }
+            if (this.turns > 0) {
+                this.period = (this.finish - this.start) / this.turns
+            }
+        }
+    }
+
 
     // UTILITY FUNCTIONS
 
@@ -625,8 +629,9 @@ namespace heading {
       respectively by the constants Window and SampleGap, which together determine the Latency.
 
      NOTE:
-      If (ms == 0) we are in debug-mode, and the scanData[] and scanTimes[] will have been pre-loaded.
-      This function is exported to allow new test datasets to be captured 
+      If we are in debug-mode the scanData[] and scanTimes[] will have been pre-loaded.
+
+      ??? This function is exported to allow new test datasets to be captured 
     */
     export function collectSamples( ms: number) {
         let timeWas: number
@@ -688,12 +693,12 @@ namespace heading {
         }
     }
 
-    /** Take the sum of several new readings to get a stable fix on the current heading.
+    /** Take the average of several new readings to get a stable fix on the current heading.
      *  @return the angle of the magnetic field-vector (in radians anticlockwise
      * from the horizontal U-axis), corrected for any fore-shortening due to projection
      * onto the bestView plane.
      * 
-     * 
+     * NOTE: leaves the latest reading in xyz[] to allow possible test-data capture
      */
 
     export function takeSingleReading(): number {
@@ -707,20 +712,36 @@ namespace heading {
         let vFix = 0
         let reading = 0
 
-        if (debugMode) { // just choose the next test-data value
-                uRaw = testData[test][uDim]
-                vRaw = testData[test][vDim]
-                test = (test + 1) % testData.length
+        if (debugMode) { // just choose the next test-data value (cyclically)
+            xyz[Dimension.X] = testData[test][Dimension.X]
+            xyz[Dimension.Y] = testData[test][Dimension.Y]
+            xyz[Dimension.Z] = testData[test][Dimension.Z]
+            test = (test + 1) % testData.length
         } else {
-        // get a new sample as the average of {Window} consecutive 2D readings, {SampleGap} apart
+            // build a new sample as the average of {Window} consecutive 2D readings, {SampleGap} apart
+            xyz = [0, 0, 0]
             for (let i = 0; i < Window; i++) {
                 basic.pause(SampleGap)
-                uRaw += input.magneticForce(uDim)
-                vRaw += input.magneticForce(vDim)
+                xyz[Dimension.X] += input.magneticForce(Dimension.X)
+                xyz[Dimension.Y] += input.magneticForce(Dimension.Y)
+                xyz[Dimension.Z] += input.magneticForce(Dimension.Z)
             }
-            uRaw /= Window
-            vRaw /= Window
+            xyz[Dimension.X] /= Window
+            xyz[Dimension.Y] /= Window
+            xyz[Dimension.Z] /= Window
         }
+        /*
+        datalogger.setColumnTitles("t", "x", "y", "z")
+        datalogger.log(
+            datalogger.createCV("t", input.runningTime()),
+            datalogger.createCV("x", round2(xyz[Dimension.X])),
+            datalogger.createCV("y", round2(xyz[Dimension.Y])),
+            datalogger.createCV("z", round2(xyz[Dimension.Z])))
+        */
+
+        // now pick the coordinates we want for the current view
+        uRaw = xyz[uDim]
+        vRaw = xyz[vDim]
 
         // re-centre this latest point w.r.t our Ellipse origin
         u = uRaw - uOff
