@@ -1,18 +1,3 @@
-
- // TODO? No use is yet made of the accelerometer. Although seemingly helpful to compensate for
- // static tilt, on a moving buggy dynamic sideways accelerations confound the measurement of "down",
- // so applying tilt-compensation could actually make compass-heading accuracy worse!
-
-
-/* OPERATIONAL MODES (controlling data-logging)
-enum Mode {
-    Normal, // Normal usage, mounted in a buggy
-    Capture, // Acquire a new test dataset, using a special rotating jig
-    Analyse, // Test & debug (NOTE: named sets of test-dataset are hard-coded below)
-    Trace // Collect full trace (= Capture + Debug) 
-}
-*/
-
 //% color=#6080e0 weight=40 icon="\uf14e" block="Heading" 
 /**
  * An extension providing a compass-bearing for a buggy located anywhere on the globe 
@@ -47,23 +32,18 @@ namespace heading {
     const AverageGap = 25 // (achieved in practice, due to system interrupts)
     const Latency = Window * AverageGap // resulting time taken to collect a good moving average from scratch
 
- 
-
-
     // GLOBALS
-    // For testing purposes data is made externally visible:
-    export let debugMode = false // in debugMode we use pre-loaded data
+
+    // (For testing purposes scan data is made externally visible)
     export let scanTimes: number[] = [] // sequence of time-stamps for scanned readings 
     export let scanData: number[][] = [] // scanned sequence of [X,Y,Z] magnetometer readings
-    export let xyz: number[] = [0,0,0] // a single 3D magnetometer reading (averaged for stability).
 
-    // Other test-related globals
-    export let dataset: string = "" // test dataset to use
-    export let test = 0 // global selector for test-cases
-    export let testData: number[][] = [] //[X,Y,Z] magnetometer values for test cases
+    // (Other externally visible test-related globals)
+    export let debugMode = false // in debugMode we use pre-loaded data
+    export let test = 0 // global selector for single readings
+    export let testTimes: number[] = [] // sequence of time-stamps for single readings
+    export let testData: number[][] = [] //[X,Y,Z] magnetometer values for single readings
 
-
-    let scanTime: number = 0 // duration of scan in ms
     let plane = "undefined"
     let uDim = -1 // the "horizontal" axis (called U) for the best View
     let vDim = -1 // the "vertical" axis (called V) for the best View
@@ -124,7 +104,7 @@ namespace heading {
         // Now analyse the scan-data to decide how best to use the magnetometer readings.
         // we'll typically need about a couple of second's worth of scanned readings...
         let nSamples = scanTimes.length
-        scanTime = scanTimes[nSamples - 1] - scanTimes[0]
+        let scanTime = scanTimes[nSamples - 1] - scanTimes[0]
 
         if ((nSamples < EnoughSamples) || (scanTime < EnoughScanTime)) {
             return -1 // "NOT ENOUGH SCAN DATA"
@@ -218,8 +198,10 @@ namespace heading {
     //% inlineInputMode=inline 
     //% weight=80 
     export function setNorth(): number {
-        // reset global defaults
-        //bestView = -1
+        // reset global test history
+        testTimes = []
+        testData = []
+        test = 0
 
         if (period == -1) {
             return -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
@@ -229,28 +211,11 @@ namespace heading {
             // (This is the global fixed bias to be subtracted from all future readings)
             north = 0
             north = takeSingleReading()
-
-        /*
-        if ((mode == Mode.Trace) || (mode == Mode.Analyse || (mode == Mode.Capture))) {
-            datalogger.log(
-                datalogger.createCV("view", plane),
-                datalogger.createCV("scale", scale),
-                datalogger.createCV("circular?", isCircular),
-                datalogger.createCV("sense?", rotationSense),
-                datalogger.createCV("theta", theta),
-                datalogger.createCV("[theta]", round2(asDegrees(theta))),
-                datalogger.createCV("north", north),
-                datalogger.createCV("[north]", round2(asDegrees(north))),
-                datalogger.createCV("period", period),
-            )
-        }
-        */
         }
 
         // we've now definitely finished with the scanning data, so release the memory
         scanTimes = []
         scanData = []
-
         // SUCCESS!
         return 0
     }
@@ -511,22 +476,6 @@ namespace heading {
             }
             this.nHi++
             this.gotMinor = false
-
-            /* if ((mode == Mode.Trace) || (mode == Mode.Analyse)) {
-                datalogger.log(
-                    datalogger.createCV("view", this.plane + "Major"),
-                    datalogger.createCV("u", round2(u)),
-                    datalogger.createCV("v", round2(v)),
-                    datalogger.createCV("w|dw", round2(w)),
-                    datalogger.createCV("uHi", round2(this.uHi)),
-                    datalogger.createCV("vHi", round2(this.vHi)),
-                    datalogger.createCV("uLo", round2(this.uLo)),
-                    datalogger.createCV("vLo", round2(this.vLo)),
-                    datalogger.createCV("above", this.above),
-                    datalogger.createCV("gotMinor", this.gotMinor)
-                )
-            }
-            */
         }
 
         // addMinor() is called whenever the Normal coordinate changes from growing to shrinking.
@@ -557,22 +506,6 @@ namespace heading {
                     this.nLo++
                 }
             }
-            /*
-            if ((mode == Mode.Trace) || (mode == Mode.Analyse)) {
-                datalogger.log(
-                    datalogger.createCV("view", this.plane + "Minor"),
-                    datalogger.createCV("u", round2(u)),
-                    datalogger.createCV("v", round2(v)),
-                    datalogger.createCV("w|dw", round2(dw)),
-                    datalogger.createCV("uHi", round2(this.uHi)),
-                    datalogger.createCV("vHi", round2(this.vHi)),
-                    datalogger.createCV("uLo", round2(this.uLo)),
-                    datalogger.createCV("vLo", round2(this.vLo)),
-                    datalogger.createCV("above", this.above),
-                    datalogger.createCV("newMinor", this.gotMinor)
-                )
-            }
-            */
         }
 
         // calculate() method is called once all scandata has been processed
@@ -677,18 +610,7 @@ namespace heading {
             if (timeStamp > startTime) {
                 // store the triple of averaged [X,Y,Z] values (as a deep copy!)
                 scanData.push([updated[0], updated[1], updated[2]])
-                scanTimes.push(timeStamp)  // timestamp it
-                
-                /*
-                if (mode != Mode.Normal) {
-                    datalogger.log(
-                        datalogger.createCV("t", timeStamp),
-                        datalogger.createCV("x", round2(updated[0])),
-                        datalogger.createCV("y", round2(updated[1])),
-                        datalogger.createCV("z", round2(updated[2]))
-                    )
-                }
-                */
+                scanTimes.push(timeStamp)  // timestamp it              
             }
         }
     }
@@ -702,8 +624,7 @@ namespace heading {
      */
 
     export function takeSingleReading(): number {
-        let uRaw = 0
-        let vRaw = 0
+        let xyz: number[] = [0, 0, 0]
         let u = 0
         let v = 0
         let uNew = 0
@@ -729,30 +650,23 @@ namespace heading {
             xyz[Dimension.X] /= Window
             xyz[Dimension.Y] /= Window
             xyz[Dimension.Z] /= Window
+
+            // keep global history of single test readings (for possible later capture)
+            testTimes.push(input.runningTime())
+            testData.push(xyz)
         }
-        /*
-        datalogger.setColumnTitles("t", "x", "y", "z")
-        datalogger.log(
-            datalogger.createCV("t", input.runningTime()),
-            datalogger.createCV("x", round2(xyz[Dimension.X])),
-            datalogger.createCV("y", round2(xyz[Dimension.Y])),
-            datalogger.createCV("z", round2(xyz[Dimension.Z])))
-        */
 
-        // now pick the coordinates we want for the current view
-        uRaw = xyz[uDim]
-        vRaw = xyz[vDim]
+        // now pick the coordinates we actually want for the current view,
+        // and re-centre this latest point w.r.t our Ellipse origin
+        u = xyz[uDim] - uOff
+        v = xyz[vDim] - vOff
 
-        // re-centre this latest point w.r.t our Ellipse origin
-        u = uRaw - uOff
-        v = vRaw - vOff
+        // Unless this Ellipse.isCircular, any {u,v} reading will be foreshortened in this View, and
+        // must be stretched along the Ellipse minor-axis to place it correctly onto the Spin-Circle.
 
         if (isCircular) {
             reading = Math.atan2(v, u)
         } else {
-            // Unless this Ellipse.isCircular, any {u,v} reading will be foreshortened in this View, and
-            // must be stretched along the Ellipse minor-axis to place it correctly onto the Spin-Circle.
-
             // We must first rotate our point CLOCKWISE (by -theta) to align the Ellipse minor-axis 
             // angle with the V-axis 
             uNew = u * cosTheta + v * sinTheta
@@ -767,26 +681,6 @@ namespace heading {
             // finally, undo our first rotation by adding theta back in
             reading = (reading + theta + TwoPi) % TwoPi
         }
-
-        /*
-        if ((mode == Mode.Trace) || (mode == Mode.Analyse)) {
-            // just for debug, show coordinates of "stretched" reading after undoing rotation
-            let uRim = uFix * cosTheta - vFix * sinTheta
-            let vRim = vFix * cosTheta + uFix * sinTheta
-            datalogger.log(
-                datalogger.createCV("uNew", round2(uNew)),
-                datalogger.createCV("vNew", round2(vNew)),
-                datalogger.createCV("uFix", round2(uFix)),
-                datalogger.createCV("vFix", round2(vFix)),
-                datalogger.createCV("uRim", round2(uRim)),
-                datalogger.createCV("vRim", round2(vRim)),
-                datalogger.createCV("reading", round2(reading)),
-                datalogger.createCV("[reading]", round2(asDegrees(reading) * rotationSense)),
-                datalogger.createCV("bearing", round2(reading - north)),
-                datalogger.createCV("[bearing]", round2(asDegrees(reading - north) * rotationSense))
-            )
-        }
-        */
         return reading
     }
 
