@@ -198,10 +198,7 @@ namespace heading {
     //% inlineInputMode=inline 
     //% weight=80 
     export function setNorth(): number {
-        // reset global test history
-        testTimes = []
-        testData = []
-        test = 0
+        test = 0 // reset test history
 
         if (period == -1) {
             return -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
@@ -213,9 +210,11 @@ namespace heading {
             north = takeSingleReading()
         }
 
-        // we've now definitely finished with the scanning data, so release the memory
-        scanTimes = []
-        scanData = []
+        if (!debugMode) {
+            // we've now definitely finished with the scanning data, so release the memory
+            scanTimes = []
+            scanData = []
+        }
         // SUCCESS!
         return 0
     }
