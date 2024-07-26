@@ -109,6 +109,10 @@ namespace heading {
         if ((nSamples < EnoughSamples) || (scanTime < EnoughScanTime)) {
             return -1 // "NOT ENOUGH SCAN DATA"
         }
+        
+        if (nSamples != scanData.length) {
+            return -5 // "INTERNAL DATA MISMATCH ERROR"
+        }
         // Each dimension should track a sinusoidal wave of values (generally not centred on zero).
         // The first pass finds the ranges for each axis 
         let xlo = 9999999
