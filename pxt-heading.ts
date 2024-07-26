@@ -109,8 +109,10 @@ namespace heading {
         if ((nSamples < EnoughSamples) || (scanTime < EnoughScanTime)) {
             return -1 // "NOT ENOUGH SCAN DATA"
         }
+        let nData = scanData.length
+        let lastSample = scanData[scanData.length-1]
         
-        if (nSamples != scanData.length) {
+        if (nSamples != nData) {
             return -5 // "INTERNAL DATA MISMATCH ERROR"
         }
         // Each dimension should track a sinusoidal wave of values (generally not centred on zero).
