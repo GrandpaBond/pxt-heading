@@ -802,11 +802,11 @@ namespace heading {
                     zx.addMinor(i, zOld, xOld, dy)
                 }
             }
-            // accumulate cross-products of consecutive samples to measure rotation for each plane
-            // (jitter means we can't always rely on  checking just a single consecutive pair)
-            crossXY += ((x * yWas) > (y * xWas) ? -1 : 1)
-            crossYZ += ((y * zWas) > (z * yWas) ? -1 : 1)
-            crossZX += ((z * xWas) > (x * zWas) ? -1 : 1)
+            // accumulate cross-products of all sample -pairs to measure rotation for each plane.
+            // (Jitter means we can't always rely on checking just a single consecutive pair)
+            crossXY += ((x * yWas) > (y * xWas) ? 1 : -1)
+            crossYZ += ((y * zWas) > (z * yWas) ? 1 : -1)
+            crossZX += ((z * xWas) > (x * zWas) ? 1 : -1)
 
             /*
             if (mode != Mode.Normal) {

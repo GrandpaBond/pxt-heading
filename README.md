@@ -145,11 +145,12 @@ heading angle; the challenge is to choose the best two for the job!
 ### Square Mounting
 If the microbit is mounted squarely in the buggy, the axis of the Spin-Circle will be neatly aligned with whichever
 magnetometer axis is pointing "up". The simple sine-wave readings taken from the remaining two axes can then be easily 
-interpreted to give us the heading angle. 
+interpreted to give us the heading angle, remembering that the magnetometer chip is mounted on the **back** of the microbit, 
+so its axes are effectively reversed!
 
 ### Slanted Mounting
 However, in the fully general situation where the microbit might be mounted on a slant (e.g. as a "dashboard"), the Spin-Circle 
-will appear fore-shortened into an Ellipse when looking down any particular axis onto the plane of the other two axes (YZ, ZX or XY).
+will appear fore-shortened into an Ellipse when looking down (or up) any particular axis onto the plane of the other two axes (YZ, ZX or XY).
 
 This Ellipse will have an arbitrary centre, a degree of eccentricity, and maybe a tilt. Fore-shortening means that
 equally-spaced heading angles will appear bunched around the pointed ends of the Ellipse. 
