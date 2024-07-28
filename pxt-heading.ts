@@ -37,12 +37,14 @@ namespace heading {
     // (For testing purposes scan data is made externally visible)
     export let scanTimes: number[] = [] // sequence of time-stamps for scanned readings 
     export let scanData: number[][] = [] // scanned sequence of [X,Y,Z] magnetometer readings
+    export let nSamples: number
 
     // (Other externally visible test-related globals)
     export let debugMode = false // in debugMode we use pre-loaded data
     export let test = 0 // global selector for single readings
     export let testTimes: number[] = [] // sequence of time-stamps for single readings
     export let testData: number[][] = [] //[X,Y,Z] magnetometer values for single readings
+
 
     let plane = "undefined"
     let uDim = -1 // the "horizontal" axis (called U) for the best View
@@ -100,7 +102,7 @@ namespace heading {
 
         if (!debugMode) collectSamples(ms)  // take repeated magnetometer readings
         // ... unless test data has already been pre-loaded
-        let nSamples = Math.min(scanTimes.length, scanData.length) // (in case of pre-load mismatch)
+        nSamples = Math.min(scanTimes.length, scanData.length) // (in case of pre-load mismatch)
 
         // Now analyse the scan-data to decide how best to use the magnetometer readings.
         // we'll typically need about a couple of second's worth of scanned readings...
@@ -738,7 +740,7 @@ namespace heading {
         let dz = 0
         let delta = new Smoother([dx, dy, dz], t)
 
-        for (let i = 1; i < scanTimes.length; i++) {
+        for (let i = 1; i < nSamples; i++) {
             // update history
             xWas = x
             yWas = y
