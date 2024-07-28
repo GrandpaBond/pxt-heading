@@ -100,20 +100,14 @@ namespace heading {
 
         if (!debugMode) collectSamples(ms)  // take repeated magnetometer readings
         // ... unless test data has already been pre-loaded
+        let nSamples = Math.min(scanTimes.length, scanData.length) // (in case of pre-load mismatch)
 
         // Now analyse the scan-data to decide how best to use the magnetometer readings.
         // we'll typically need about a couple of second's worth of scanned readings...
-        let nSamples = scanTimes.length
         let scanTime = scanTimes[nSamples - 1] - scanTimes[0]
 
         if ((nSamples < EnoughSamples) || (scanTime < EnoughScanTime)) {
             return -1 // "NOT ENOUGH SCAN DATA"
-        }
-        let nData = scanData.length
-        let lastSample = scanData[scanData.length-1]
-        
-        if (nSamples != nData) {
-            return -5 // "INTERNAL DATA MISMATCH ERROR"
         }
         // Each dimension should track a sinusoidal wave of values (generally not centred on zero).
         // The first pass finds the ranges for each axis 
