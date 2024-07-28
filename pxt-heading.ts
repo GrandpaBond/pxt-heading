@@ -710,6 +710,9 @@ namespace heading {
 
         By comparing sign-changes across the three coordinates, we infer the rotation direction 
         (the rotationSense) seen by each view.
+
+        The function uses the global scanTimes[] and scanData[] arrays, and updates the three
+        global Ellipse objects, {xy, yz and zx}.
         */
 
         let crossXY = 0
@@ -718,19 +721,22 @@ namespace heading {
         let xWas = 0
         let yWas = 0
         let zWas = 0
-        let x = scanData[0][Dimension.X] - xOff
-        let y = scanData[0][Dimension.Y] - yOff
-        let z = scanData[0][Dimension.Z] - zOff
-        let t = scanTimes[0]
-        let dx = 0
-        let dy = 0
-        let dz = 0
         let dxWas = 0
         let dyWas = 0
         let dzWas = 0
-        let delta = new Smoother([dx, dy, dz], t)
         let delay: number[][] = []
 
+        let xyz:number[] = scanData[0]
+        let x = xyz[Dimension.X] - xOff
+        let y = xyz[Dimension.Y] - yOff
+        let z = xyz[Dimension.Z] - zOff
+        let t = scanTimes[0]
+
+        // prepare a Smoother for the slope deltas
+        let dx = 0
+        let dy = 0
+        let dz = 0
+        let delta = new Smoother([dx, dy, dz], t)
 
         for (let i = 1; i < scanTimes.length; i++) {
             // update history
@@ -742,13 +748,14 @@ namespace heading {
             dzWas = dz
 
             // re-centre the next scanData sample
-            x = scanData[i][Dimension.X] - xOff
-            y = scanData[i][Dimension.Y] - yOff
-            z = scanData[i][Dimension.Z] - zOff
+            xyz = scanData[i]
+            x = xyz[Dimension.X] - xOff
+            y = xyz[Dimension.Y] - yOff
+            z = xyz[Dimension.Z] - zOff
+
             t = scanTimes[i]
 
             delay.push([x, y, z])  // this rolling array remembers recent sample history...
-
 
             // use the Smoother to get less noisy slopes
             delta.update([x - xWas, y - yWas, z - zWas], t)
@@ -756,7 +763,7 @@ namespace heading {
             dy = delta.average[Dimension.Y]
             dz = delta.average[Dimension.Z]
 
-            // to aid detection of change of sign, we doctor any values that are exactly zero
+            // to aid detection of sign-change, we doctor any values that are exactly zero
             if (x == 0) x = xWas
             if (y == 0) y = yWas
             if (z == 0) z = zWas
@@ -764,8 +771,8 @@ namespace heading {
             if (dy == 0) dy = dyWas
             if (dz == 0) dz = dzWas
 
-            // crossing a plane implies we're passing the major-axis of its ellipse
-            // so look for coordinate sign-changes in its Normal axis
+            // Look for coordinate sign-changes in the Normal axis for each plane.
+            // (Crossing a plane implies we're passing the major-axis of its ellipse)
             if (z * zWas < 0) {
                 xy.addMajor(i, x, y, z, t)
             }
