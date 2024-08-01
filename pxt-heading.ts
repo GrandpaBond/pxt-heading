@@ -100,17 +100,18 @@ namespace heading {
         strength = -1
         period = -1
 
-        if (!debugMode) collectSamples(ms)  // take repeated magnetometer readings
-        // ... unless test data has already been pre-loaded
-        nSamples = Math.min(scanTimes.length, scanData.length) // (in case of pre-load mismatch)
+        // unless test data has already been pre-loaded...
+        if (!debugMode) collectSamples(ms)  // ...take repeated magnetometer readings
+        
+        nSamples = Math.min(scanTimes.length, scanData.length) // (defend against pre-load mismatch)
 
         // Now analyse the scan-data to decide how best to use the magnetometer readings.
         // we'll typically need about a couple of second's worth of scanned readings...
         let scanTime = scanTimes[nSamples - 1] - scanTimes[0]
-
         if ((nSamples < EnoughSamples) || (scanTime < EnoughScanTime)) {
             return -1 // "NOT ENOUGH SCAN DATA"
         }
+
         // Each dimension should track a sinusoidal wave of values (generally not centred on zero).
         // The first pass finds the ranges for each axis 
         let xlo = 9999999
@@ -144,13 +145,23 @@ namespace heading {
         yOff = (yhi + ylo) / 2
         zOff = (zhi + zlo) / 2
 
+        // 2nd pass re-centres the scanData samples, eliminating "hard-iron" environmental magnetic effects.
+        for (let i = 0; i < nSamples; i++) {
+            scanData[i][Dimension.X] -= xOff
+            scanData[i][Dimension.Y] -= yOff
+            scanData[i][Dimension.Z] -= zOff
+        }
+
         // create three Ellipse instances, for analysing each possible 2D view of the spin-Circle
         xy = new Ellipse("XY", Dimension.X, Dimension.Y, xOff, yOff)
         yz = new Ellipse("YZ", Dimension.Y, Dimension.Z, yOff, zOff)
         zx = new Ellipse("ZX", Dimension.Z, Dimension.X, zOff, xOff)
 
-        extractAxes() // do as it says on the tin...
-        // extractAxes2()
+        // extractAxes() // do as it says on the tin...
+        xy.extractAxes()
+        yz.extractAxes()
+        zx.extractAxes()
+
         // check that at least one view saw at least one complete rotation (with a measurable period)...
         if ((xy.period + yz.period + zx.period) < 0) {
             return -3 // "NOT ENOUGH SCAN ROTATION"
@@ -385,7 +396,7 @@ namespace heading {
     This correction can in theory be applied in any of the three views (unless exactly side on to
     the Spin-Circle), but the best accuracy is obtained from the most circular of the three views.
     Readings on a near-circular Ellipse are barely fore-shortened at all, so we can skip correction!
-
+=====================================================================
     So for each view we must derive the two important Ellipse properties: {tilt} and {eccentricity}. 
     This first requires detection of its major and minor axes. The maths for fitting an ellipse to noisy
     2D data is both complex and fairly inaccurate. Luckily we can make use of the orthogonal third dimension
@@ -400,6 +411,7 @@ namespace heading {
     The same holds true for the other two planes: the Normal helps us find the two axes. For each of these
     three mutually-orthogonal views, we re-label its coordinates as {u,v}, with {w} being the
     third (orthogonal) coordinate.
+=====================================================================
 
 
     */
@@ -459,8 +471,24 @@ namespace heading {
             this.rotationSense = 1
         }
 
-        // addMajor() is called whenever the Normal coordinate changes sign, indicating
-        // that the Field is just crossing our plane and we're passing the major-axis.
+        /* extractAxes() is called to find the tilt & eccentricity of this view.
+        This function first finds the major-axes (where the radius is a maximum), and the minor-axes 
+        (where the radius is at a minimum). 
+        
+        As a proxy for true radius that avoids multiple Math.sqrt() calls, we track the radius-squared
+        which we call the Q-value and its derivative slope, dQ. We check for peaks & troughs by noting 
+        inflections in its slope. Differentiating noisy data amplifies the jitter, so we use a Smoother 
+        to minimise (but not entirely eliminate) spurious inflection-points. This introduces some latency
+        into the detection pproces: the axis was actually passed {Window} samples earlier.
+
+        By comparing sign - changes across the three coordinates, we also infer the rotation direction
+        (the rotationSense) seen by each view.
+        */
+
+
+        // addMajor() is called whenever we pass a major-axis (dQ changes from positive to negative)
+        // To build an average resultant vector we must reverse coordinates at the "other" end of the axis.
+        
         addMajor(i: number, u: number, v: number, w: number, t: number) {
             if (w > 0) { // just surfaced above our plane so add-in current vector coordinates
                 this.above = true
@@ -843,29 +871,26 @@ namespace heading {
         For correction of future readings we will need to find the eccentricity and axis-tilt of
         each ellipse, and then (for highest accuracy) choose the most circular view. 
 
-        After re-centering all of the scanData samples (so eliminating "hard-iron" environmental 
-        magnetic effects), this function finds the major-axes (where the radius ia a maximum), 
-        and the minor-axes (where the radius is at a minimum).
+        This function finds the major-axes (where the radius ia a maximum), and the minor-axes (where 
+        the radius is at a minimum).
         
         To avoid multiple Math.sqrt() calls, we use the radius-squared (the sum of the squares of 
-        the coordinates) as a proxy called the Q-value.
+        the coordinates) as a proxy, called the Q-value, and check this for peaks & troughs.
 
-        We check the for peaks & troughs.
         Detecting these in noisy data is error-prone, so we use a Smoother to minimise 
         (but not entirely eliminate) spurious inflection-points. Due to the latency of this moving average,
-        (given by the constant {Window}) the axis was actually passed {Window} samples earlier 
-        than its actual detection, so we need to keep a delayed queue of points.
+        (given by the constant {Window}), any axis detected was actually passed {Window} samples earlier. 
 
-        By comparing sign-changes across the three coordinates, we also infer the rotation direction 
+        ??? By comparing sign-changes across the three coordinates, we also infer the rotation direction 
         (the rotationSense) seen by each view.
 
         The function uses the global scanTimes[] and scanData[] arrays, and updates the three
         global Ellipse objects, {xy, yz and zx}.
         */
 
-        let crossXY = 0
-        let crossYZ = 0
-        let crossZX = 0
+        //let crossXY = 0
+        //let crossYZ = 0
+        //let crossZX = 0
         let qXYWas = 0
         let qYZWas = 0
         let qZXWas = 0
@@ -874,15 +899,22 @@ namespace heading {
         let dqZXWas = 0
         let delay: number[][] = []
 
-        let xyz: number[] = scanData[0]
-        let x = xyz[Dimension.X] - xOff
-        let y = xyz[Dimension.Y] - yOff
-        let z = xyz[Dimension.Z] - zOff
-        let t = scanTimes[0]
+        let qXYlo = 9999999
+        let qYZlo = 9999999
+        let qZXlo = 9999999
+        let qXYhi = -9999999
+        let qYZhi = -9999999
+        let qZXhi = -9999999
 
-        let xsq = x*x
-        let ysq = y*y
-        let zsq = z*z
+
+        let t = scanTimes[0]
+        let xsq = scanData[0][Dimension.X]
+        let ysq = scanData[0][Dimension.Y]
+        let zsq = scanData[0][Dimension.Z]
+        xsq *= xsq
+        ysq *= ysq
+        zsq *= zsq
+
         let qXY = xsq + ysq
         let qYZ = ysq + zsq
         let qZX = zsq + xsq
@@ -902,22 +934,19 @@ namespace heading {
             dqYZWas = dqYZ
             dqZXWas = dqZX
 
-            // re-centre the next scanData sample
-            xyz = scanData[i]
-            x = xyz[Dimension.X] - xOff
-            y = xyz[Dimension.Y] - yOff
-            z = xyz[Dimension.Z] - zOff
 
-            xsq = x * x
-            ysq = y * y
-            zsq = z * z
+            t = scanTimes[i]
+            xsq = scanData[i][Dimension.X]
+            ysq = scanData[i][Dimension.Y]
+            zsq = scanData[i][Dimension.Z]
+            xsq *= xsq
+            ysq *= ysq
+            zsq *= zsq
             qXY = xsq + ysq
             qYZ = ysq + zsq
             qZX = zsq + xsq
 
-            t = scanTimes[i]
-
-            delay.push([x, y, z])  // this rolling array remembers recent sample history...
+            //delay.push([x, y, z])  // this rolling array remembers recent sample history...
 
             // use the Smoother to get less noisy slopes in the Q-values
             delta.update([qXY - qXYWas, qYZ - qYZWas, qZX - qZXWas], t)
@@ -933,15 +962,18 @@ namespace heading {
             if (dqYZ == 0) dqYZ = dqYZWas
             if (dqZX == 0) dqZX = dqZXWas
 
-            /* Look for peaks and troughs in the Q-values for each plane
+            // Look for peaks and troughs in the Q-values for each plane
             // don't start checking for minor axis until delta Smoother has stabilised
             if (i > Window) {
-                delay.splice(0, 1) // always maintain exactly {Window} samples in the queue
+                //delay.splice(0, 1) // always maintain exactly {Window} samples in the queue
 
                 // in case of axis detections, recover readings for scanData[i-Window] 
-                let xOld = delay[0][Dimension.X]
-                let yOld = delay[0][Dimension.Y]
-                let zOld = delay[0][Dimension.Z]
+                //let xOld = delay[0][Dimension.X]
+                //let yOld = delay[0][Dimension.Y]
+                //let zOld = delay[0][Dimension.Z]
+                let xOld = scanData[i - Window][Dimension.X]
+                let yOld = scanData[i - Window][Dimension.Y]
+                let zOld = scanData[i - Window][Dimension.Z]
 
                 // the sign of delta-Q change in indicates passing an axis of its ellipse
                 if (qXY * qXYWas < 0) {
@@ -965,7 +997,7 @@ namespace heading {
                     zx.addMinor(i, zOld, xOld, dqYZ)
                 }
             }
-            */
+        
 
 
             // accumulate cross-products of all sample-pairs to measure rotation for each plane.
