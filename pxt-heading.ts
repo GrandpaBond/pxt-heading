@@ -485,9 +485,31 @@ namespace heading {
 
         /*  While analysing each view plane, addAxis() is called by extractAxes() whenever the Ellipse radius 
             changes from growing to shrinking (or vice versa). Despite attempts to smooth it, noisy data
-            can cause fluctuations (or "bounces") near the axis, especially for more circular Ellipses.   
+            can cause fluctuations (or "bounces") near the axis, especially for more circular Ellipses.
+
+            The 
+    
 
         */
+        addAxis(i: number, u: number, v: number, dw: number, slope: number, slopeWas: number) {
+            if ((slope < 0) && (slopeWas > 0)) {
+                // peak is either major-axis or top of minor-axis "bounce"
+                // cross-product says how aligned we are to either axis
+                if (this.isNearerHi(u,v)) {
+                    this.addMajor(i, u, v, dw)
+                } else {
+                    this.addMinor(i, u, v, dw)
+                }
+            } else { 
+                // trough is either minor-axis or bottom of major-axis "bounce"
+                if (this.isNearerHi(u, v)) {
+                    this.addMinor(i, u, v, dw)
+                } else {
+                    this.addMajor(i, u, v, dw)
+                }
+            }
+        }
+
 
         // addMajor() is called whenever we pass a major-axis (dQ changes from positive to negative)
         // To build an average resultant vector we must reverse coordinates at the "other" end of the axis.
@@ -549,6 +571,13 @@ namespace heading {
             }
             // next major-axis will be first in its group
             this.gotMajor = false
+        }
+
+        // compare cross-products to decide if peak/trough is nearer ongoing major-axis than minor-axis
+        isNearerHi(u: number, v: number): boolean {
+            let fromHi = u * this.vHi - v * this.uHi
+            let fromLo = u * this.vLo - v * this.uLo
+            return (fromLo > fromHi)
         }
 
         // calculate() method is called after all scandata has been processed
