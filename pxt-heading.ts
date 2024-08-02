@@ -100,7 +100,7 @@ namespace heading {
         strength = -1
         period = -1
 
-        // unless test data has already been pre-loaded...
+        // unless test-data has already been pre-loaded...
         if (!debugMode) collectSamples(ms)  // ...take repeated magnetometer readings
         
         nSamples = Math.min(scanTimes.length, scanData.length) // (defend against pre-load mismatch)
@@ -145,7 +145,7 @@ namespace heading {
         yOff = (yhi + ylo) / 2
         zOff = (zhi + zlo) / 2
 
-        // 2nd pass re-centres the scanData samples, eliminating "hard-iron" environmental magnetic effects.
+        // 2nd pass re-centres all the scanData samples, eliminating "hard-iron" environmental magnetic effects.
         for (let i = 0; i < nSamples; i++) {
             scanData[i][Dimension.X] -= xOff
             scanData[i][Dimension.Y] -= yOff
@@ -169,8 +169,8 @@ namespace heading {
         if (yz.eccentricity < view.eccentricity) view = yz
         if (zx.eccentricity < view.eccentricity) view = zx
 
-        // periodicity may be unreliable in a near-circular View: 
-        // average just the other two views' measurements
+        // periodicity may be unreliable in a near-circular View, so we form an average using
+        // just the other two views' measurements
         period = (xy.period + yz.period + zx.period - view.period) / 2
 
         // For efficiency, extract various characteristics from the best Ellipse
@@ -221,7 +221,7 @@ namespace heading {
         }
 
         if (!debugMode) {
-            // we've now definitely finished with the scanning data, so release the memory
+            // we've now definitely finished with the scanning data, so release its memory
             scanTimes = []
             scanData = []
         }
@@ -251,7 +251,7 @@ namespace heading {
             Viewed from above, the Field-vector reading in radians INCREASES (anticlockwise) w.r.t "North"
             as the buggy's compass-heading INCREASES (clockwise).
             The reading will therefore increase by HalfPi after a right-turn from initially facing "North".
-            So subtracting North (cyclically), that converts asDegrees() to +90 
+            So subtracting North (cyclically), that converts asDegrees() to +90.
             From below (when rotationSense = -1), the same right-turn would DECREASE the reading by HalfPi
             necessitating a third reversal, but only after first subtracting North !
             */
@@ -430,9 +430,7 @@ namespace heading {
         nLo: number // minor-axis contributors
         rLo: number // minor-axis magnitude (radius)
 
-        above: boolean  // flag saying {w} is currently "above" our plane
-        gotMajor: boolean // flag saying we have clocked next transit of the major-axis
-        gotMinor: boolean // flag saying we have clocked next transit of the minor-axis
+        //above: boolean  // flag saying {w} is currently "above" our plane
         turns: number // number of full rotations since the first major-axis transit
         start: number // timestamp of first major-axis transit
         finish: number // timestamp of latest major-axis transit
@@ -459,14 +457,12 @@ namespace heading {
             this.uLo = 0
             this.vLo = 0
             this.nLo = 0
-            this.above = true
-            this.gotMinor = false
             this.tilt = 0
             this.start = 0
             this.finish = 0
             this.turns = -1
             this.period = -1
-            this.rotationSense = 1
+            this.rotationSense = 0
         }
 
         /* extractAxes() is called to find the tilt & eccentricity of this view.
@@ -483,30 +479,18 @@ namespace heading {
         (the rotationSense) seen by each view.
         */
 
-        /*  While analysing each view plane, addAxis() is called by extractAxes() whenever the Ellipse radius 
+        /* 
+         While analysing each view plane, addAxis() is called by extractAxes() whenever the Ellipse radius 
             changes from growing to shrinking (or vice versa). Despite attempts to smooth it, noisy data
             can cause fluctuations (or "bounces") near the axis, especially for more circular Ellipses.
-
-            The 
-    
-
         */
-        addAxis(i: number, u: number, v: number, dw: number, slope: number, slopeWas: number) {
-            if ((slope < 0) && (slopeWas > 0)) {
-                // peak is either major-axis or top of minor-axis "bounce"
-                // cross-product says how aligned we are to either axis
-                if (this.isNearerHi(u,v)) {
-                    this.addMajor(i, u, v, dw)
-                } else {
-                    this.addMinor(i, u, v, dw)
-                }
-            } else { 
-                // trough is either minor-axis or bottom of major-axis "bounce"
-                if (this.isNearerHi(u, v)) {
-                    this.addMinor(i, u, v, dw)
-                } else {
-                    this.addMajor(i, u, v, dw)
-                }
+        addAxis(i: number, u: number, v: number, dw: number, slope: number) {
+            if (slope < 0) { // now heading downwards...
+                // peak is either near major-axis, or the top of a minor-axis "bounce" --which we ignore
+                if (this.isNearerHi(u, v)) this.addMajor(i, u, v, dw) 
+            } else { // now heading upwards...
+                // trough is either near minor-axis, or the bottom of a major-axis "bounce" --which we ignore
+                if (!this.isNearerHi(u, v)) this.addMinor(i, u, v, dw)
             }
         }
 
@@ -515,29 +499,18 @@ namespace heading {
         // To build an average resultant vector we must reverse coordinates at the "other" end of the axis.
 
         addMajor(i: number, u: number, v: number, dw: number) {
-            if (dw > 0) { // just surfaced above our plane so add-in current vector coordinates
-                this.above = true
+            if (dw > 0) { // just surfacing above our plane so add-in current vector coordinates
                 this.uHi += u
                 this.vHi += v
                 if (this.start == 0) this.start = scanTimes[i] // start measuring turns
                 this.finish = scanTimes[i]
                 this.turns++
-            } else {  // just dipped below our plane so subtract current vector coordinates
+            } else {  // just dipping below our plane so subtract current vector coordinates
                 // (as it's the other end of the major-axis)
-                this.above = false
                 this.uHi -= u
                 this.vHi -= v
             }
             this.nHi++
-
-            // because of the possibility of clustered peaks/troughs (some of which partially cancel) 
-            // we only clock the first one on each transit
-            //if (!this.gotMajor) {
-            //    this.gotMajor = true
-            //    this.nHi++
-            //}
-            // next minor-axis will be first in its group
-            this.gotMinor = false
         }
 
         // addMinor() is called whenever the Normal coordinate changes from growing to shrinking.
@@ -562,21 +535,13 @@ namespace heading {
                     this.vLo -= v
                 }
                 this.nLo++
-
-                // because of the possibility of clustered peaks/troughs (some of which partially cancel) 
-                // we only clock the first one on each transit
-                //if (!this.gotMinor) {
-                //     this.gotMinor = true
-                //}
             }
-            // next major-axis will be first in its group
-            this.gotMajor = false
         }
 
         // compare cross-products to decide if peak/trough is nearer ongoing major-axis than minor-axis
         isNearerHi(u: number, v: number): boolean {
-            let fromHi = u * this.vHi - v * this.uHi
-            let fromLo = u * this.vLo - v * this.uLo
+            let fromHi = Math.abs((u * this.vHi) - (v * this.uHi)) // =zero if major-axis not yet found --> true
+            let fromLo = Math.abs((u * this.vLo) - (v * this.uLo)) // =zero if minor-axis not yet found --> false
             return (fromLo > fromHi)
         }
 
@@ -586,18 +551,25 @@ namespace heading {
             this.period = -1
             this.tilt = 0
             if (this.nHi > 0) {
+                // get average major-axis radius
                 this.uHi /= this.nHi
                 this.vHi /= this.nHi
                 this.rHi = Math.sqrt(this.uHi * this.uHi + this.vHi * this.vHi)
 
                 if (this.nLo > 0) {
+                // get average minor-axis radius
                     this.uLo /= this.nLo
                     this.vLo /= this.nLo
                     this.rLo = Math.sqrt(this.uLo * this.uLo + this.vLo * this.vLo)
+
                     this.eccentricity = this.rHi / this.rLo
 
-                    /* ? We have both axes, so we could use vector addition to refine the axis tilt a bit
-                     (but only after turning the minor-axis through a right angle).
+                    // use sign of  cross-product of axes to determine rotation-rotationSense
+                    let cross = (this.uLo * this.vHi) - (this.uHi * this.vLo)
+                    this.rotationSense = Math.abs(cross) / cross
+
+                    /* ? We do have both axes, so we could use vector addition to refine the axis tilt a bit
+                     (but only after turning the minor-axis through a right angle in the right direction).
 
                     But minor-axis angle can be quite inaccurate, so on balance --skip this for now!
 
@@ -857,7 +829,7 @@ namespace heading {
             // (but only after the delta Smoother has had enough contributions to stabilise)
             if (i > Window) {
 
-                // to prepare for axis detection, recover reading coordinates for scanData[i-Window] 
+                // to prepare for axis detection, recover reading coordinates for scanData[i-Window]
                 x = delay[0][Dimension.X]
                 y = delay[0][Dimension.Y]
                 z = delay[0][Dimension.Z]
@@ -867,25 +839,18 @@ namespace heading {
                 let dy = delay[1][Dimension.Y] - y
                 let dz = delay[1][Dimension.Z] - z
 
-                // slope of Q changes sign at an axis (usually just once, but maybe 3 or even 5 times for noisy data)
+                // slope of Q changes sign at an axis 
+                //(usually just once, but maybe 3 or even 5 times for noisy data!)
                 if (dqXY*dqXYWas < 0) {
-                    xy.addAxis(scanTimes[i-Window], x, y, dz, dqXY, dqXYWas)
+                    xy.addAxis(i - Window, x, y, dz, dqXY)
                 }
-
-                // A peak (Q changing from growing to shrinking) either indicates a major axis
-                // --or a "bounce" near a minor-axis!
-
-
-                if ((dqXY < 0) && (dqXYWas > 0)) xy.addMajor(i - Window, x, y, dz)
-                if ((dqYZ < 0) && (dqYZWas > 0)) yz.addMajor(i - Window, y, z, dx)
-                if ((dqZX < 0) && (dqZXWas > 0)) zx.addMajor(i - Window, z, x, dy)
-
-                // A trough (Q changing from shrinking to growing) either indicates a minor axis
-                // --or a "bounce" near a major-axis!
-                if ((dqXY > 0) && (dqXYWas < 0)) xy.addMinor(i - Window, x, y, dz)
-                if ((dqYZ > 0) && (dqYZWas < 0)) yz.addMinor(i - Window, y, z, dx)
-                if ((dqZX > 0) && (dqZXWas < 0)) zx.addMinor(i - Window, z, x, dy)
-
+                if (dqYZ * dqYZWas < 0) {
+                    yz.addAxis(i - Window, y, z, dx, dqYZ)
+                }
+                if (dqZX * dqZXWas < 0) {
+                    zx.addAxis(i - Window, z, x, dy, dqZX)
+                }
+                
                 delay.splice(0, 1) // always maintain exactly {Window} samples in the delay-queue
             }
         
@@ -907,10 +872,9 @@ namespace heading {
             */
         }
 
-        // use the collected vector-sums to compute ellipse characteristics
+        // use the collected vector-sums to compute average axes, and thence the ellipse characteristics
         xy.calculate()
         yz.calculate()
         zx.calculate()
-
     }
 }
