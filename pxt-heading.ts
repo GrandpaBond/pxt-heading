@@ -812,9 +812,9 @@ namespace heading {
 
             // use the Smoother to get less noisy slopes in the Q-values
             delta.update([qXY - qXYWas, qYZ - qYZWas, qZX - qZXWas], t)
-            dqXY = delta.average[Dimension.X]
-            dqYZ = delta.average[Dimension.Y]
-            dqZX = delta.average[Dimension.Z]
+            dqXY = delta.average[View.XY]
+            dqYZ = delta.average[View.YZ]
+            dqZX = delta.average[View.ZX]
 
             // to aid detection of sign-change in the slope, we doctor any values that are exactly zero
             //if (qXY == 0) qXY = qXYWas
@@ -829,7 +829,7 @@ namespace heading {
             // (but only after the delta Smoother has had enough contributions to stabilise)
             if (i > Window) {
 
-                // to prepare for axis detection, recover reading coordinates for scanData[i-Window]
+                // to prepare for axis detection, recover original delayed coordinates
                 x = delay[0][Dimension.X]
                 y = delay[0][Dimension.Y]
                 z = delay[0][Dimension.Z]
@@ -841,7 +841,7 @@ namespace heading {
 
                 // slope of Q changes sign at an axis 
                 //(usually just once, but maybe 3 or even 5 times for noisy data!)
-                if (dqXY*dqXYWas < 0) {
+                if (dqXY * dqXYWas < 0) {
                     xy.addAxis(i - Window, x, y, dz, dqXY)
                 }
                 if (dqYZ * dqYZWas < 0) {
