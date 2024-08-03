@@ -58,9 +58,14 @@ namespace heading {
     let strength = 0 // the average magnetic field-strength observed by the magnetometer
     let period = -1 // overall assessment of average rotation time
 
+    // amplitudes and central offsets of sinusoidal scan-readings in each dimension
+    let xField: number
+    let yField: number
+    let zField: number
     let xOff: number
     let yOff: number
     let zOff: number
+
 
     // correction parameters adopted from bestView Ellipse for future readings
     let rotationSense = 1 // set to -1 if orientation means field-vector projection is "from below"
@@ -130,9 +135,9 @@ namespace heading {
         }
 
         // get RMS field-strength
-        let xField = (xhi - xlo) / 2
-        let yField = (yhi - ylo) / 2
-        let zField = (zhi - zlo) / 2
+        xField = (xhi - xlo) / 2
+        yField = (yhi - ylo) / 2
+        zField = (zhi - zlo) / 2
         strength = Math.sqrt((xField * xField) + (yField * yField) + (zField * zField))
 
         // Bail out early if the scan didn't properly detect the Earth's magnetic field,
@@ -140,6 +145,7 @@ namespace heading {
         if (strength < MarginalField) {
             return -2 // "FIELD STRENGTH TOO WEAK"
         }
+
         // The means of the extremes give a good approximation to the central offsets.
         xOff = (xhi + xlo) / 2
         yOff = (yhi + ylo) / 2
@@ -481,9 +487,8 @@ namespace heading {
 
         /* 
          While analysing each view plane, addAxis() is called by extractAxes() whenever the Ellipse radius 
-            changes from growing to shrinking (or vice versa). Despite attempts to smooth it, noisy data
-            can cause fluctuations (or "bounces") near the axis, especially for more circular Ellipses.
-        */
+            changes from growing to shrinking (or vice versa).
+      
         addAxis(i: number, u: number, v: number, dw: number, slope: number) {
             if (slope < 0) { // now heading downwards...
                 // peak is either near major-axis, or the top of a minor-axis "bounce" --which we ignore
@@ -493,7 +498,7 @@ namespace heading {
                 if (!this.isNearerHi(u, v)) this.addMinor(i, u, v, dw)
             }
         }
-
+  */
 
         // addMajor() is called whenever we pass a major-axis (dQ changes from positive to negative)
         // To build an average resultant vector we must reverse coordinates at the "other" end of the axis.
@@ -538,12 +543,13 @@ namespace heading {
             }
         }
 
-        // compare cross-products to decide if peak/trough is nearer ongoing major-axis than minor-axis
+        /* compare cross-products to decide if peak/trough is nearer ongoing major-axis than minor-axis
         isNearerHi(u: number, v: number): boolean {
             let fromHi = Math.abs((u * this.vHi) - (v * this.uHi)) // =zero if major-axis not yet found --> true
             let fromLo = Math.abs((u * this.vLo) - (v * this.uLo)) // =zero if minor-axis not yet found --> false
-            return (fromLo > fromHi)
+            return (fromHi < fromLo)
         }
+        */
 
         // calculate() method is called after all scandata has been processed
         calculate() {
@@ -750,12 +756,24 @@ namespace heading {
 
         To find the axes we track the slope of Q, looking for inflections at peaks and troughs.
         Detecting maxima & minima in differentials of noisy data is error-prone, so we use a Smoother to reduce 
-        (but not entirely eliminate) spurious inflection-points. NOTE that, due to the latency of this moving
-        average, any axis we detect was actually passed {Window} samples earlier.
+        spurious inflection-points. (NOTE that, due to the latency of this moving
+        average, any axis we detect was actually passed {Window} samples earlier.)
+
+        Despite this smoothing of dQ, fluctuations (or "bounces") can still occur near an axis,
+        especially for more circular Ellipses. So a "peak" might occur near a minor-axis or a trough 
+        near a major-axis. Because a maxor-axis implies that the field is most nearly aligned with that
+        plane, the orthogonal reading will always be at its smallest. Conversely, at a minor-axis, 
+        the orthogonal reading will always be near its peak amplitude. We use this fact to weed out
+        spurious peaks and troughs.
         
         For better accuracy multiple axis-crossings are averaged, but each axis gets passed twice per rotation
         so it is important to either add or subtract vectors, according to which "end" is being crossed. This
-        is best policed by checking the slope of the orthogonal dimension's coordinate. 
+        is best policed by checking the slope of the orthogonal reading. 
+
+        This function also calculates the apparent scan-rotation period by monitoring the times and count of 
+        major-axis crossings (ignoring multiples due to "bounces").
+
+        The cross-products of axis-angles also gives us the rotation-sense as seen by each view.
 
         The function uses the global scanTimes[] and scanData[] arrays, and updates the three
         global Ellipse objects, {xy, yz and zx}.
@@ -839,8 +857,20 @@ namespace heading {
                 let dy = delay[1][Dimension.Y] - y
                 let dz = delay[1][Dimension.Z] - z
 
-                // slope of Q changes sign at an axis 
-                //(usually just once, but maybe 3 or even 5 times for noisy data!)
+                if ((dqXY < 0) && (dqXYWas > 0)) { // a peak in XY
+                    if (Math.abs(z) < zField/2) {
+                        xy.addMajor(i,x,y,dz)
+                    }
+                }
+
+                if ((dqXY > 0) && (dqXYWas < 0)) { // a trough in XY
+                    if (Math.abs(z) > zField / 2) {
+                        xy.addMinor(i, x, y, dz)
+                    }
+                }
+
+                /* slope of Q changes sign at an axis (usually just once, but maybe 3 or even 5 times for noisy data!)
+                
                 if (dqXY * dqXYWas < 0) {
                     xy.addAxis(i - Window, x, y, dz, dqXY)
                 }
@@ -850,26 +880,32 @@ namespace heading {
                 if (dqZX * dqZXWas < 0) {
                     zx.addAxis(i - Window, z, x, dy, dqZX)
                 }
+                */
+
+
+
+
+
+
                 
                 delay.splice(0, 1) // always maintain exactly {Window} samples in the delay-queue
             }
         
-            /*
-            if (mode != Mode.Normal) {
+            /***  ***/
+            if (debugMode) {
                 datalogger.log(
-                    datalogger.createCV("t", t),
-                    datalogger.createCV("x", round2(x)),
-                    datalogger.createCV("y", round2(y)),
-                    datalogger.createCV("z", round2(z)),
-                    datalogger.createCV("dx", round2(dx)),
-                    datalogger.createCV("dy", round2(dy)),
-                    datalogger.createCV("dz", round2(dz)),
-                    datalogger.createCV("crossYZ", round2(crossYZ)),
-                    datalogger.createCV("crossZX", round2(crossZX)),
-                    datalogger.createCV("crossXY", round2(crossXY))
+                    datalogger.createCV("i", i),
+                    datalogger.createCV("xy.uHi", round2(xy.uHi)),
+                    datalogger.createCV("xy.vHi", round2(xy.vHi)),
+                    datalogger.createCV("xy.nHi", round2(xy.nHi)),
+                    datalogger.createCV("yz.uHi", round2(yz.uHi)),
+                    datalogger.createCV("yz.vHi", round2(yz.vHi)),
+                    datalogger.createCV("yz.nHi", round2(yz.nHi)),
+                    datalogger.createCV("zx.uHi", round2(zx.uHi)),
+                    datalogger.createCV("zx.vHi", round2(zx.vHi)),
+                    datalogger.createCV("zx.nHi", round2(zx.nHi)),
                 )
             }
-            */
         }
 
         // use the collected vector-sums to compute average axes, and thence the ellipse characteristics
