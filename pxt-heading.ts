@@ -755,38 +755,43 @@ namespace heading {
         (the sum of the squares of the coordinates) as a proxy, called the Q-value.
 
         To find the axes we track the slope of Q, looking for inflections at peaks and troughs.
+       ======================================
+       
         Detecting maxima & minima in differentials of noisy data is error-prone, so we use a Smoother to reduce 
         spurious inflection-points. (NOTE that, due to the latency of this moving
         average, any axis we detect was actually passed {Window} samples earlier.)
-
-        Despite this smoothing of dQ, fluctuations (or "bounces") can still occur near an axis,
-        especially for more circular Ellipses. So a "peak" might occur near a minor-axis or a trough 
-        near a major-axis. Because a maxor-axis implies that the field is most nearly aligned with that
-        plane, the orthogonal reading will always be at its smallest. Conversely, at a minor-axis, 
-        the orthogonal reading will always be near its peak amplitude. We use this fact to weed out
-        spurious peaks and troughs.
+        ===================================
+        Because of noisy data, fluctuations (or "bounces") can occur near an axis, especially for 
+        more circular Ellipses. So a "peak" might occur near a minor-axis or a trough near a major-axis.
+        At a maxor-axis the field is most nearly aligned with that plane, so the orthogonal reading 
+        will always be at its smallest there. Conversely, at a minor-axis, the orthogonal reading will 
+        always be near its peak amplitude. We use this fact to weed out spurious peaks and troughs.
         
-        For better accuracy multiple axis-crossings are averaged, but each axis gets passed twice per rotation
+        For better accuracy multiple axis-crossings are averaged, but each axis gets passed TWICE per rotation
         so it is important to either add or subtract vectors, according to which "end" is being crossed. This
-        is best policed by checking the slope of the orthogonal reading. 
+        is best policed by checking the orthogonal reading (its slope for a major-axis; its sign for a minor-axis). 
 
         This function also calculates the apparent scan-rotation period by monitoring the times and count of 
-        major-axis crossings (ignoring multiples due to "bounces").
+        major-axis crossings (but accommodating multiple contributions due to "bounces").
 
-        The cross-products of axis-angles also gives us the rotation-sense as seen by each view.
+        The cross-products of the axis-angles also gives us the rotation-sense as seen by each view.
 
         The function uses the global scanTimes[] and scanData[] arrays, and updates the three
         global Ellipse objects, {xy, yz and zx}.
         */
 
         // keep some history
+        let xWas = 0
+        let yWas = 0
+        let zWas = 0
         let qXYWas = 0
         let qYZWas = 0
         let qZXWas = 0
         let dqXYWas = 0
         let dqYZWas = 0
         let dqZXWas = 0
-        let delay: number[][] = []  // this rolling array remembers recent sample history...
+
+        //let delay: number[][] = []  // this rolling array remembers recent sample history...
 
         // preload first samples
         let t = scanTimes[0]
@@ -800,21 +805,25 @@ namespace heading {
         let qYZ = ysq + zsq
         let qZX = zsq + xsq
 
-        // prepare a Smoother for the slope deltas
         let dqXY = 0
         let dqYZ = 0
         let dqZX = 0
-        let delta = new Smoother([dqXY, dqYZ, dqZX], t)
+
+        // prepare a Smoother for the slope deltas
+        //let delta = new Smoother([dqXY, dqYZ, dqZX], t)
 
         for (let i = 1; i < nSamples; i++) {
             // update history
+            xWas = x
+            yWas = y
+            zWas = z
             qXYWas = qXY
             qYZWas = qYZ
             qZXWas = qZX
             dqXYWas = dqXY
             dqYZWas = dqYZ
             dqZXWas = dqZX
-     
+            // get next sample
             t = scanTimes[i]
             x = scanData[i][Dimension.X]
             y = scanData[i][Dimension.Y]
@@ -822,74 +831,84 @@ namespace heading {
             xsq = x * x
             ysq = y * y
             zsq = z * z
-            delay.push([x, y, z])
+            //delay.push([x, y, z])
             qXY = xsq + ysq
             qYZ = ysq + zsq
             qZX = zsq + xsq
 
 
-            // use the Smoother to get less noisy slopes in the Q-values
+            /* use the Smoother to get less noisy slopes in the Q-values
             delta.update([qXY - qXYWas, qYZ - qYZWas, qZX - qZXWas], t)
             dqXY = delta.average[View.XY]
             dqYZ = delta.average[View.YZ]
             dqZX = delta.average[View.ZX]
+            */
 
-            // to aid detection of sign-change in the slope, we doctor any values that are exactly zero
             //if (qXY == 0) qXY = qXYWas
             //if (qYZ == 0) qYZ = qYZWas
             //if (qZX == 0) qZX = qZXWas
 
+            dqXY = qXY - qXYWas
+            dqYZ = qYZ - qYZWas
+            dqZX = qZX - qZXWas
+
+            // to aid detection of sign-change in the slope, we doctor any values that are exactly zero
             if (dqXY == 0) dqXY = dqXYWas
             if (dqYZ == 0) dqYZ = dqYZWas
             if (dqZX == 0) dqZX = dqZXWas
 
             // Look for peaks and troughs in the Q-values for each plane
-            // (but only after the delta Smoother has had enough contributions to stabilise)
+            /* (but only after the delta Smoother has had enough contributions to stabilise)
             if (i > Window) {
-
-                // to prepare for axis detection, recover original delayed coordinates
+                
+                to prepare for axis detection, recover original delayed coordinates
                 x = delay[0][Dimension.X]
                 y = delay[0][Dimension.Y]
                 z = delay[0][Dimension.Z]
-
-                // prepare their historical slopes too
-                let dx = delay[1][Dimension.X] - x
-                let dy = delay[1][Dimension.Y] - y
-                let dz = delay[1][Dimension.Z] - z
-
-                if ((dqXY < 0) && (dqXYWas > 0)) { // a peak in XY
-                    if (Math.abs(z) < zField/2) {
-                        xy.addMajor(i,x,y,dz)
-                    }
-                }
-
-                if ((dqXY > 0) && (dqXYWas < 0)) { // a trough in XY
-                    if (Math.abs(z) > zField / 2) {
-                        xy.addMinor(i, x, y, dz)
-                    }
-                }
-
-                /* slope of Q changes sign at an axis (usually just once, but maybe 3 or even 5 times for noisy data!)
-                
-                if (dqXY * dqXYWas < 0) {
-                    xy.addAxis(i - Window, x, y, dz, dqXY)
-                }
-                if (dqYZ * dqYZWas < 0) {
-                    yz.addAxis(i - Window, y, z, dx, dqYZ)
-                }
-                if (dqZX * dqZXWas < 0) {
-                    zx.addAxis(i - Window, z, x, dy, dqZX)
-                }
                 */
 
 
-
-
-
-
-                
-                delay.splice(0, 1) // always maintain exactly {Window} samples in the delay-queue
+            // A peak only qualifes as a major-axis when the orthogonal field is small: 
+            // --its slope says which end
+            if ((dqXY < 0) && (dqXYWas > 0)) {
+                if (Math.abs(z) < zField * 0.25) {
+                    xy.addMajor(i, x, y, z - zWas)
+                }
             }
+
+            if ((dqYZ < 0) && (dqYZWas > 0)) {
+                if (Math.abs(x) < xField * 0.25) {
+                    yz.addMajor(i, y, z, x - xWas)
+                }
+            }
+
+            if ((dqZX < 0) && (dqZXWas > 0)) {
+                if (Math.abs(y) < yField * 0.25) {
+                    xy.addMajor(i, z, x, y - yWas)
+                }
+            }
+
+            // A trough only qualifies as a minor-axis when orthogonal field is big: 
+            // --its sign says which end
+            if ((dqXY > 0) && (dqXYWas < 0)) {
+                if (Math.abs(z) > zField * 0.75) {
+                    xy.addMinor(i, x, y, z) 
+                }
+            }
+
+            if ((dqYZ > 0) && (dqYZWas < 0)) {
+                if (Math.abs(x) > xField * 0.75) {
+                    yz.addMinor(i, y, z, x)
+                }
+            }
+
+            if ((dqZX > 0) && (dqZXWas < 0)) {
+                if (Math.abs(y) > yField * 0.75) {
+                    zx.addMinor(i, z, x, y)
+                }
+            }
+
+            
         
             /***  ***/
             if (debugMode) {
