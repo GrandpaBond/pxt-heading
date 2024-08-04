@@ -476,43 +476,26 @@ namespace heading {
         This function first finds the major-axes (where the radius is a maximum), and the minor-axes 
         (where the radius is at a minimum). 
         
-        As a proxy for true radius that avoids multiple Math.sqrt() calls, we track the radius-squared
-        which we call the Q-value and its derivative slope, dQ. We check for peaks & troughs by noting 
-        inflections in its slope. Differentiating noisy data amplifies the jitter, so we use a Smoother 
-        to minimise (but not entirely eliminate) spurious inflection-points. This introduces some latency
-        into the detection pproces: the axis was actually passed {Window} samples earlier.
-
-        By comparing sign - changes across the three coordinates, we also infer the rotation direction
-        (the rotationSense) seen by each view.
+        As a proxy for the true radius (requiring multiple Math.sqrt() calls), we track the radius-squared,
+        (which we call the Q-value) and its derivative slope, dQ. We check for peaks & troughs by noting 
+        the inflections in its slope.
         */
 
-        /* 
-         While analysing each view plane, addAxis() is called by extractAxes() whenever the Ellipse radius 
-            changes from growing to shrinking (or vice versa).
-      
-        addAxis(i: number, u: number, v: number, dw: number, slope: number) {
-            if (slope < 0) { // now heading downwards...
-                // peak is either near major-axis, or the top of a minor-axis "bounce" --which we ignore
-                if (this.isNearerHi(u, v)) this.addMajor(i, u, v, dw) 
-            } else { // now heading upwards...
-                // trough is either near minor-axis, or the bottom of a major-axis "bounce" --which we ignore
-                if (!this.isNearerHi(u, v)) this.addMinor(i, u, v, dw)
-            }
-        }
-  */
-
         // addMajor() is called whenever we pass a major-axis (dQ changes from positive to negative)
-        // To build an average resultant vector we must reverse coordinates at the "other" end of the axis.
-
+        // It builds a resultant vector (reversing coordinates at the "other" end of the axis).
         addMajor(i: number, u: number, v: number, dw: number) {
             if (dw > 0) { // just surfacing above our plane so add-in current vector coordinates
                 this.uHi += u
                 this.vHi += v
                 if (this.newTurn) { // clock this major-axis crossing
-                    if (this.start == 0) this.start = scanTimes[i] // start measuring turns
+                    if (this.start == 0) {
+                        this.start = scanTimes[i] // start measuring turns
+                        this.turns = 0
+                    }
                     this.finish = scanTimes[i]
                     this.turns++
-                    this.newTurn = false // deny future clocking of another major-axis crossing
+                    this.newTurn = false // deny future clocking of another major-axis crossing...
+                    //... until after the next minor axis crossing
                 }
             } else {  // just dipping below our plane so subtract current vector coordinates
                 // (as it's the other end of the major-axis)
@@ -525,35 +508,18 @@ namespace heading {
         // addMinor() is called whenever the Normal coordinate changes from growing to shrinking.
         // This means the field-vector is farthest from our plane (above or below), so we're near
         // the minor-axis of this plane's ellipse.
-        /* 
-        NOTE: noisy readings may yield multiple inflections in this third coordinate 
-         (e.g. peak-trough-peak above the plane, or trough-peak-trough below), leading to this method 
-         being invoked multiple times for the same transit (though always an odd number).
-         At peaks the radius is always added to the sum-vector [uLo, vLo] , while at troughs it is 
-         always subtracted, so redundant matched pairs will always cancel out. However, we must be 
-         careful only to count this transit once (using the flag this.newMinor), however many false 
-         pairs of calls we may get.
-        */
         addMinor(i: number, u: number, v: number, w: number) {
-            if (w > 0) {
+            if (w > 0) { // orthogonal reading is near its positive maximum
                 this.uLo += u
                 this.vLo += v
-            } else {
+            } else { // orthogonal reading is near its negative maximum
                 this.uLo -= u
                 this.vLo -= v
             }
             this.nLo++
             this.newTurn = true // permit future clocking of a major-axis crossing
-
         }
 
-        /* compare cross-products to decide if peak/trough is nearer ongoing major-axis than minor-axis
-        isNearerHi(u: number, v: number): boolean {
-            let fromHi = Math.abs((u * this.vHi) - (v * this.uHi)) // =zero if major-axis not yet found --> true
-            let fromLo = Math.abs((u * this.vLo) - (v * this.uLo)) // =zero if minor-axis not yet found --> false
-            return (fromHi < fromLo)
-        }
-        */
 
         // calculate() method is called after all scandata has been processed
         calculate() {
@@ -567,36 +533,24 @@ namespace heading {
                 this.rHi = Math.sqrt(this.uHi * this.uHi + this.vHi * this.vHi)
 
                 if (this.nLo > 0) {
-                // get average minor-axis radius
+                    // get average minor-axis radius
                     this.uLo /= this.nLo
                     this.vLo /= this.nLo
                     this.rLo = Math.sqrt(this.uLo * this.uLo + this.vLo * this.vLo)
-
+                    // ratio of axes gives eccentricity
                     this.eccentricity = this.rHi / this.rLo
 
                     // use sign of  cross-product of axes to determine rotation-rotationSense
                     let cross = (this.uLo * this.vHi) - (this.uHi * this.vLo)
                     this.rotationSense = Math.abs(cross) / cross
 
-                    /* ? We do have both axes, so we could use vector addition to refine the axis tilt a bit
-                     (but only after turning the minor-axis through a right angle in the right direction).
-
-                    But minor-axis angle can be quite inaccurate, so on balance --skip this for now!
-
-                    let uMean = this.uHi + this.vLo
-                    let vMean = this.vHi - this.uLo
-                    let rMean = this.rHi + this.rLo
-                    this.tilt = Math.atan2(vMean, uMean)
-                    this.cosa = uMean / rMean
-                    this.sina = vMean / rMean
-                    */
-
-                    // save major-axis, and its components
+                    // save the major-axis angle, and its components
                     this.tilt = Math.atan2(this.vHi, this.uHi)
                     this.cosa = this.uHi / this.rHi
                     this.sina = this.vHi / this.rHi
                 }
             }
+            // get average time for scan rotation 
             if (this.turns > 0) {
                 this.period = (this.finish - this.start) / this.turns
             }
@@ -611,6 +565,7 @@ namespace heading {
                     datalogger.createCV("tilt", round2(this.tilt)),
                     datalogger.createCV("eccen.", round2(this.eccentricity)),
                     datalogger.createCV("sense", this.rotationSense),
+                    datalogger.createCV("turns", this.turns),
                     datalogger.createCV("period", round2(this.period))
                 )
             }
@@ -914,7 +869,7 @@ namespace heading {
                     datalogger.createCV("xy.u", round2(xy.uHi)),
                     datalogger.createCV("xy.v", round2(xy.vHi)),
                     datalogger.createCV("xy.n", round2(xy.nHi)),
-                    datalogger.createCV("yz.i", round2(yz.uHi)),
+                    datalogger.createCV("yz.u", round2(yz.uHi)),
                     datalogger.createCV("yz.v", round2(yz.vHi)),
                     datalogger.createCV("yz.n", round2(yz.nHi)),
                     datalogger.createCV("zx.u", round2(zx.uHi)),
