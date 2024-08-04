@@ -69,7 +69,7 @@ namespace heading {
 
     // correction parameters adopted from bestView Ellipse for future readings
     let rotationSense = 1 // set to -1 if orientation means field-vector projection is "from below"
-    let isCircular: boolean // if bestView Ellipse is circular, no correction is needed
+    let isCircular: boolean // if best view Ellipse is circular, no correction is needed
     let uOff: number // horizontal origin offset
     let vOff: number // vertical origin offset
     let theta: number  // major-axis tilt angle (in radians anticlockwise from the U-axis)
@@ -436,7 +436,8 @@ namespace heading {
         nLo: number // minor-axis contributors
         rLo: number // minor-axis magnitude (radius)
 
-        //above: boolean  // flag saying {w} is currently "above" our plane
+    
+        newTurn: boolean  // allow clocking of a major-axis crossing
         turns: number // number of full rotations since the first major-axis transit
         start: number // timestamp of first major-axis transit
         finish: number // timestamp of latest major-axis transit
@@ -447,7 +448,6 @@ namespace heading {
         cosa: number // helpful cosine of the tilt
         sina: number // helpful sine of the tilt
         eccentricity: number // ratio of major-axis to minor-axis magnitudes for this Ellipse
-        isCircular: boolean // flag saying this "Ellipse" View is almost circular, simplifying future handling
         rotationSense: number // rotation sign = +/-1, reflecting this Ellipse's view of the clockwise scan
 
 
@@ -467,6 +467,7 @@ namespace heading {
             this.start = 0
             this.finish = 0
             this.turns = -1
+            this.newTurn = true
             this.period = -1
             this.rotationSense = 0
         }
@@ -507,9 +508,12 @@ namespace heading {
             if (dw > 0) { // just surfacing above our plane so add-in current vector coordinates
                 this.uHi += u
                 this.vHi += v
-                if (this.start == 0) this.start = scanTimes[i] // start measuring turns
-                this.finish = scanTimes[i]
-                this.turns++
+                if (this.newTurn) { // clock this major-axis crossing
+                    if (this.start == 0) this.start = scanTimes[i] // start measuring turns
+                    this.finish = scanTimes[i]
+                    this.turns++
+                    this.newTurn = false // deny future clocking of another major-axis crossing
+                }
             } else {  // just dipping below our plane so subtract current vector coordinates
                 // (as it's the other end of the major-axis)
                 this.uHi -= u
@@ -530,17 +534,17 @@ namespace heading {
          careful only to count this transit once (using the flag this.newMinor), however many false 
          pairs of calls we may get.
         */
-        addMinor(i: number, u: number, v: number, dw: number) {
-            if (this.start > 0) { // don't start adding minor-axes until this.above is clearly known
-                if (dw > 0) {
-                    this.uLo += u
-                    this.vLo += v
-                } else {
-                    this.uLo -= u
-                    this.vLo -= v
-                }
-                this.nLo++
+        addMinor(i: number, u: number, v: number, w: number) {
+            if (w > 0) {
+                this.uLo += u
+                this.vLo += v
+            } else {
+                this.uLo -= u
+                this.vLo -= v
             }
+            this.nLo++
+            this.newTurn = true // permit future clocking of a major-axis crossing
+
         }
 
         /* compare cross-products to decide if peak/trough is nearer ongoing major-axis than minor-axis
@@ -595,6 +599,20 @@ namespace heading {
             }
             if (this.turns > 0) {
                 this.period = (this.finish - this.start) / this.turns
+            }
+
+            if(debugMode) {
+                datalogger.log(
+                    datalogger.createCV("plane", this.plane),
+                    datalogger.createCV("uHi", round2(this.uHi)),
+                    datalogger.createCV("vHi", round2(this.vHi)),
+                    datalogger.createCV("uLo", round2(this.uLo)),
+                    datalogger.createCV("vLo", round2(this.vLo)),
+                    datalogger.createCV("tilt", round2(this.tilt)),
+                    datalogger.createCV("eccen.", round2(this.eccentricity)),
+                    datalogger.createCV("sense", this.rotationSense),
+                    datalogger.createCV("period", round2(this.period))
+                )
             }
         }
     }
@@ -761,37 +779,26 @@ namespace heading {
         spurious inflection-points. (NOTE that, due to the latency of this moving
         average, any axis we detect was actually passed {Window} samples earlier.)
         ===================================
+
+
         Because of noisy data, fluctuations (or "bounces") can occur near an axis, especially for 
         more circular Ellipses. So a "peak" might occur near a minor-axis or a trough near a major-axis.
         At a maxor-axis the field is most nearly aligned with that plane, so the orthogonal reading 
-        will always be at its smallest there. Conversely, at a minor-axis, the orthogonal reading will 
+        will always be near its smallest there. Conversely, at a minor-axis, the orthogonal reading will 
         always be near its peak amplitude. We use this fact to weed out spurious peaks and troughs.
         
         For better accuracy multiple axis-crossings are averaged, but each axis gets passed TWICE per rotation
-        so it is important to either add or subtract vectors, according to which "end" is being crossed. This
-        is best policed by checking the orthogonal reading (its slope for a major-axis; its sign for a minor-axis). 
+        so it is important to either add or subtract vectors, according to which "end" is being crossed. This is
+        best policed by checking the orthogonal reading (its slope for a major-axis; its sign for a minor-axis). 
 
         This function also calculates the apparent scan-rotation period by monitoring the times and count of 
-        major-axis crossings (but accommodating multiple contributions due to "bounces").
+        major-axis crossings (ignoring multiple contributions due to "bounces").
 
         The cross-products of the axis-angles also gives us the rotation-sense as seen by each view.
 
         The function uses the global scanTimes[] and scanData[] arrays, and updates the three
         global Ellipse objects, {xy, yz and zx}.
         */
-
-        // keep some history
-        let xWas = 0
-        let yWas = 0
-        let zWas = 0
-        let qXYWas = 0
-        let qYZWas = 0
-        let qZXWas = 0
-        let dqXYWas = 0
-        let dqYZWas = 0
-        let dqZXWas = 0
-
-        //let delay: number[][] = []  // this rolling array remembers recent sample history...
 
         // preload first samples
         let t = scanTimes[0]
@@ -805,10 +812,23 @@ namespace heading {
         let qYZ = ysq + zsq
         let qZX = zsq + xsq
 
-        let dqXY = 0
-        let dqYZ = 0
-        let dqZX = 0
+        // monitor the slope of the Q-curves
+        let dqXY: number
+        let dqYZ: number
+        let dqZX: number
 
+        // maintain some history
+        let xWas: number
+        let yWas: number
+        let zWas: number
+        let qXYWas: number
+        let qYZWas: number
+        let qZXWas: number
+        let dqXYWas: number
+        let dqYZWas: number
+        let dqZXWas: number
+
+ 
         // prepare a Smoother for the slope deltas
         //let delta = new Smoother([dqXY, dqYZ, dqZX], t)
 
@@ -823,6 +843,7 @@ namespace heading {
             dqXYWas = dqXY
             dqYZWas = dqYZ
             dqZXWas = dqZX
+
             // get next sample
             t = scanTimes[i]
             x = scanData[i][Dimension.X]
@@ -831,23 +852,9 @@ namespace heading {
             xsq = x * x
             ysq = y * y
             zsq = z * z
-            //delay.push([x, y, z])
             qXY = xsq + ysq
             qYZ = ysq + zsq
             qZX = zsq + xsq
-
-
-            /* use the Smoother to get less noisy slopes in the Q-values
-            delta.update([qXY - qXYWas, qYZ - qYZWas, qZX - qZXWas], t)
-            dqXY = delta.average[View.XY]
-            dqYZ = delta.average[View.YZ]
-            dqZX = delta.average[View.ZX]
-            */
-
-            //if (qXY == 0) qXY = qXYWas
-            //if (qYZ == 0) qYZ = qYZWas
-            //if (qZX == 0) qZX = qZXWas
-
             dqXY = qXY - qXYWas
             dqYZ = qYZ - qYZWas
             dqZX = qZX - qZXWas
@@ -857,19 +864,10 @@ namespace heading {
             if (dqYZ == 0) dqYZ = dqYZWas
             if (dqZX == 0) dqZX = dqZXWas
 
-            // Look for peaks and troughs in the Q-values for each plane
-            /* (but only after the delta Smoother has had enough contributions to stabilise)
-            if (i > Window) {
-                
-                to prepare for axis detection, recover original delayed coordinates
-                x = delay[0][Dimension.X]
-                y = delay[0][Dimension.Y]
-                z = delay[0][Dimension.Z]
-                */
-
+            // Look for peaks and troughs in the Q-values for each plane.
 
             // A peak only qualifes as a major-axis when the orthogonal field is small: 
-            // --its slope says which end
+            // --the sign of its slope says which end is which
             if ((dqXY < 0) && (dqXYWas > 0)) {
                 if (Math.abs(z) < zField * 0.25) {
                     xy.addMajor(i, x, y, z - zWas)
@@ -884,12 +882,12 @@ namespace heading {
 
             if ((dqZX < 0) && (dqZXWas > 0)) {
                 if (Math.abs(y) < yField * 0.25) {
-                    xy.addMajor(i, z, x, y - yWas)
+                    zx.addMajor(i, z, x, y - yWas)
                 }
             }
 
             // A trough only qualifies as a minor-axis when orthogonal field is big: 
-            // --its sign says which end
+            // --its sign says which end is which
             if ((dqXY > 0) && (dqXYWas < 0)) {
                 if (Math.abs(z) > zField * 0.75) {
                     xy.addMinor(i, x, y, z) 
@@ -909,22 +907,35 @@ namespace heading {
             }
 
             
-        
             /***  ***/
             if (debugMode) {
                 datalogger.log(
                     datalogger.createCV("i", i),
-                    datalogger.createCV("xy.uHi", round2(xy.uHi)),
-                    datalogger.createCV("xy.vHi", round2(xy.vHi)),
-                    datalogger.createCV("xy.nHi", round2(xy.nHi)),
-                    datalogger.createCV("yz.uHi", round2(yz.uHi)),
-                    datalogger.createCV("yz.vHi", round2(yz.vHi)),
-                    datalogger.createCV("yz.nHi", round2(yz.nHi)),
-                    datalogger.createCV("zx.uHi", round2(zx.uHi)),
-                    datalogger.createCV("zx.vHi", round2(zx.vHi)),
-                    datalogger.createCV("zx.nHi", round2(zx.nHi)),
+                    datalogger.createCV("xy.u", round2(xy.uHi)),
+                    datalogger.createCV("xy.v", round2(xy.vHi)),
+                    datalogger.createCV("xy.n", round2(xy.nHi)),
+                    datalogger.createCV("yz.i", round2(yz.uHi)),
+                    datalogger.createCV("yz.v", round2(yz.vHi)),
+                    datalogger.createCV("yz.n", round2(yz.nHi)),
+                    datalogger.createCV("zx.u", round2(zx.uHi)),
+                    datalogger.createCV("zx.v", round2(zx.vHi)),
+                    datalogger.createCV("zx.n", round2(zx.nHi))
                 )
             }
+        }
+        if (debugMode) {
+            datalogger.log(
+                datalogger.createCV("i", -1),
+                datalogger.createCV("xy.u", round2(xy.uLo)),
+                datalogger.createCV("xy.v", round2(xy.vLo)),
+                datalogger.createCV("xy.n", round2(xy.nLo)),
+                datalogger.createCV("yz.u", round2(yz.uLo)),
+                datalogger.createCV("yz.v", round2(yz.vLo)),
+                datalogger.createCV("yz.n", round2(yz.nLo)),
+                datalogger.createCV("zx.u", round2(zx.uLo)),
+                datalogger.createCV("zx.v", round2(zx.vLo)),
+                datalogger.createCV("zx.n", round2(zx.nLo))
+            )
         }
 
         // use the collected vector-sums to compute average axes, and thence the ellipse characteristics
