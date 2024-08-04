@@ -25,8 +25,6 @@ namespace heading {
     const TooManySamples = 500 // don't be too greedy with memory!
     const MarginalField = 10 // minimum acceptable field-strength for magnetometer readings
     const Circular = 1.03 // maximum eccentricity to consider an Ellipse as "circular" (3% gives ~1 degree error)
-    const NearEnough = 0.75 // major-axis candidates must be longer than (longest*NearEnough)
-                            // minor-axis candidates must be shorter than (shortest/NearEnough) 
     const Window = 7 // number of magnetometer samples needed to form a good average
     const SampleGap = 15 // minimum ms to wait between magnetometer readings
     const AverageGap = 25 // (achieved in practice, due to system interrupts)
@@ -472,15 +470,6 @@ namespace heading {
             this.rotationSense = 0
         }
 
-        /* extractAxes() is called to find the tilt & eccentricity of this view.
-        This function first finds the major-axes (where the radius is a maximum), and the minor-axes 
-        (where the radius is at a minimum). 
-        
-        As a proxy for the true radius (requiring multiple Math.sqrt() calls), we track the radius-squared,
-        (which we call the Q-value) and its derivative slope, dQ. We check for peaks & troughs by noting 
-        the inflections in its slope.
-        */
-
         // addMajor() is called whenever we pass a major-axis (dQ changes from positive to negative)
         // It builds a resultant vector (reversing coordinates at the "other" end of the axis).
         addMajor(i: number, u: number, v: number, dw: number) {
@@ -490,11 +479,10 @@ namespace heading {
                 if (this.newTurn) { // clock this major-axis crossing
                     if (this.start == 0) {
                         this.start = scanTimes[i] // start measuring turns
-                        this.turns = 0
                     }
                     this.finish = scanTimes[i]
                     this.turns++
-                    this.newTurn = false // deny future clocking of another major-axis crossing...
+                    this.newTurn = false // prevent future clocking of another major-axis crossing...
                     //... until after the next minor axis crossing
                 }
             } else {  // just dipping below our plane so subtract current vector coordinates
@@ -728,28 +716,21 @@ namespace heading {
         (the sum of the squares of the coordinates) as a proxy, called the Q-value.
 
         To find the axes we track the slope of Q, looking for inflections at peaks and troughs.
-       ======================================
-       
-        Detecting maxima & minima in differentials of noisy data is error-prone, so we use a Smoother to reduce 
-        spurious inflection-points. (NOTE that, due to the latency of this moving
-        average, any axis we detect was actually passed {Window} samples earlier.)
-        ===================================
-
-
         Because of noisy data, fluctuations (or "bounces") can occur near an axis, especially for 
         more circular Ellipses. So a "peak" might occur near a minor-axis or a trough near a major-axis.
         At a maxor-axis the field is most nearly aligned with that plane, so the orthogonal reading 
         will always be near its smallest there. Conversely, at a minor-axis, the orthogonal reading will 
         always be near its peak amplitude. We use this fact to weed out spurious peaks and troughs.
         
-        For better accuracy multiple axis-crossings are averaged, but each axis gets passed TWICE per rotation
-        so it is important to either add or subtract vectors, according to which "end" is being crossed. This is
-        best policed by checking the orthogonal reading (its slope for a major-axis; its sign for a minor-axis). 
+        For better accuracy, multiple axis-crossings are averaged. Each axis gets passed TWICE per rotation,
+        so it is important to either add or subtract vectors, according to which "end" is being crossed. 
+        
+        This is policed using the orthogonal reading (its slope for a major-axis; its sign for a minor-axis). 
 
         This function also calculates the apparent scan-rotation period by monitoring the times and count of 
-        major-axis crossings (ignoring multiple contributions due to "bounces").
+        alternate major-axis crossings (ignoring any multiple contributions due to "bounces").
 
-        The cross-products of the axis-angles also gives us the rotation-sense as seen by each view.
+        ???The cross-products of the axis-angles also gives us the rotation-sense as seen by each view.
 
         The function uses the global scanTimes[] and scanData[] arrays, and updates the three
         global Ellipse objects, {xy, yz and zx}.
@@ -782,10 +763,6 @@ namespace heading {
         let dqXYWas: number
         let dqYZWas: number
         let dqZXWas: number
-
- 
-        // prepare a Smoother for the slope deltas
-        //let delta = new Smoother([dqXY, dqYZ, dqZX], t)
 
         for (let i = 1; i < nSamples; i++) {
             // update history
@@ -830,13 +807,13 @@ namespace heading {
             }
 
             if ((dqYZ < 0) && (dqYZWas > 0)) {
-                if (Math.abs(x) < xField * 0.25) {
+                if (Math.abs(x) < xField / 2) {
                     yz.addMajor(i, y, z, x - xWas)
                 }
             }
 
             if ((dqZX < 0) && (dqZXWas > 0)) {
-                if (Math.abs(y) < yField * 0.25) {
+                if (Math.abs(y) < yField / 2) {
                     zx.addMajor(i, z, x, y - yWas)
                 }
             }
@@ -844,19 +821,19 @@ namespace heading {
             // A trough only qualifies as a minor-axis when orthogonal field is big: 
             // --its sign says which end is which
             if ((dqXY > 0) && (dqXYWas < 0)) {
-                if (Math.abs(z) > zField * 0.75) {
+                if (Math.abs(z) > zField / 2) {
                     xy.addMinor(i, x, y, z) 
                 }
             }
 
             if ((dqYZ > 0) && (dqYZWas < 0)) {
-                if (Math.abs(x) > xField * 0.75) {
+                if (Math.abs(x) > xField / 2) {
                     yz.addMinor(i, y, z, x)
                 }
             }
 
             if ((dqZX > 0) && (dqZXWas < 0)) {
-                if (Math.abs(y) > yField * 0.75) {
+                if (Math.abs(y) > yField / 2) {
                     zx.addMinor(i, z, x, y)
                 }
             }
