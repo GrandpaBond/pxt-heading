@@ -397,24 +397,6 @@ namespace heading {
     This correction can in theory be applied in any of the three views (unless exactly side on to
     the Spin-Circle), but the best accuracy is obtained from the most circular of the three views.
     Readings on a near-circular Ellipse are barely fore-shortened at all, so we can skip correction!
-=====================================================================
-    So for each view we must derive the two important Ellipse properties: {tilt} and {eccentricity}. 
-    This first requires detection of its major and minor axes. The maths for fitting an ellipse to noisy
-    2D data is both complex and fairly inaccurate. Luckily we can make use of the orthogonal third dimension
-    (the Normal) to give us a simpler, faster solution.
-
-    The three magnetometer readings are related by the formula:  {x^2 + y^2 + z^2 = B} (where B is the 
-    constant magnetic field). So, for example in the XY plane, the ellipse radius {x^2 + y^2} is at a maximum
-    (i.e. passing its major-axis) when the field aligns with this plane and the z-value is basically zero.
-    Conversely the radius is at a minimum (its minor-axis) where the field points farthest from the plane,
-    and the z-value changes from growing to shrinking (either positive or negative). 
-    
-    The same holds true for the other two planes: the Normal helps us find the two axes. For each of these
-    three mutually-orthogonal views, we re-label its coordinates as {u,v}, with {w} being the
-    third (orthogonal) coordinate.
-=====================================================================
-
-
     */
     class Ellipse {
         plane: string // View name (just for debug)
@@ -509,7 +491,7 @@ namespace heading {
         }
 
 
-        // calculate() method is called after all scandata has been processed
+        // calculate() method is called after all scandata has been processed...
         calculate() {
             this.eccentricity = -1
             this.period = -1
@@ -543,6 +525,7 @@ namespace heading {
                 this.period = (this.finish - this.start) / this.turns
             }
 
+            /* logging of view characteristics used while testing only
             if(debugMode) {
                 datalogger.log(
                     datalogger.createCV("plane", this.plane),
@@ -557,6 +540,7 @@ namespace heading {
                     datalogger.createCV("period", round2(this.period))
                 )
             }
+            */
         }
     }
 
@@ -575,7 +559,7 @@ namespace heading {
      NOTE:
       If we are in debug-mode the scanData[] and scanTimes[] will have been pre-loaded.
 
-      ??? This function is exported to allow new test datasets to be captured 
+      This function is exported to allow new test datasets to be captured 
     */
     export function collectSamples( ms: number) {
         let timeWas: number
@@ -719,7 +703,7 @@ namespace heading {
         Because of noisy data, fluctuations (or "bounces") can occur near an axis, especially for 
         more circular Ellipses. So a "peak" might occur near a minor-axis or a trough near a major-axis.
         At a maxor-axis the field is most nearly aligned with that plane, so the orthogonal reading 
-        will always be near its smallest there. Conversely, at a minor-axis, the orthogonal reading will 
+        should always be near its smallest there. Conversely, at a minor-axis, the orthogonal reading should 
         always be near its peak amplitude. We use this fact to weed out spurious peaks and troughs.
         
         For better accuracy, multiple axis-crossings are averaged. Each axis gets passed TWICE per rotation,
@@ -730,7 +714,7 @@ namespace heading {
         This function also calculates the apparent scan-rotation period by monitoring the times and count of 
         alternate major-axis crossings (ignoring any multiple contributions due to "bounces").
 
-        ???The cross-products of the axis-angles also gives us the rotation-sense as seen by each view.
+        The cross-products of the axis-angles also gives us the rotation-sense as seen by each view.
 
         The function uses the global scanTimes[] and scanData[] arrays, and updates the three
         global Ellipse objects, {xy, yz and zx}.
@@ -838,8 +822,8 @@ namespace heading {
                 }
             }
 
-            
-            /***  ***/
+
+            /*** logging of major axes used while testing only
             if (debugMode) {
                 datalogger.log(
                     datalogger.createCV("i", i),
@@ -854,7 +838,9 @@ namespace heading {
                     datalogger.createCV("zx.n", round2(zx.nHi))
                 )
             }
+             ***/
         }
+        /*** logging of minor-axes used while testing only
         if (debugMode) {
             datalogger.log(
                 datalogger.createCV("i", -1),
@@ -869,6 +855,7 @@ namespace heading {
                 datalogger.createCV("zx.n", round2(zx.nLo))
             )
         }
+        ***/
 
         // use the collected vector-sums to compute average axes, and thence the ellipse characteristics
         xy.calculate()
