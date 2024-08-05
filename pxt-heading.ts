@@ -529,7 +529,7 @@ namespace heading {
                     this.eccentricity = this.rHi / this.rLo
 
                     // use sign of  cross-product of axes to determine rotation-rotationSense
-                    let cross = (this.uLo * this.vHi) - (this.uHi * this.vLo)
+                    let cross = (this.uHi * this.vLo) - (this.uLo * this.vHi)
                     this.rotationSense = Math.abs(cross) / cross
 
                     // save the major-axis angle, and its components
