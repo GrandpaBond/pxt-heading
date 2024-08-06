@@ -16,9 +16,13 @@ and seems to operate best when it is horizontal, yet most robot buggies mount it
 It also demands calibration by tilting it in every possible direction --potentially a rather awkward operation with a buggy!
 
 This ``||heading:heading||`` extension is designed to meet the need for a location-independent and orientation-independent compass,
-based solely on the magnetometer readings. The magnetometer does still need to be calibrated (to discover how it 
+based solely on the magnetometer readings. It does not (yet) include tilt-compensation, so it expects the buggy to be operating on a flat surface.
+
+The magnetometer does still need to be calibrated (to discover how it 
 sees its magnetic environment), but we achieve that simply by spinning the buggy on the spot for a few rotations, 
 and then teaching it where North is.
+
+
 
 After the block definitions below, you can read more about The Earth's Magnetic Field; Magnetometer Calibration; and Field Distortions.
 
@@ -46,7 +50,8 @@ Returns zero if successful, or a negative error code:
 
 
 ### ~reminder
-    If your buggy turns in small circles rather than spinning on-the-spot, you'll need to balance the power of the two wheel motors by adjusting its motor bias.
+    If your buggy turns in small circles rather than spinning on-the-spot, you'll need to balance the power of the two 
+    wheel motors by adjusting its motor bias.
 ### ~
 
 
@@ -73,6 +78,10 @@ heading.degrees(): number
 Having first calibrated the measuring set-up using ``||heading:scanClockwise()||``,
 and then specified the zero-degrees direction using ``||heading:setNorth()||``, 
 this is the function that actually returns the current compass heading in degrees (0 to 360), clockwise from "North".
+
+### ~reminder
+    NOTE: Readings are only accurate to a few degrees, and are very sensitive to variations in the tilt of the buggy!
+### ~
 
 ## Rotation Time
 
@@ -184,17 +193,21 @@ Readings on a near-circular Ellipse are barely fore-shortened at all, so we can 
 
 So for each view we must derive the two important Ellipse properties: {tilt} and {eccentricity}. 
 This first requires detection of its major and minor axes. The maths for fitting an ellipse to noisy
-2D data is both complex and fairly inaccurate. Luckily we can make use of the orthogonal third dimension
-(the Normal) to give us a simpler, faster solution.
+2D data is both complex and fairly inaccurate. Luckily we have a sequence of 3D readings and the 
+third orthogonal dimension (the Normal) lets us use a simpler analysis method to find the axes.
 
-The three magnetometer readings are related by the formula:  {x^2 + y^2 + z^2 = B} (where B is the 
-constant magnetic field). So, for example in the XY plane, the ellipse radius {x^2 + y^2} is at a maximum
-(i.e. passing its major-axis) when the field aligns with this plane and the z-value is basically zero.
-Conversely the radius is at a minimum (its minor-axis) where the field points farthest from the plane,
-and the z-value changes from growing to shrinking (either positive or negative). 
+So for example: in the XY plane, the ellipse radius {x^2 + y^2} will be at a maximum as it is passing its major-axis. 
+This happens twice per rotation, when the field is crossing the XY plane. 
 
-The same holds true for the other two planes: the Normal helps us find the two axes. For each of these
-three mutually-orthogonal views, we re-label its coordinates as {u,v}, with {w} being the
+We know that the three magnetometer readings are related by the formula:  {x^2 + y^2 + z^2 = B}, where B is the 
+constant (over our time-scales) magnetic field, so near each end of the major-axis the z-value will be at a minimum:
+at one end it dips below the plane; at the other end it rises above.
+
+Conversely the XY radius is at a minimum (its minor-axis) where the field points farthest from the plane.
+Here the z-value is at its biggest, and its sign will differ between the two ends of the XY minor-axis.
+
+The same holds true for the other two planes: the Normal helps us sorts out which end is which for each axis. 
+For each of these three mutually-orthogonal views, we re-label its coordinates as {u,v}, with {w} being the
 third (orthogonal) coordinate.
 
 
@@ -202,11 +215,13 @@ third (orthogonal) coordinate.
 So much for the theory! In the real world there are several factors which conspire to distort the actual local field, as 
 measured by the magnetometer. These can include:
 
+* Departure from horizontal: any tilting of the buggy due to uneven ground will seriously distort the readings.
+
 * Environmental magnetic anomalies, due to magnets or electrical machinery near where the buggy is being used.
 
 * Electro-magnetic fields due to flowing currents (including those powering the buggy's motors or servos).
 
-* The magnetometer chip is temperature-sensitive, so readings may drift as it gets warmer with repeated use.
+* The magnetometer chip is actually temperature-sensitive, so readings may drift as it gets warmer with repeated use.
 
 * Varying fields from the arbitrary angles of any rotating magnetic elements in the motors at the moment of measurement.
 
@@ -222,7 +237,7 @@ we always take several consecutive readings and average them.
 Counter-intuitively, reading the heading while the motors are running may actually prove **more** accurate, as their rotating fields 
 could then get averaged-out somewhat.
 
-Unfortunately, the first three factors lie outside our control, and will inevitably limit the accuracy and repeatability
+Unfortunately, many of these factors lie outside our control, and will inevitably limit the accuracy and repeatability
 of reported headings to within five degrees or so.
 
 

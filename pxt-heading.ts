@@ -43,7 +43,7 @@ namespace heading {
     export let testTimes: number[] = [] // sequence of time-stamps for single readings
     export let testData: number[][] = [] //[X,Y,Z] magnetometer values for single readings
 
-    // while debugging, make the Ellipse data externally visible too
+    // (while debugging, make the Ellipse data externally visible too)
     export let xy: Ellipse
     export let yz: Ellipse
     export let zx: Ellipse

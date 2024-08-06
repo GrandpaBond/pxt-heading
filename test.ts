@@ -9,7 +9,7 @@ enum Task {
 // NOTE: check in "pxt-heading.ts" that the required test dataset is available in simulateScan()!
 const dataset = "blup70_0714_1743"
 
-function performSetup() {
+function pressedA() {
     let result = 0
     switch (nextTask) {
         case Task.Scan:
@@ -68,10 +68,10 @@ function performSetup() {
     }
 }
 
-function measure() {
+function pressedB() {
     switch (nextTask) {
-        // ? sequence error?
-        case Task.SetNorth:
+       
+        case Task.SetNorth: // sequence error!
         case Task.Scan: // use button A to do a scan first
             for (let i = 0; i < 5; i++) {
                 basic.clearScreen()
@@ -126,11 +126,11 @@ function toggleDebug() {
 
 
 input.onButtonPressed(Button.A, function () {
-    performSetup()
+    pressedA()
 })
 
 input.onButtonPressed(Button.B, function () {
-    measure()
+    pressedB()
 })
 input.onButtonPressed(Button.AB, function () {
     toggleDebug()
