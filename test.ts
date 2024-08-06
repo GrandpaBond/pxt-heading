@@ -21,6 +21,9 @@ function pressedA() {
             if (result == 0) {
                 basic.showIcon(IconNames.Yes)
                 basic.pause(1000)
+                basic.clearScreen()
+                basic.showArrow(ArrowNames.West)
+                nextTask = Task.SetNorth
             } else {
                 basic.showIcon(IconNames.Skull) // problem with scan data analysis
                 basic.pause(1000)
@@ -28,11 +31,8 @@ function pressedA() {
                 basic.pause(1000)
                 basic.clearScreen()
                 basic.showArrow(ArrowNames.West)
-                nextTask = Task.Scan // restart with a fresh scan
+                nextTask = Task.Scan // try for another scan
             }
-            basic.clearScreen()
-            basic.showArrow(ArrowNames.West)
-            nextTask = Task.SetNorth
             break
 
         case Task.SetNorth:
@@ -101,20 +101,20 @@ function pressedB() {
 
 }
 
-// rotate four-state configuration 
+// toggle configuration 
 function toggleDebug() {
     basic.showIcon(IconNames.No)
     basic.pause(500)
     basic.clearScreen()
-    if (heading.debugMode) {
+    if (heading.debugMode) {  // switch to Live mode
+            heading.debugMode = false
             heading.scanData = []
             heading.scanTimes = []
-            basic.showString("L")  // normal live operation
-            heading.debugMode = false
-    } else {
-            simulateScan(dataset)
-            basic.showString("D") // use sample data while debugging...
+            basic.showString("L")
+    } else { // switch to Debug mode
             heading.debugMode = true
+            simulateScan(dataset) // use sample data while debugging...
+            basic.showString("D") 
     }
 
     basic.pause(1000)

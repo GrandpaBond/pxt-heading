@@ -398,7 +398,7 @@ namespace heading {
     the Spin-Circle), but the best accuracy is obtained from the most circular of the three views.
     Readings on a near-circular Ellipse are barely fore-shortened at all, so we can skip correction!
     */
-    class Ellipse {
+    export class Ellipse {  // (make class definition externally visible while still debugging)
         plane: string // View name (just for debug)
 
         uDim: number // horizontal axis of this View
