@@ -64,7 +64,6 @@ namespace heading {
     let yOff: number
     let zOff: number
 
-
     // correction parameters adopted from bestView Ellipse for future readings
     let rotationSense = 1 // set to -1 if orientation means field-vector projection is "from below"
     let isCircular: boolean // if best view Ellipse is circular, no correction is needed
@@ -649,6 +648,7 @@ namespace heading {
             // keep global history of single test readings (for possible later capture)
             testTimes.push(input.runningTime())
             testData.push(xyz)
+            test++
         }
 
         // now pick the coordinates we actually want for the current view,
@@ -701,20 +701,19 @@ namespace heading {
 
         To find the axes we track the slope of Q, looking for inflections at peaks and troughs.
         Because of noisy data, fluctuations (or "bounces") can occur near an axis, especially for 
-        more circular Ellipses. So a "peak" might occur near a minor-axis or a trough near a major-axis.
+        more circular Ellipses. So a peak might occur near a minor-axis or a trough near a major-axis.
         At a maxor-axis the field is most nearly aligned with that plane, so the orthogonal reading 
         should always be near its smallest there. Conversely, at a minor-axis, the orthogonal reading should 
         always be near its peak amplitude. We use this fact to weed out spurious peaks and troughs.
         
         For better accuracy, multiple axis-crossings are averaged. Each axis gets passed TWICE per rotation,
         so it is important to either add or subtract vectors, according to which "end" is being crossed. 
-        
         This is policed using the orthogonal reading (its slope for a major-axis; its sign for a minor-axis). 
 
         This function also calculates the apparent scan-rotation period by monitoring the times and count of 
         alternate major-axis crossings (ignoring any multiple contributions due to "bounces").
 
-        The cross-products of the axis-angles also gives us the rotation-sense as seen by each view.
+        The cross-product of its final axis-angles also gives us the rotation-sense as seen by each view.
 
         The function uses the global scanTimes[] and scanData[] arrays, and updates the three
         global Ellipse objects, {xy, yz and zx}.
