@@ -11,12 +11,11 @@ If you know exactly how far each wheel has rotated, then from their diameter you
 in path-lengths. Knowing the axle-length then lets you compute changes of direction. However, only a few 
 buggies have rotation sensors...
 
-A rather simpler method is just to use the compass! The problem is that the built-in microbit compass is fairly imprecise 
-and seems to operate best when it is horizontal, yet most robot buggies mount it vertically. 
-It also demands calibration by tilting it in every possible direction --potentially a rather awkward operation with a buggy!
+A rather simpler method is just to use the compass! The problem is that the built-in microbit compass demands calibration 
+by tilting it in every possible direction --potentially a rather awkward operation with a buggy!
 
 This ``||heading:heading||`` extension is designed to meet the need for a location-independent and orientation-independent compass,
-based solely on the magnetometer readings. It does not (yet) include tilt-compensation, so it expects the buggy to be operating on a flat surface.
+based solely on the magnetometer readings. It does not (yet) include tilt-compensation, so it expects the buggy to be operating on a horizontal flat surface.
 
 The magnetometer does still need to be calibrated (to discover how it 
 sees its magnetic environment), but we achieve that simply by spinning the buggy on the spot for a few rotations, 
@@ -50,8 +49,7 @@ Returns zero if successful, or a negative error code:
 
 
 ### ~reminder
-    If your buggy turns in small circles rather than spinning on-the-spot, you'll need to balance the power of the two 
-    wheel motors by adjusting its motor bias.
+    If your buggy turns in small circles rather than spinning on-the-spot, you'll need to balance the power of the two wheel motors by adjusting its motor bias.
 ### ~
 
 
@@ -80,7 +78,7 @@ and then specified the zero-degrees direction using ``||heading:setNorth()||``,
 this is the function that actually returns the current compass heading in degrees (0 to 360), clockwise from "North".
 
 ### ~reminder
-    NOTE: Readings are only accurate to a few degrees, and are very sensitive to variations in the tilt of the buggy!
+    NOTE: Readings are only accurate to a few degrees, and are very sensitive to variations in the tilt of the buggy, so keep it horizontal!
 ### ~
 
 ## Rotation Time
