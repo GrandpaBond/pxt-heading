@@ -457,19 +457,20 @@ namespace heading {
             if (dw > 0) { // just surfacing above our plane so add-in current vector coordinates
                 this.uHi += u
                 this.vHi += v
-                if (this.newTurn) { // clock this major-axis crossing
+                if (this.newTurn) { // clock a rotation each time we cross this end
                     if (this.start == 0) {
                         this.start = scanTimes[i] // start measuring turns
                     }
                     this.finish = scanTimes[i]
                     this.turns++
-                    this.newTurn = false // prevent future clocking of another major-axis crossing...
-                    //... until after the next minor axis crossing
+                    // ignore "bounces" at this end;  wait until the other end has been crossed
+                    this.newTurn = false
                 }
             } else {  // just dipping below our plane so subtract current vector coordinates
                 // (as it's the other end of the major-axis)
                 this.uHi -= u
                 this.vHi -= v
+                this.newTurn = true // permit clocking for the next rotation
             }
             this.nHi++
         }
@@ -486,7 +487,6 @@ namespace heading {
                 this.vLo -= v
             }
             this.nLo++
-            this.newTurn = true // permit future clocking of a major-axis crossing
         }
 
 
