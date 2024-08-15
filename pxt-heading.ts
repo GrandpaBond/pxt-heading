@@ -24,6 +24,8 @@ namespace heading {
     const EnoughSamples = 70 // fewest acceptable scan samples
     const TooManySamples = 500 // don't be too greedy with memory!
     const MarginalField = 10 // minimum acceptable field-strength for magnetometer readings
+    const TinyField = 2 // minimal field magnitude, considered to be a zero-crossing
+    const MinimalVariation = 0.
     const Circular = 1.03 // maximum eccentricity to consider an Ellipse as "circular" (3% gives ~1 degree error)
     const Window = 7 // number of magnetometer samples needed to form a good average
     const SampleGap = 15 // minimum ms to wait between magnetometer readings
@@ -154,6 +156,9 @@ namespace heading {
             scanData[i][Dimension.Y] -= yOff
             scanData[i][Dimension.Z] -= zOff
         }
+
+        // correct the scan-data to compensate for unequal axis sensitivity
+        applyCorrections()
 
         // create three Ellipse instances, for analysing each possible 2D view of the spin-Circle
         xy = new Ellipse("XY", Dimension.X, Dimension.Y, xOff, yOff)
@@ -784,7 +789,7 @@ namespace heading {
             // A peak only qualifes as a major-axis when the orthogonal field is small: 
             // --the sign of its slope says which end is which
             if ((dqXY < 0) && (dqXYWas > 0)) {
-                if (Math.abs(z) < zField * 0.25) {
+                if (Math.abs(z) < zField / 2) {
                     xy.addMajor(i, x, y, z - zWas)
                 }
             }
@@ -823,6 +828,7 @@ namespace heading {
 
 
             /*** logging of major axes used while testing only
+             ***/
             if (debugMode) {
                 datalogger.log(
                     datalogger.createCV("i", i),
@@ -836,29 +842,98 @@ namespace heading {
                     datalogger.createCV("zx.v", round2(zx.vHi)),
                     datalogger.createCV("zx.n", round2(zx.nHi))
                 )
+                }
+            /*** logging of minor-axes used while testing only
+            ***/
+            if (debugMode) {
+                datalogger.log(
+                    datalogger.createCV("i", 1000+i),
+                    datalogger.createCV("xy.u", round2(xy.uLo)),
+                    datalogger.createCV("xy.v", round2(xy.vLo)),
+                    datalogger.createCV("xy.n", round2(xy.nLo)),
+                    datalogger.createCV("yz.u", round2(yz.uLo)),
+                    datalogger.createCV("yz.v", round2(yz.vLo)),
+                    datalogger.createCV("yz.n", round2(yz.nLo)),
+                    datalogger.createCV("zx.u", round2(zx.uLo)),
+                    datalogger.createCV("zx.v", round2(zx.vLo)),
+                    datalogger.createCV("zx.n", round2(zx.nLo))
+                )
             }
-             ***/
         }
-        /*** logging of minor-axes used while testing only
-        if (debugMode) {
-            datalogger.log(
-                datalogger.createCV("i", -1),
-                datalogger.createCV("xy.u", round2(xy.uLo)),
-                datalogger.createCV("xy.v", round2(xy.vLo)),
-                datalogger.createCV("xy.n", round2(xy.nLo)),
-                datalogger.createCV("yz.u", round2(yz.uLo)),
-                datalogger.createCV("yz.v", round2(yz.vLo)),
-                datalogger.createCV("yz.n", round2(yz.nLo)),
-                datalogger.createCV("zx.u", round2(zx.uLo)),
-                datalogger.createCV("zx.v", round2(zx.vLo)),
-                datalogger.createCV("zx.n", round2(zx.nLo))
-            )
-        }
-        ***/
 
         // use the collected vector-sums to compute average axes, and thence the ellipse characteristics
         xy.calculate()
         yz.calculate()
         zx.calculate()
+    }
+
+
+    // Function to re-balance the scan-readings.
+    // Although fairly close, the sensitivity in each axis direction varies by a few percent.
+    // By extracting plane-crossings from the scan-data this function calculates the calibration
+    // factors xScale, yScale and zScale from first principles.
+    function applyCorrections() {
+        /* given the set of six [X,Y,Z] measurements:
+                [M, N, -] when crossing the XY plane
+                [-, P, Q] when crossing the YZ plane
+                [R, -, S] when crossing the ZX plane
+
+        ...and knowing that: 
+                x**2 + (yScale * y)**2 + (zScale * z)**2 = K (a constant)
+        
+        ...we can (after some maths!) derive the calibration factors:
+                yScale = sqrt(NNSS - SSPP - NNQQ) / sqrt(MMQQ - QQRR - SSMM)
+                zScale = sqrt(NNSS - SSPP - NNQQ) / sqrt(PPRR - PPMM - NNRR)
+        */
+
+        // first, collect the plane-crossings
+        let nCrossXY = 0
+        let nCrossYZ = 0
+        let nCrossZX = 0
+        let MM = 0
+        let NN = 0
+        let PP = 0
+        let QQ = 0
+        let RR = 0
+        let SS = 0
+        for (let i = 0; i < nSamples; i++) {
+            let x = scanData[i][Dimension.X]
+            let y = scanData[i][Dimension.Y]
+            let z = scanData[i][Dimension.Z]
+            if (Math.abs(z) < TinyField) {
+                MM += x**2
+                NN += y**2
+                nCrossXY++
+            }
+            if (Math.abs(x) < TinyField) {
+                PP += y**2
+                QQ += z**2
+                nCrossYZ++
+            }
+            if (Math.abs(y) < TinyField) {
+                RR += x**2
+                SS += y**2
+                nCrossZX++
+            }
+        }
+        MM /= nCrossXY
+        NN /= nCrossXY
+        PP /= nCrossYZ
+        QQ /= nCrossYZ
+        RR /= nCrossZX
+        SS /= nCrossZX
+
+        // assemble the relative scaling factors
+        let bottom =  (NN * SS) - (SS * PP) - (NN * QQ)
+        let yScale = Math.sqrt((MM * QQ) - (QQ * RR) - (SS * MM) / bottom)
+        let zScale = Math.sqrt((PP * RR) - (PP * MM) - (NN * RR) / bottom)
+
+        // Finally, rescale all the scan-data
+        for (let i = 0; i < nSamples; i++) {
+            let x = scanData[i][Dimension.X]
+            let y = scanData[i][Dimension.Y]
+            let z = scanData[i][Dimension.Z]
+            scanData[i] = [x, y * yScale, z * zScale]
+        }
     }
 }
