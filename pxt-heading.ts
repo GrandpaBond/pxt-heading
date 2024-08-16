@@ -905,14 +905,20 @@ namespace heading {
         let xFinish = 0
         let yFinish = 0
         let zFinish = 0
-
-        let xWas = scanData[0][Dimension.X]
-        let yWas = scanData[0][Dimension.Y]
-        let zWas = scanData[0][Dimension.Z]
+        let x = scanData[0][Dimension.X]
+        let y = scanData[0][Dimension.Y]
+        let z = scanData[0][Dimension.Z]
+        let xWas: number
+        let yWas: number
+        let zWas: number
+        
         for (let i = 0; i < nSamples; i++) {
-            let x = scanData[i][Dimension.X]
-            let y = scanData[i][Dimension.Y]
-            let z = scanData[i][Dimension.Z]
+            xWas = x
+            yWas = y
+            zWas = z
+            x = scanData[i][Dimension.X]
+            y = scanData[i][Dimension.Y]
+            z = scanData[i][Dimension.Z]
 
             // avoid exact zeroes (they complicate comparisons!)
             if (x == 0) x = xWas
@@ -939,7 +945,7 @@ namespace heading {
                 SS += z ** 2
                 nCrossZX++
                 yFinish = scanTimes[i]
-                if (yStart < 0) yStart = scanTimes[i]
+                if (yStart < 0) yStart = yFinish
             }
         }
         MM /= nCrossXY
@@ -949,9 +955,9 @@ namespace heading {
         RR /= nCrossZX
         SS /= nCrossZX
         // derive the average "flip" times (half a rotation)
-        let xFlip = (xFinish - xStart) / nCrossYZ
-        let yFlip = (yFinish - yStart) / nCrossZX
-        let zFlip = (zFinish - zStart) / nCrossXY
+        let xFlip = (xFinish - xStart) / (nCrossYZ - 1)
+        let yFlip = (yFinish - yStart) / (nCrossZX - 1)
+        let zFlip = (zFinish - zStart) / (nCrossXY - 1)
 
         // average and double them to get period
         period = (xFlip + yFlip + zFlip) / 1.5
