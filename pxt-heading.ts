@@ -868,10 +868,12 @@ namespace heading {
     }
 
 
-    // Function to re-balance the scan-readings.
-    // Although fairly close, the sensitivity in each axis direction varies by a few percent.
-    // By extracting plane-crossings from the scan-data this function calculates the calibration
-    // factors xScale, yScale and zScale from first principles.
+    /** Function to re-balance the scan-readings.
+     * Although fairly close, the sensitivity in each axis direction varies by a few percent.
+     * By extracting plane-crossings from the scan-data this function calculates the calibration
+     * factors yScale and zScale from first principles.
+     * As a by-product, the average spin-rotation period is measured
+    */
     function applyCorrections() {
         /* given the set of six [X,Y,Z] measurements:
                 [M, N, -] when crossing the XY plane
@@ -879,14 +881,15 @@ namespace heading {
                 [R, -, S] when crossing the ZX plane
 
         ...and knowing that: 
-                x**2 + (yScale * y)**2 + (zScale * z)**2 = K (a constant)
+                X**2 + (yScale * Y)**2 + (zScale * Z)**2 = B**2 (the square of the field strength)
         
         ...we can (after some maths!) derive the calibration factors:
-                yScale = sqrt(NNSS - SSPP - NNQQ) / sqrt(MMQQ - QQRR - SSMM)
-                zScale = sqrt(NNSS - SSPP - NNQQ) / sqrt(PPRR - PPMM - NNRR)
+                yScale = sqrt((MMQQ - MMSS - QQRR) / (SSNN - SSPP - NNQQ))
+                zScale = sqrt((PPRR - PPMM - RRNN) / (SSNN - SSPP - NNQQ))
         */
 
-        // first, collect the plane-crossings
+        // First, collect the plane-crossings in each direction
+        // Simultaneously, collect half-periods of rotation
         let nCrossXY = 0
         let nCrossYZ = 0
         let nCrossZX = 0
@@ -896,24 +899,47 @@ namespace heading {
         let QQ = 0
         let RR = 0
         let SS = 0
+        let xStart = -1
+        let yStart = -1
+        let zStart = -1
+        let xFinish = 0
+        let yFinish = 0
+        let zFinish = 0
+
+        let xWas = scanData[0][Dimension.X]
+        let yWas = scanData[0][Dimension.Y]
+        let zWas = scanData[0][Dimension.Z]
         for (let i = 0; i < nSamples; i++) {
             let x = scanData[i][Dimension.X]
             let y = scanData[i][Dimension.Y]
             let z = scanData[i][Dimension.Z]
-            if (Math.abs(z) < TinyField) {
-                MM += x**2
-                NN += y**2
+
+            // avoid exact zeroes (they complicate comparisons!)
+            if (x == 0) x = xWas
+            if (y == 0) y = yWas
+            if (z == 0) z = zWas
+
+            // look for transitions:
+            if (z * zWas < 0) {
+                MM += x ** 2
+                NN += y ** 2
                 nCrossXY++
+                zFinish = scanTimes[i]
+                if (zStart < 0) zStart = zFinish
             }
-            if (Math.abs(x) < TinyField) {
-                PP += y**2
-                QQ += z**2
+            if (x * xWas < 0) {
+                PP += y ** 2
+                QQ += z ** 2
                 nCrossYZ++
+                xFinish = scanTimes[i]
+                if (xStart < 0) xStart = xFinish
             }
-            if (Math.abs(y) < TinyField) {
-                RR += x**2
-                SS += y**2
+            if (y * yWas < 0) {
+                RR += x ** 2
+                SS += z ** 2
                 nCrossZX++
+                yFinish = scanTimes[i]
+                if (yStart < 0) yStart = scanTimes[i]
             }
         }
         MM /= nCrossXY
@@ -922,11 +948,21 @@ namespace heading {
         QQ /= nCrossYZ
         RR /= nCrossZX
         SS /= nCrossZX
+        // derive the average "flip" times (half a rotation)
+        let xFlip = (xFinish - xStart) / nCrossYZ
+        let yFlip = (yFinish - yStart) / nCrossZX
+        let zFlip = (zFinish - zStart) / nCrossXY
+
+        // average and double them to get period
+        period = (xFlip + yFlip + zFlip) / 1.5
 
         // assemble the relative scaling factors
         let bottom =  (NN * SS) - (SS * PP) - (NN * QQ)
         let yScale = Math.sqrt((MM * QQ) - (QQ * RR) - (SS * MM) / bottom)
         let zScale = Math.sqrt((PP * RR) - (PP * MM) - (NN * RR) / bottom)
+
+        // Check for "square-mounted" cases, with a vertical axis
+        let check = 0 // debug point...
 
         // Finally, rescale all the scan-data
         for (let i = 0; i < nSamples; i++) {
