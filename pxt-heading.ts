@@ -65,6 +65,9 @@ namespace heading {
     let xOff: number
     let yOff: number
     let zOff: number
+    // sensitivity adjustment factors that will match Y & Z readings to X readings
+    let yScale: number
+    let zScale: number
 
     // correction parameters adopted from bestView Ellipse for future readings
     let rotationSense = 1 // set to -1 if orientation means field-vector projection is "from below"
@@ -158,7 +161,17 @@ namespace heading {
         }
 
         // correct the scan-data to compensate for unequal axis sensitivity
-        applyCorrections()
+        calibrate()
+
+
+
+        // Rescale all the scan-data
+        for (let i = 0; i < nSamples; i++) {
+            let x = scanData[i][Dimension.X]
+            let y = scanData[i][Dimension.Y]
+            let z = scanData[i][Dimension.Z]
+            scanData[i] = [x, y * yScale, z * zScale]
+        }
 
         // create three Ellipse instances, for analysing each possible 2D view of the spin-Circle
         xy = new Ellipse("XY", Dimension.X, Dimension.Y, xOff, yOff)
@@ -869,12 +882,13 @@ namespace heading {
 
 
     /** Function to re-balance the scan-readings.
+     * 
      * Although fairly close, the sensitivity in each axis direction varies by a few percent.
-     * By extracting plane-crossings from the scan-data this function calculates the calibration
-     * factors yScale and zScale from first principles.
-     * As a by-product, the average spin-rotation period is measured
+     * By extracting plane-crossings from the scan-data this function calculates from first 
+     * principles the global calibration factors: yScale and zScale.
+     * As a by-product, the average spin-rotation period is measured.
     */
-    function applyCorrections() {
+    function calibrate() {
         /* given the set of six [X,Y,Z] measurements:
                 [M, N, -] when crossing the XY plane
                 [-, P, Q] when crossing the YZ plane
@@ -911,6 +925,9 @@ namespace heading {
         let xWas: number
         let yWas: number
         let zWas: number
+        let needXY = true
+        let needYZ = true
+        let needZX = true
         
         for (let i = 0; i < nSamples; i++) {
             xWas = x
@@ -925,27 +942,37 @@ namespace heading {
             if (y == 0) y = yWas
             if (z == 0) z = zWas
 
-            // look for transitions:
-            if (z * zWas < 0) {
+            // look for the first transition of each half-cycle
+            // (jitter or near-axis alignment may cause fluctuations)
+            if ((z * zWas < 0) && needXY) {
                 MM += x ** 2
                 NN += y ** 2
                 nCrossXY++
                 zFinish = scanTimes[i]
                 if (zStart < 0) zStart = zFinish
+                needXY = false
+                needYZ = true
+                needZX = true
             }
-            if (x * xWas < 0) {
+            if ((x * xWas < 0) && needYZ) {
                 PP += y ** 2
                 QQ += z ** 2
                 nCrossYZ++
                 xFinish = scanTimes[i]
                 if (xStart < 0) xStart = xFinish
+                needXY = true
+                needYZ = false
+                needZX = true
             }
-            if (y * yWas < 0) {
+            if ((y * yWas < 0) && needZX) {
                 RR += x ** 2
                 SS += z ** 2
                 nCrossZX++
                 yFinish = scanTimes[i]
                 if (yStart < 0) yStart = yFinish
+                needXY = true
+                needYZ = true
+                needZX = false
             }
         }
         MM /= nCrossXY
@@ -964,18 +991,10 @@ namespace heading {
 
         // assemble the relative scaling factors
         let bottom =  (NN * SS) - (SS * PP) - (NN * QQ)
-        let yScale = Math.sqrt((MM * QQ) - (QQ * RR) - (SS * MM) / bottom)
-        let zScale = Math.sqrt((PP * RR) - (PP * MM) - (NN * RR) / bottom)
-
-        // Check for "square-mounted" cases, with a vertical axis
+        yScale = Math.sqrt((MM * QQ) - (QQ * RR) - (SS * MM) / bottom)
+        zScale = Math.sqrt((PP * RR) - (PP * MM) - (NN * RR) / bottom)
+        
         let check = 0 // debug point...
-
-        // Finally, rescale all the scan-data
-        for (let i = 0; i < nSamples; i++) {
-            let x = scanData[i][Dimension.X]
-            let y = scanData[i][Dimension.Y]
-            let z = scanData[i][Dimension.Z]
-            scanData[i] = [x, y * yScale, z * zScale]
-        }
+ 
     }
 }
