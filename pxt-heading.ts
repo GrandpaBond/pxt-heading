@@ -68,6 +68,10 @@ namespace heading {
     // sensitivity adjustment factors that will match Y & Z readings to X readings
     let yScale: number
     let zScale: number
+    // orientation vectors (held as quaternions)
+    let spinVector = [0,0,0,0] // the scan rotation axis ("downwards" for the buggy)
+    let northVector = [0,0,0,0] // the direction currently defined as North
+    let downVector = [0,0,0,0] // the current vertical (as given by the accelerometer)
 
     // correction parameters adopted from bestView Ellipse for future readings
     let rotationSense = 1 // set to -1 if orientation means field-vector projection is "from below"
@@ -995,6 +999,9 @@ namespace heading {
         zScale = Math.sqrt((PP * RR) - (PP * MM) - (NN * RR) / bottom)
         
         let check = 0 // debug point...
+
+        // using yScale & zScale, correct the original measured plane-crossings
+        
  
     }
 }
