@@ -31,6 +31,7 @@ namespace heading {
     const SampleGap = 15 // minimum ms to wait between magnetometer readings
     const AverageGap = 25 // (achieved in practice, due to system interrupts)
     const Latency = Window * AverageGap // resulting time taken to collect a good moving average from scratch
+    const RealPart = 3 // the index of the real part of an [i, j, k, R] quaternion
 
     // GLOBALS
 
@@ -911,6 +912,7 @@ namespace heading {
         let nCrossXY = 0
         let nCrossYZ = 0
         let nCrossZX = 0
+        // the squares of the zero-crossing components
         let MM = 0
         let NN = 0
         let PP = 0
@@ -998,10 +1000,31 @@ namespace heading {
         yScale = Math.sqrt((MM * QQ) - (QQ * RR) - (SS * MM) / bottom)
         zScale = Math.sqrt((PP * RR) - (PP * MM) - (NN * RR) / bottom)
         
-        let check = 0 // debug point...
 
-        // using yScale & zScale, correct the original measured plane-crossings
-        
+        /* build corrected versions of the plane-crossing vectors, retrospectively 
+            corrected using yScale & zScale:
+                [M, N, -] when crossing the XY plane
+                [-, P, Q] when crossing the YZ plane
+                [R, -, S] when crossing the ZX plane
+       */
+        let M = Math.sqrt(MM)
+        let N = Math.sqrt(NN) * yScale
+        let P = Math.sqrt(PP) * yScale
+        let Q = Math.sqrt(QQ) * zScale
+        let R = Math.sqrt(RR)
+        let S = Math.sqrt(MM) * zScale
+
+        // derive the rotation axis components
+        let I = (N * Q) - (N * S) + (P * S)
+        let J = (Q * R) - (M * Q) + (M * S)
+        let K = (M * P) + (N * R) - (P * R)
+
+        // get vector magnitude and normalise
+        let R = Math.sqrt((I * I) + (J * J) + (K * K))
+        spinVector[Dimension.X] = I / R
+        spinVector[Dimension.Y] = J / R 
+        spinVector[Dimension.Z] = K / R
  
+        let check = 0 // debug point...
     }
 }
