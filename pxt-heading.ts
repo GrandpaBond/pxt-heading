@@ -566,6 +566,17 @@ namespace heading {
         }
     }
 
+    /**
+     * A Quaternion is used here as tool for manipulating rotations between the 
+     * three 3D frames of reference we are using:
+     * 1. the buggy's Body-Frame
+     * 2. the microbit's Sensor-Frame and 
+     * 3. the World-Frame in which it is navigating
+     */
+    export class Quaternion {
+
+    }
+
 
     // UTILITY FUNCTIONS
 
