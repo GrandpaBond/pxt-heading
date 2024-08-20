@@ -38,6 +38,7 @@ namespace heading {
     // (For testing purposes scan data is made externally visible)
     export let scanTimes: number[] = [] // sequence of time-stamps for scanned readings 
     export let scanData: number[][] = [] // scanned sequence of [X,Y,Z] magnetometer readings
+    export let scan: Sample[] // sequence of time-stamped magnetometer & accelerometer readings
     export let nSamples: number
 
     // (Other externally visible test-related globals)
@@ -45,6 +46,7 @@ namespace heading {
     export let test = 0 // global selector for single readings
     export let testTimes: number[] = [] // sequence of time-stamps for single readings
     export let testData: number[][] = [] //[X,Y,Z] magnetometer values for single readings
+    export let readings: Sample[] // record of time-stamped single sensor readings
 
     // (while debugging, make the Ellipse data externally visible too)
     export let xy: Ellipse
@@ -113,7 +115,7 @@ namespace heading {
         period = -1
 
         // unless test-data has already been pre-loaded...
-        if (!debugMode) collectSamples(ms)  // ...take repeated magnetometer readings
+        if (!debugMode) collectSamples(ms)  // ...take repeated Sensor readings
         
         nSamples = Math.min(scanTimes.length, scanData.length) // (defend against pre-load mismatch)
 
@@ -217,6 +219,114 @@ namespace heading {
 
         return 0
     }
+    export function scanClockwise2(ms: number): number {
+        strength = -1
+        period = -1
+
+        // unless test-data has already been pre-loaded...
+        if (!debugMode) collectSamples(ms)  // ...take repeated Sensor readings
+
+        nSamples = scan.length
+        
+        // Now analyse the scan-data to decide how best to use the magnetometer readings.
+        // we'll typically need about a couple of second's worth of scanned readings...
+        let scanTime = scan[nSamples-1].time = scan[0].time
+        if ((nSamples < EnoughSamples) || (scanTime < EnoughScanTime)) {
+            return -1 // "NOT ENOUGH SCAN DATA"
+        }
+
+        // Each dimension should track a sinusoidal wave of values (generally not centred on zero).
+        // The first pass finds the ranges for each axis 
+        let xlo = 9999999
+        let ylo = 9999999
+        let zlo = 9999999
+        let xhi = -9999999
+        let yhi = -9999999
+        let zhi = -9999999
+        for (let i = 0; i < nSamples; i++) {
+            xhi = Math.max(xhi, scan[i].field.x)
+            yhi = Math.max(yhi, scan[i].field.x)
+            zhi = Math.max(zhi, scan[i].field.y)
+            xlo = Math.min(xlo, scan[i].field.y)
+            ylo = Math.min(ylo, scan[i].field.z)
+            zlo = Math.min(zlo, scan[i].field.z)
+        }
+
+        // get RMS field-strength
+        xField = (xhi - xlo) / 2
+        yField = (yhi - ylo) / 2
+        zField = (zhi - zlo) / 2
+        strength = Math.sqrt((xField * xField) + (yField * yField) + (zField * zField))
+
+        // Bail out early if the scan didn't properly detect the Earth's magnetic field,
+        // (perhaps due to magnetic shielding?)
+        if (strength < MarginalField) {
+            return -2 // "FIELD STRENGTH TOO WEAK"
+        }
+
+        // The means of the extremes give a good approximation to the central offsets.
+        xOff = (xhi + xlo) / 2
+        yOff = (yhi + ylo) / 2
+        zOff = (zhi + zlo) / 2
+
+        // 2nd pass re-centres all the scanData samples, eliminating "hard-iron" environmental magnetic effects.
+        for (let i = 0; i < nSamples; i++) {
+            scan[i].field.x -= xOff
+            scan[i].field.y -= yOff
+            scan[i].field.z -= zOff
+        }
+
+        // assess the scan-data to detect unequal axis sensitivity
+        calibrate()
+
+        // correct the scan-data for unequal axis sensitivity by rescaling y & z values
+        for (let i = 0; i < nSamples; i++) {
+            scan[i].field.y *= yScale
+            scan[i].field.z *= zScale
+        }
+
+        /* create three Ellipse instances, for analysing each possible 2D view of the spin-Circle
+        xy = new Ellipse("XY", Dimension.X, Dimension.Y, xOff, yOff)
+        yz = new Ellipse("YZ", Dimension.Y, Dimension.Z, yOff, zOff)
+        zx = new Ellipse("ZX", Dimension.Z, Dimension.X, zOff, xOff)
+
+        extractAxes() // do as it says on the tin...
+
+        // check that at least one view saw at least one complete rotation (with a measurable period)...
+        if ((xy.period + yz.period + zx.period) < 0) {
+            return -3 // "NOT ENOUGH SCAN ROTATION"
+        }
+
+        // Choose the "roundest" Ellipse view  --the one with lowest eccentricity.
+        let view: Ellipse = xy
+        if (yz.eccentricity < view.eccentricity) view = yz
+        if (zx.eccentricity < view.eccentricity) view = zx
+
+        // periodicity may be unreliable in a near-circular View, so we form an average using
+        // just the other two views' measurements
+        period = (xy.period + yz.period + zx.period - view.period) / 2
+
+        // For efficiency, extract various characteristics from the best Ellipse
+        plane = view.plane
+        uDim = view.uDim
+        vDim = view.vDim
+        uOff = view.uOff
+        vOff = view.vOff
+        rotationSense = view.rotationSense // whether reading from above or below the plane
+        scale = view.eccentricity // the scaling needed to balance axes
+        isCircular = (scale <= Circular)
+        theta = view.tilt // the rotation (in radians) of the major-axis from the U-axis
+        cosTheta = view.cosa
+        sinTheta = view.sina
+
+        // NOTE: although we have now finished with the scanData, its memory is not released yet
+        //       but left accessible for potential capture as a test dataset.
+        */
+
+        return 0
+    }
+
+
 
     /**
      * Read the magnetometer and register the buggy's current direction as "North",
@@ -250,6 +360,7 @@ namespace heading {
             // we've now definitely finished with the scanning data, so release its memory
             scanTimes = []
             scanData = []
+            scan = []
         }
         // SUCCESS!
         return 0
@@ -347,30 +458,108 @@ namespace heading {
     }
 
     // SUPPORTING CLASSES
+    /* 3-D vector, with normalisation capability
+    */
+    export class Vector {
+        x: number
+        y: number
+        z: number
 
-    // A Smoother object computes a moving average from a sequence of time-stamped values: 
-    // in our case, magnetometer readings and their derivatives.
-    // Timing irregularites due to scheduler interrupts demand this somewhat complex maths.
-    // The constant {Window} governs the latency of the exponential averaging process.
-    // Smoothers can work with arbitrary-sized vectors of values that share the same timestamp.
-    // history[], previous[], latest[] and result[] arrays will be either 3-D, (for initial [X,Y,Z] scanning)
-    // or 2-D, (for analysing the chosen [uDim,vDim]).
+        constructor (dx:number, dy: number, dz: number) {
+            this.x = dx
+            this.y = dy
+            this.z = dz
+        }
+
+        getMagnitude(): number {
+            let rSquared = (this.x * this.x) + (this.y * this.y) + (this.z * this.z)
+            return Math.sqrt(rSquared)
+        }
+
+        normalised():Vector {
+            let r = this.getMagnitude()
+            let xNorm = this.x / r
+            let yNorm = this.y / r
+            let zNorm = this.z / r
+            return new Vector(xNorm, yNorm, zNorm)
+        }
+        
+    }
+
+    export class Sample {
+        time: number
+        field: Vector
+        down: Vector
+
+        constructor(t: number, fieldX: number, fieldY: number, fieldZ: number, 
+                    downX: number, downY: number, downZ: number) {
+            this.time = t
+            this.field = new Vector(fieldX, fieldY, fieldZ)
+            this.down = new Vector(downX, downY, downZ)
+        }
+    }
+
+
+
+    /*
+     * A Quaternion is used here as tool for manipulating rotations between the 
+     * three 3D frames of reference we are using:
+     * 1. the buggy's Body-Frame
+     * 2. the microbit's Sensor-Frame and 
+     * 3. the World-Frame in which it is navigating
+     */
+    export class Quaternion {
+        // the real part
+        w: number
+        // the three imaginary parts
+        i: number
+        j: number
+        k: number
+
+        // given a rotation-angle and an axis-direction, build a unit quaternion
+        constructor(angle:number, axisX: number, axisY: number, axisZ: number){
+            let v = new Vector(axisX, axisY, axisZ)
+            let unitV = v.normalised()
+            this.w = Math.cos(angle/2)
+            let sinHalfAngle = Math.sin(angle / 2)
+            this.i = unitV.x * sinHalfAngle
+            this.j = unitV.y * sinHalfAngle
+            this.k = unitV.z * sinHalfAngle
+        }
+
+        appliedToVector(v:Vector):Vector {
+            let result: Vector
+
+            return result
+        }
+    }
+
+
+
+    /* A Smoother object computes a moving average from a sequence of time-stamped values: 
+     in our case, magnetometer readings and their derivatives.
+     Timing irregularites due to scheduler interrupts demand this somewhat complex maths.
+     The constant {Window} governs the latency of the exponential averaging process.
+     Smoothers can work with arbitrary-sized vectors of values that share the same timestamp.
+     history[], previous[], latest[] and result[] arrays will be either 3-D (for initial [X,Y,Z] scanning)
+     or 2-D (for analysing the chosen [uDim,vDim]) or 6-D (for combined sensor readings) .
+    */
     class Smoother {
         dims: number; // dimensionality
         average: number[] = []; // 
         lastTime: number;
         lastInputs: number[] = [];
 
-        constructor(first: number[], start: number) {
+        constructor(initialValues: number, first: number[]) {
             this.dims = first.length
-            this.lastTime = start
+            this.lastTime = initialValues
             for (let i = 0; i < this.dims; i++) {
                 this.average.push(first[i])
                 this.lastInputs.push(first[i])
             }
         }
 
-        update(values: number[], timeStamp: number): number[] {
+        update(timeStamp: number, values: number[]): number[] {
             // work out appropriate blend, based on time-step
             let timeFraction = (timeStamp - this.lastTime) / Latency
             let keepOld = Math.exp(-timeFraction)
@@ -566,18 +755,6 @@ namespace heading {
         }
     }
 
-    /**
-     * A Quaternion is used here as tool for manipulating rotations between the 
-     * three 3D frames of reference we are using:
-     * 1. the buggy's Body-Frame
-     * 2. the microbit's Sensor-Frame and 
-     * 3. the World-Frame in which it is navigating
-     */
-    export class Quaternion {
-
-    }
-
-
     // UTILITY FUNCTIONS
 
     /* Take magnetometer readings periodically over the specified duration (generally a couple
@@ -609,7 +786,7 @@ namespace heading {
             input.magneticForce(Dimension.Z)]
 
         // use a Smoother to maintain a rolling average
-        let scan = new Smoother(fresh, timeStamp)
+        let smoothedSample = new Smoother(timeStamp, fresh)
 
         // after an initial settling period, continue cranking out updated moving averages... 
         let startTime = timeStamp + Latency
@@ -632,13 +809,73 @@ namespace heading {
                 input.magneticForce(Dimension.X),
                 input.magneticForce(Dimension.Y),
                 input.magneticForce(Dimension.Z)]
-            updated = scan.update(fresh, timeStamp)
+            updated = smoothedSample.update(timeStamp, fresh)
 
             // only start recording once the moving average has stabilised
             if (timeStamp > startTime) {
                 // store the triple of averaged [X,Y,Z] values (as a deep copy!)
                 scanData.push([updated[0], updated[1], updated[2]])
                 scanTimes.push(timeStamp)  // timestamp it              
+            }
+        }
+    }
+
+
+
+    export function collectSamples2(ms: number) {
+        let timeWas: number
+        let timeNow: number
+        let fresh: number[] = []
+        let updated: number[] = []
+
+        basic.pause(200) // wait for motors to stabilise (after initial kick-start)
+        // get initial readings
+        let timeStamp = input.runningTime()
+        fresh = [
+            input.magneticForce(Dimension.X),
+            input.magneticForce(Dimension.Y),
+            input.magneticForce(Dimension.Z),
+            input.acceleration(Dimension.X),
+            input.acceleration(Dimension.Y),
+            input.acceleration(Dimension.Z)]
+
+        // use a Smoother to maintain rolling averages
+        let smoothedSample = new Smoother(timeStamp, fresh)
+
+        // after an initial settling period, continue cranking out updated moving averages... 
+        let startTime = timeStamp + Latency
+        let stopTime = timeStamp + ms
+
+        // ...until we run out of time (or space!)
+        while ((timeStamp < stopTime)
+            && (scanTimes.length < TooManySamples)) {
+            // After processing, sleep until it's time for next sample.
+            // NOTE: here is where various system subprograms will get scheduled.
+            // If they need more time than we've offered, our next sample will get delayed!
+            // (This seems to incur extra delays of ~44 ms every 100ms, plus ~26ms every 400ms)
+
+            timeWas = timeStamp // remember time of latest sample
+            timeNow = input.runningTime()
+            basic.pause((timeWas + SampleGap) - timeNow) // pause for remainder of SampleGap (if any!)
+
+            // take a fresh set of readings
+            timeStamp = input.runningTime()
+            fresh = [
+                input.magneticForce(Dimension.X),
+                input.magneticForce(Dimension.Y),
+                input.magneticForce(Dimension.Z),
+                input.acceleration(Dimension.X),
+                input.acceleration(Dimension.Y),
+                input.acceleration(Dimension.Z)]
+
+            updated = smoothedSample.update(timeStamp, fresh)
+
+            // only start recording once the moving average has stabilised
+            if (timeStamp > startTime) {
+                // store this new sample
+                scan.push(new Sample(timeStamp, 
+                        updated[0], updated[1], updated[2], 
+                        updated[3], updated[4], updated[5]))
             }
         }
     }
@@ -711,6 +948,83 @@ namespace heading {
             reading = (reading + theta + TwoPi) % TwoPi
         }
         return reading
+    }
+
+    /*
+    Return the current direction.
+    Several readings are taken from the magnetometer and accelerometer and averaged to remove jitter.
+    These are all in the microbit's sensor-frame (S), so two rotations and a projection are needed:
+    The field vector must first be rotated into the buggy-frame (B) before being projected onto the 
+    
+    rotated again into the 
+    world-frame (END = East,North,Down)
+
+    */
+    export function takeSingleHeading(): number {
+        //let field: number[] = [0, 0, 0]
+        let field = new Vector(0, 0, 0)
+        let down = new Vector(0, 0, 0)
+        let u = 0
+        let v = 0
+        let uNew = 0
+        let vNew = 0
+        let uFix = 0
+        let vFix = 0
+        let reading = 0
+
+        /*
+        if (debugMode) { // just choose the next test-data value (cyclically)
+            field.x = testData[test][Dimension.X]
+            field.y = testData[test][Dimension.Y]
+            field.z = testData[test][Dimension.Z]
+            test = (test + 1) % testData.length
+        } else {
+            // build a new sample as the average of {Window} consecutive 2D readings, {SampleGap} apart
+            field = [0, 0, 0]
+            for (let i = 0; i < Window; i++) {
+                basic.pause(SampleGap)
+                field[Dimension.X] += input.magneticForce(Dimension.X)
+                field[Dimension.Y] += input.magneticForce(Dimension.Y)
+                field[Dimension.Z] += input.magneticForce(Dimension.Z)
+            }
+            field[Dimension.X] /= Window
+            field[Dimension.Y] /= Window
+            field[Dimension.Z] /= Window
+
+            // keep global history of single test readings (for possible later capture)
+            testTimes.push(input.runningTime())
+            testData.push(field)
+            test++
+        }
+
+        // now pick the coordinates we actually want for the current view,
+        // and re-centre this latest point w.r.t our Ellipse origin
+        u = field[uDim] - uOff
+        v = field[vDim] - vOff
+
+        // Unless this Ellipse.isCircular, any {u,v} reading will be foreshortened in this View, and
+        // must be stretched along the Ellipse minor-axis to place it correctly onto the Spin-Circle.
+
+        if (isCircular) {
+            reading = Math.atan2(v, u)
+        } else {
+            // We must first rotate our point CLOCKWISE (by -theta) to align the Ellipse minor-axis 
+            // angle with the V-axis 
+            uNew = u * cosTheta + v * sinTheta
+            vNew = v * cosTheta - u * sinTheta
+
+            // Now scale up, just along V, re-balancing the axes to make the Ellipse circular
+            // thereby moving our point outwards onto the rim of the Spin-Circle
+            uFix = uNew
+            vFix = vNew * scale
+            // get the adjusted angle for this corrected {u,v}
+            reading = Math.atan2(vFix, uFix)
+            // finally, undo our first rotation by adding theta back in
+            reading = (reading + theta + TwoPi) % TwoPi
+        }
+        */
+        return reading
+
     }
 
 
@@ -1012,12 +1326,11 @@ namespace heading {
         zScale = Math.sqrt((PP * RR) - (PP * MM) - (NN * RR) / bottom)
         
 
-        /* build corrected versions of the plane-crossing vectors, retrospectively 
-            corrected using yScale & zScale:
+        /* retrospectively correct the plane-crossing vectors, using yScale & zScale:
                 [M, N, -] when crossing the XY plane
                 [-, P, Q] when crossing the YZ plane
                 [R, -, S] when crossing the ZX plane
-       */
+        */
         let M = Math.sqrt(MM)
         let N = Math.sqrt(NN) * yScale
         let P = Math.sqrt(PP) * yScale
@@ -1030,11 +1343,11 @@ namespace heading {
         let J = (Q * R) - (M * Q) + (M * S)
         let K = (M * P) + (N * R) - (P * R)
 
-        // get vector magnitude and normalise
-        let R = Math.sqrt((I * I) + (J * J) + (K * K))
-        spinVector[Dimension.X] = I / R
-        spinVector[Dimension.Y] = J / R 
-        spinVector[Dimension.Z] = K / R
+        // get vector's magnitude and normalise
+        let radius = Math.sqrt((I * I) + (J * J) + (K * K))
+        spinVector[Dimension.X] = I / radius
+        spinVector[Dimension.Y] = J / radius
+        spinVector[Dimension.Z] = K / radius
  
         let check = 0 // debug point...
     }
