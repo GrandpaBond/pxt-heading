@@ -36,17 +36,17 @@ namespace heading {
     // GLOBALS
 
     // (For testing purposes scan data is made externally visible)
-    export let scanTimes: number[] = [] // sequence of time-stamps for scanned readings 
-    export let scanData: number[][] = [] // scanned sequence of [X,Y,Z] magnetometer readings
+    export let scanTimes: number[] = [] // sequence of time-stamps for scanned readings (old)
+    export let scanData: number[][] = [] // scanned sequence of [X,Y,Z] magnetometer readings (old)
     export let scan: Sample[] // sequence of time-stamped magnetometer & accelerometer readings
     export let nSamples: number
 
     // (Other externally visible test-related globals)
     export let debugMode = false // in debugMode we use pre-loaded data
     export let test = 0 // global selector for single readings
-    export let testTimes: number[] = [] // sequence of time-stamps for single readings
-    export let testData: number[][] = [] //[X,Y,Z] magnetometer values for single readings
-    export let readings: Sample[] // record of time-stamped single sensor readings
+    export let testTimes: number[] = [] // sequence of time-stamps for single readings (old)
+    export let testData: number[][] = [] //[X,Y,Z] magnetometer values for single readings (old)
+    export let readings: Reading[] // record of magnetometer & accelerometer readings
 
     // (while debugging, make the Ellipse data externally visible too)
     export let xy: Ellipse
@@ -71,10 +71,13 @@ namespace heading {
     // sensitivity adjustment factors that will match Y & Z readings to X readings
     let yScale: number
     let zScale: number
-    // orientation vectors (held as quaternions)
-    let spinVector = [0,0,0,0] // the scan rotation axis ("downwards" for the buggy)
-    let northVector = [0,0,0,0] // the direction currently defined as North
-    let downVector = [0,0,0,0] // the current vertical (as given by the accelerometer)
+    // orientation vectors (held as quaternions?)
+    //let spinVector = [0,0,0,0] // the scan rotation axis ("downwards" for the buggy)
+    //let northVector = [0,0,0,0] // the direction currently defined as North
+    //let downVector = [0,0,0,0] // the current vertical (as given by the accelerometer)
+
+    let downXYZ: Vector // the scan rotation axis ("downwards" for the buggy in XYZ sensor-frame)
+
 
     // correction parameters adopted from bestView Ellipse for future readings
     let rotationSense = 1 // set to -1 if orientation means field-vector projection is "from below"
@@ -168,7 +171,7 @@ namespace heading {
         }
 
         // correct the scan-data to compensate for unequal axis sensitivity
-        calibrate()
+        analyseScan()
 
 
 
@@ -277,7 +280,7 @@ namespace heading {
         }
 
         // assess the scan-data to detect unequal axis sensitivity
-        calibrate()
+        analyseScan()
 
         // correct the scan-data for unequal axis sensitivity by rescaling y & z values
         for (let i = 0; i < nSamples; i++) {
@@ -489,13 +492,21 @@ namespace heading {
     export class Sample {
         time: number
         field: Vector
-        down: Vector
 
-        constructor(t: number, fieldX: number, fieldY: number, fieldZ: number, 
-                    downX: number, downY: number, downZ: number) {
+        constructor(t: number, fieldX: number, fieldY: number, fieldZ: number) {
             this.time = t
             this.field = new Vector(fieldX, fieldY, fieldZ)
-            this.down = new Vector(downX, downY, downZ)
+        }
+    }
+
+    export class Reading {
+        field: Vector // average magnetometer reading
+        pose: Vector // average accelerometer reading
+
+        constructor(fieldX: number, fieldY: number, fieldZ: number,
+                    poseX: number, poseY: number, poseZ: number) {
+            this.field = new Vector(fieldX, fieldY, fieldZ)
+            this.pose = new Vector(poseX, poseY, poseZ)
         }
     }
 
@@ -834,10 +845,7 @@ namespace heading {
         fresh = [
             input.magneticForce(Dimension.X),
             input.magneticForce(Dimension.Y),
-            input.magneticForce(Dimension.Z),
-            input.acceleration(Dimension.X),
-            input.acceleration(Dimension.Y),
-            input.acceleration(Dimension.Z)]
+            input.magneticForce(Dimension.Z)]
 
         // use a Smoother to maintain rolling averages
         let smoothedSample = new Smoother(timeStamp, fresh)
@@ -863,10 +871,7 @@ namespace heading {
             fresh = [
                 input.magneticForce(Dimension.X),
                 input.magneticForce(Dimension.Y),
-                input.magneticForce(Dimension.Z),
-                input.acceleration(Dimension.X),
-                input.acceleration(Dimension.Y),
-                input.acceleration(Dimension.Z)]
+                input.magneticForce(Dimension.Z)]
 
             updated = smoothedSample.update(timeStamp, fresh)
 
@@ -874,13 +879,13 @@ namespace heading {
             if (timeStamp > startTime) {
                 // store this new sample
                 scan.push(new Sample(timeStamp, 
-                        updated[0], updated[1], updated[2], 
-                        updated[3], updated[4], updated[5]))
+                        updated[0], updated[1], updated[2]))
             }
         }
     }
 
-    /** Take the average of several new readings to get a stable fix on the current heading.
+    /** Take the average of several new sensor readings to get a stable fix on the current 
+     * Field and Down vectors.
      *  @return the angle of the magnetic field-vector (in radians anticlockwise
      * from the horizontal U-axis), corrected for any fore-shortening due to projection
      * onto the bestView plane.
@@ -1211,14 +1216,16 @@ namespace heading {
     }
 
 
-    /** Function to re-balance the scan-readings.
+    /** Function to analyse the scan-readings and derive the magnetometer scaling factors
+     * and the scan spin-axis in the XYZ sensor frame.
      * 
-     * Although fairly close, the sensitivity in each axis direction varies by a few percent.
-     * By extracting plane-crossings from the scan-data this function calculates from first 
+     * Although fairly close, the magnetometer sensitivity in each axis direction varies by a few
+     * percent. By extracting plane-crossings from the scan-data this function calculates from first 
      * principles the global calibration factors: yScale and zScale.
-     * As a by-product, the average spin-rotation period is measured.
+     * These are then used to correct the plane-crossings and so derive the spin-axis.
+     * As a by-product, the sample timestamps allow the average spin-rotation period to be measured.
     */
-    function calibrate() {
+    function analyseScan() {
         /* given the set of six [X,Y,Z] measurements:
                 [M, N, -] when crossing the XY plane
                 [-, P, Q] when crossing the YZ plane
@@ -1232,18 +1239,11 @@ namespace heading {
                 zScale = sqrt((PPRR - PPMM - RRNN) / (SSNN - SSPP - NNQQ))
         */
 
-        // First, collect the plane-crossings in each direction
-        // Simultaneously, collect half-periods of rotation
+        // First, collect the plane-crossings in each direction. 
+        // Simultaneously, collect half-periods of rotation, which we will average.
         let nCrossXY = 0
         let nCrossYZ = 0
         let nCrossZX = 0
-        // the squares of the zero-crossing components
-        let MM = 0
-        let NN = 0
-        let PP = 0
-        let QQ = 0
-        let RR = 0
-        let SS = 0
         let xStart = -1
         let yStart = -1
         let zStart = -1
@@ -1256,10 +1256,17 @@ namespace heading {
         let xWas: number
         let yWas: number
         let zWas: number
+        // flags to inhibit clocking multiple jittery crossings 
         let needXY = true
         let needYZ = true
         let needZX = true
-        
+        // we mostly use the squares of the zero-crossing components
+        let MM = 0
+        let NN = 0
+        let PP = 0
+        let QQ = 0
+        let RR = 0
+        let SS = 0
         for (let i = 0; i < nSamples; i++) {
             xWas = x
             yWas = y
@@ -1268,7 +1275,7 @@ namespace heading {
             y = scanData[i][Dimension.Y]
             z = scanData[i][Dimension.Z]
 
-            // avoid exact zeroes (they complicate comparisons!)
+            // avoid any exact zeroes (they complicate comparisons!)
             if (x == 0) x = xWas
             if (y == 0) y = yWas
             if (z == 0) z = zWas
@@ -1281,7 +1288,8 @@ namespace heading {
                 nCrossXY++
                 zFinish = scanTimes[i]
                 if (zStart < 0) zStart = zFinish
-                needXY = false
+                needXY = false 
+                // got this axis-crossing, so now allow others
                 needYZ = true
                 needZX = true
             }
@@ -1291,8 +1299,8 @@ namespace heading {
                 nCrossYZ++
                 xFinish = scanTimes[i]
                 if (xStart < 0) xStart = xFinish
-                needXY = true
                 needYZ = false
+                needXY = true
                 needZX = true
             }
             if ((y * yWas < 0) && needZX) {
@@ -1301,23 +1309,24 @@ namespace heading {
                 nCrossZX++
                 yFinish = scanTimes[i]
                 if (yStart < 0) yStart = yFinish
+                needZX = false
                 needXY = true
                 needYZ = true
-                needZX = false
             }
         }
+        // average the crossing vectors
         MM /= nCrossXY
         NN /= nCrossXY
         PP /= nCrossYZ
         QQ /= nCrossYZ
         RR /= nCrossZX
         SS /= nCrossZX
-        // derive the average "flip" times (half a rotation)
+        // derive the average "flip" times (each making half a rotation)
         let xFlip = (xFinish - xStart) / (nCrossYZ - 1)
         let yFlip = (yFinish - yStart) / (nCrossZX - 1)
         let zFlip = (zFinish - zStart) / (nCrossXY - 1)
 
-        // average and double them to get period
+        // average and double them to get best period measure
         period = (xFlip + yFlip + zFlip) / 1.5
 
         // assemble the relative scaling factors
@@ -1325,7 +1334,6 @@ namespace heading {
         yScale = Math.sqrt((MM * QQ) - (QQ * RR) - (SS * MM) / bottom)
         zScale = Math.sqrt((PP * RR) - (PP * MM) - (NN * RR) / bottom)
         
-
         /* retrospectively correct the plane-crossing vectors, using yScale & zScale:
                 [M, N, -] when crossing the XY plane
                 [-, P, Q] when crossing the YZ plane
@@ -1341,14 +1349,10 @@ namespace heading {
         // derive the rotation axis components
         let I = (N * Q) - (N * S) + (P * S)
         let J = (Q * R) - (M * Q) + (M * S)
-        let K = (M * P) + (N * R) - (P * R)
+        let K = (M * P) - (P * R) + (N * R)
+        downXYZ = new Vector(I,J,K)
+        downXYZ = downXYZ.normalised()
 
-        // get vector's magnitude and normalise
-        let radius = Math.sqrt((I * I) + (J * J) + (K * K))
-        spinVector[Dimension.X] = I / radius
-        spinVector[Dimension.Y] = J / radius
-        spinVector[Dimension.Z] = K / radius
- 
         let check = 0 // debug point...
     }
 }
