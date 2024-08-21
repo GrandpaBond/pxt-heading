@@ -216,8 +216,8 @@ namespace heading {
         strength = -1
         scanPeriod = -1
 
-        // unless data has already been pre-loaded into scan[] and readings[]...
-        if (!debugMode) collectSamples2(ms)  // ...take repeated magnetometer readings
+        // unless data has already been pre-loaded into scan[]...
+        if (!debugMode) collectSamples(ms)  // ...take repeated magnetometer readings
 
         nSamples = scan.length
         
@@ -279,44 +279,7 @@ namespace heading {
             scan[i].field.z *= zScale
         }
 
-        /* create three Ellipse instances, for analysing each possible 2D view of the spin-Circle
-        xy = new Ellipse("XY", Dimension.X, Dimension.Y, xOff, yOff)
-        yz = new Ellipse("YZ", Dimension.Y, Dimension.Z, yOff, zOff)
-        zx = new Ellipse("ZX", Dimension.Z, Dimension.X, zOff, xOff)
-
-        extractAxes() // do as it says on the tin...
-
-        // check that at least one view saw at least one complete rotation (with a measurable period)...
-        if ((xy.period + yz.period + zx.period) < 0) {
-            return -3 // "NOT ENOUGH SCAN ROTATION"
-        }
-
-        // Choose the "roundest" Ellipse view  --the one with lowest eccentricity.
-        let view: Ellipse = xy
-        if (yz.eccentricity < view.eccentricity) view = yz
-        if (zx.eccentricity < view.eccentricity) view = zx
-
-        // periodicity may be unreliable in a near-circular View, so we form an average using
-        // just the other two views' measurements
-        period = (xy.period + yz.period + zx.period - view.period) / 2
-
-        // For efficiency, extract various characteristics from the best Ellipse
-        plane = view.plane
-        uDim = view.uDim
-        vDim = view.vDim
-        uOff = view.uOff
-        vOff = view.vOff
-        rotationSense = view.rotationSense // whether reading from above or below the plane
-        scale = view.eccentricity // the scaling needed to balance axes
-        isCircular = (scale <= Circular)
-        theta = view.tilt // the rotation (in radians) of the major-axis from the U-axis
-        cosTheta = view.cosa
-        sinTheta = view.sina
-
-        // NOTE: although we have now finished with the scanData, its memory is not released yet
-        //       but left accessible for potential capture as a test dataset.
-        */
-
+       
         return 0
     }
 
@@ -361,6 +324,7 @@ namespace heading {
     }
 
 
+
     /**
      * Read the magnetometer
      * 
@@ -388,6 +352,18 @@ namespace heading {
             */
 
             return asDegrees(heading)
+        }
+    }
+    export function degrees2(): number {
+
+        if (scanPeriod == -1) {
+            return -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
+        } else {
+
+
+
+
+            return asDegrees(99)
         }
     }
 
@@ -822,59 +798,6 @@ namespace heading {
         }
     }
 
-
-
-    export function collectSamples2(ms: number) {
-        let timeWas: number
-        let timeNow: number
-        let fresh: number[] = []
-        let updated: number[] = []
-
-        basic.pause(200) // wait for motors to stabilise (after initial kick-start)
-        // get initial readings
-        let timeStamp = input.runningTime()
-        fresh = [
-            input.magneticForce(Dimension.X),
-            input.magneticForce(Dimension.Y),
-            input.magneticForce(Dimension.Z)]
-
-        // use a Smoother to maintain rolling averages
-        let smoothedSample = new Smoother(timeStamp, fresh)
-
-        // after an initial settling period, continue cranking out updated moving averages... 
-        let startTime = timeStamp + Latency
-        let stopTime = timeStamp + ms
-
-        // ...until we run out of time (or space!)
-        while ((timeStamp < stopTime)
-            && (scanTimes.length < TooManySamples)) {
-            // After processing, sleep until it's time for next sample.
-            // NOTE: here is where various system subprograms will get scheduled.
-            // If they need more time than we've offered, our next sample will get delayed!
-            // (This seems to incur extra delays of ~44 ms every 100ms, plus ~26ms every 400ms)
-
-            timeWas = timeStamp // remember time of latest sample
-            timeNow = input.runningTime()
-            basic.pause((timeWas + SampleGap) - timeNow) // pause for remainder of SampleGap (if any!)
-
-            // take a fresh set of readings
-            timeStamp = input.runningTime()
-            fresh = [
-                input.magneticForce(Dimension.X),
-                input.magneticForce(Dimension.Y),
-                input.magneticForce(Dimension.Z)]
-
-            updated = smoothedSample.update(timeStamp, fresh)
-
-            // only start recording once the moving average has stabilised
-            if (timeStamp > startTime) {
-                // store this new sample
-                scan.push(new Sample(timeStamp, 
-                        updated[0], updated[1], updated[2]))
-            }
-        }
-    }
-
     /** Take the average of several new sensor readings to get a stable fix on the current 
      * Field and Down vectors.
      *  @return the angle of the magnetic field-vector (in radians anticlockwise
@@ -956,7 +879,7 @@ namespace heading {
     world-frame (END = East,North,Down)
 
     */
-    export function takeSingleHeading(): number {
+    export function getHeading(): number {
         //let field: number[] = [0, 0, 0]
         let field = new Vector(0, 0, 0)
         let down = new Vector(0, 0, 0)
@@ -966,9 +889,9 @@ namespace heading {
         let vNew = 0
         let uFix = 0
         let vFix = 0
-        let reading = 0
+        let reading: Reading
 
-        /*
+        
         if (debugMode) { // just choose the next test-data value (cyclically)
             field.x = testData[test][Dimension.X]
             field.y = testData[test][Dimension.Y]
@@ -976,49 +899,23 @@ namespace heading {
             test = (test + 1) % testData.length
         } else {
             // build a new sample as the average of {Window} consecutive 2D readings, {SampleGap} apart
-            field = [0, 0, 0]
+            field = new Vector(0, 0, 0)
             for (let i = 0; i < Window; i++) {
                 basic.pause(SampleGap)
-                field[Dimension.X] += input.magneticForce(Dimension.X)
-                field[Dimension.Y] += input.magneticForce(Dimension.Y)
-                field[Dimension.Z] += input.magneticForce(Dimension.Z)
+                field.x += input.magneticForce(Dimension.X)
+                field.y += input.magneticForce(Dimension.Y)
+                field.z += input.magneticForce(Dimension.Z)
             }
-            field[Dimension.X] /= Window
-            field[Dimension.Y] /= Window
-            field[Dimension.Z] /= Window
+            field.x /= Window
+            field.y /= Window
+            field.z /= Window
 
             // keep global history of single test readings (for possible later capture)
             testTimes.push(input.runningTime())
-            testData.push(field)
+            readings.push(field)
             test++
         }
-
-        // now pick the coordinates we actually want for the current view,
-        // and re-centre this latest point w.r.t our Ellipse origin
-        u = field[uDim] - uOff
-        v = field[vDim] - vOff
-
-        // Unless this Ellipse.isCircular, any {u,v} reading will be foreshortened in this View, and
-        // must be stretched along the Ellipse minor-axis to place it correctly onto the Spin-Circle.
-
-        if (isCircular) {
-            reading = Math.atan2(v, u)
-        } else {
-            // We must first rotate our point CLOCKWISE (by -theta) to align the Ellipse minor-axis 
-            // angle with the V-axis 
-            uNew = u * cosTheta + v * sinTheta
-            vNew = v * cosTheta - u * sinTheta
-
-            // Now scale up, just along V, re-balancing the axes to make the Ellipse circular
-            // thereby moving our point outwards onto the rim of the Spin-Circle
-            uFix = uNew
-            vFix = vNew * scale
-            // get the adjusted angle for this corrected {u,v}
-            reading = Math.atan2(vFix, uFix)
-            // finally, undo our first rotation by adding theta back in
-            reading = (reading + theta + TwoPi) % TwoPi
-        }
-        */
+        
         return reading
 
     }
@@ -1241,9 +1138,9 @@ namespace heading {
         let xFinish = 0
         let yFinish = 0
         let zFinish = 0
-        let x = scanData[0][Dimension.X]
-        let y = scanData[0][Dimension.Y]
-        let z = scanData[0][Dimension.Z]
+        x = scan[0].x
+        y = scan[0].y
+        z = scan[0].z
         let xWas: number
         let yWas: number
         let zWas: number
@@ -1262,9 +1159,9 @@ namespace heading {
             xWas = x
             yWas = y
             zWas = z
-            x = scanData[i][Dimension.X]
-            y = scanData[i][Dimension.Y]
-            z = scanData[i][Dimension.Z]
+            x = scan[i].x
+            y = scan[i].y
+            z = scan[i].z
 
             // avoid any exact zeroes (they complicate comparisons!)
             if (x == 0) x = xWas
@@ -1277,7 +1174,7 @@ namespace heading {
                 MM += x ** 2
                 NN += y ** 2
                 nCrossXY++
-                zFinish = scanTimes[i]
+                zFinish = scan[i].time
                 if (zStart < 0) zStart = zFinish
                 needXY = false 
                 // got this axis-crossing, so now allow others
@@ -1288,7 +1185,7 @@ namespace heading {
                 PP += y ** 2
                 QQ += z ** 2
                 nCrossYZ++
-                xFinish = scanTimes[i]
+                xFinish = scan[i].time
                 if (xStart < 0) xStart = xFinish
                 needYZ = false
                 needXY = true
@@ -1298,7 +1195,7 @@ namespace heading {
                 RR += x ** 2
                 SS += z ** 2
                 nCrossZX++
-                yFinish = scanTimes[i]
+                yFinish = scan[i].time
                 if (yStart < 0) yStart = yFinish
                 needZX = false
                 needXY = true
