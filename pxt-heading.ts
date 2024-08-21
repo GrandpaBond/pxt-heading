@@ -59,7 +59,7 @@ namespace heading {
     let vDim = -1 // the "vertical" axis (called V) for the best View
     let north = 0 // reading registered as "North"
     let strength = 0 // the average magnetic field-strength observed by the magnetometer
-    let period = -1 // overall assessment of average rotation time
+    let scanPeriod = -1 // average scanning rotation time
 
     // amplitudes and central offsets of sinusoidal scan-readings in each dimension
     let xField: number
@@ -115,7 +115,7 @@ namespace heading {
 
     export function scanClockwise(ms: number): number {
         strength = -1
-        period = -1
+        scanPeriod = -1
 
         // unless test-data has already been pre-loaded...
         if (!debugMode) collectSamples(ms)  // ...take repeated Sensor readings
@@ -170,19 +170,6 @@ namespace heading {
             scanData[i][Dimension.Z] -= zOff
         }
 
-        // correct the scan-data to compensate for unequal axis sensitivity
-        analyseScan()
-
-
-
-        // Rescale all the scan-data
-        for (let i = 0; i < nSamples; i++) {
-            let x = scanData[i][Dimension.X]
-            let y = scanData[i][Dimension.Y]
-            let z = scanData[i][Dimension.Z]
-            scanData[i] = [x, y * yScale, z * zScale]
-        }
-
         // create three Ellipse instances, for analysing each possible 2D view of the spin-Circle
         xy = new Ellipse("XY", Dimension.X, Dimension.Y, xOff, yOff)
         yz = new Ellipse("YZ", Dimension.Y, Dimension.Z, yOff, zOff)
@@ -202,7 +189,7 @@ namespace heading {
 
         // periodicity may be unreliable in a near-circular View, so we form an average using
         // just the other two views' measurements
-        period = (xy.period + yz.period + zx.period - view.period) / 2
+        scanPeriod = (xy.period + yz.period + zx.period - view.period) / 2
 
         // For efficiency, extract various characteristics from the best Ellipse
         plane = view.plane
@@ -222,12 +209,15 @@ namespace heading {
 
         return 0
     }
+
+
+
     export function scanClockwise2(ms: number): number {
         strength = -1
-        period = -1
+        scanPeriod = -1
 
-        // unless test-data has already been pre-loaded...
-        if (!debugMode) collectSamples(ms)  // ...take repeated Sensor readings
+        // unless data has already been pre-loaded into scan[] and readings[]...
+        if (!debugMode) collectSamples2(ms)  // ...take repeated magnetometer readings
 
         nSamples = scan.length
         
@@ -279,7 +269,8 @@ namespace heading {
             scan[i].field.z -= zOff
         }
 
-        // assess the scan-data to detect unequal axis sensitivity
+        // assess the scan-data to detect unequal axis sensitivity 
+        // (also derives the scanPeriod and downXYZ spin-axis)
         analyseScan()
 
         // correct the scan-data for unequal axis sensitivity by rescaling y & z values
@@ -349,7 +340,7 @@ namespace heading {
     export function setNorth(): number {
         test = 0 // reset test history
 
-        if (period == -1) {
+        if (scanPeriod == -1) {
             return -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
         } else {
             // Having successfully set up the projection parameters for the bestView, get a
@@ -382,7 +373,7 @@ namespace heading {
     //% weight=70
     export function degrees(): number {
 
-        if (period == -1) {
+        if (scanPeriod == -1) {
             return -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
         } else {
             let heading = (takeSingleReading() - north) * rotationSense
@@ -410,10 +401,10 @@ namespace heading {
     //% inlineInputMode=inline 
     //% weight=60 
     export function spinTime(): number {
-        if (period == -1) {
+        if (scanPeriod == -1) {
             return -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
         } else {
-            return period
+            return scanPeriod
         }
     }
 
@@ -428,10 +419,10 @@ namespace heading {
     //% inlineInputMode=inline 
     //% weight=50 
     export function spinRate(): number {
-        if (period == -1) {
+        if (scanPeriod == -1) {
             return -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
         } else {
-            return 60000 / period
+            return 60000 / scanPeriod
         }
     }
 
@@ -451,12 +442,12 @@ namespace heading {
     //% inlineInputMode=inline 
     //% weight=50 
     export function equivalentSpeed(axleLength: number): number {
-        if (period < 0) {
+        if (scanPeriod < 0) {
             return -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
         } else {
             // compute tangential speed of wheel-centre in mm/s:
             // it takes [period] ms to cover [2pi * axleLength/2] mm
-            return (Math.PI * axleLength * 1000 / period)
+            return (Math.PI * axleLength * 1000 / scanPeriod)
         }
     }
 
@@ -1327,7 +1318,7 @@ namespace heading {
         let zFlip = (zFinish - zStart) / (nCrossXY - 1)
 
         // average and double them to get best period measure
-        period = (xFlip + yFlip + zFlip) / 1.5
+        scanPeriod = (xFlip + yFlip + zFlip) / 1.5
 
         // assemble the relative scaling factors
         let bottom =  (NN * SS) - (SS * PP) - (NN * QQ)
@@ -1346,10 +1337,12 @@ namespace heading {
         let R = Math.sqrt(RR)
         let S = Math.sqrt(MM) * zScale
 
-        // derive the rotation axis components
-        let I = (N * Q) - (N * S) + (P * S)
-        let J = (Q * R) - (M * Q) + (M * S)
-        let K = (M * P) - (P * R) + (N * R)
+        // since the crossings form a co-planar triangle in the Spin-Circle, we can take the 
+        // cross-product of two edges to derive the orthogonal rotation-axis
+        let I = (Q * N) - (N * S) + (S * P)
+        let J = (R * Q) - (Q * M) + (M * S)
+        let K = (N * R) - (R * P) + (P * M)
+        
         downXYZ = new Vector(I,J,K)
         downXYZ = downXYZ.normalised()
 
