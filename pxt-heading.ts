@@ -74,7 +74,7 @@ namespace heading {
 
     // Sensor Measurements
     let down: Vector // buggy's Down axis (fixed, dependent on mounting)
-    let pose: Vector // current orientation of the buggy (assumed stationary)
+    let gravity: Vector // current orientation of the buggy (assumed stationary)
     let field: Vector // current magnetic field
 
     // re-orientation rotations
@@ -326,6 +326,16 @@ namespace heading {
         return 0
     }
 
+    /* Apart from determining the Field offsets and scaling, scanning fixes just one aspect of 
+      the microbit mounting: the relationship between the sensors and the buggy's Down axis.
+
+    Calling setNorth() does two things:
+    
+    1.  It sets the Front direction of the buggy in relation to where Field is currently pointing,
+        and nominates this as the real-world North-axis.
+    2.  It fixes the Down direction of the buggy in relation to where Gravity is pointing.
+        (Only when the operating surface is horizontal will these two coincide)
+    */
 
     export function setNorth2(): number {
         test = 0 // reset test history
@@ -336,8 +346,10 @@ namespace heading {
             // Having successfully set up the projection parameters for the bestView, get a
             // stable fix on the current heading, which we will then designate as "North".
             // (This is the global fixed bias to be subtracted from all future readings)
-            north = 0
-            north = takeSingleReading()
+            let reading = getReading()
+
+
+            
         }
 
         if (!debugMode) {
@@ -900,51 +912,43 @@ namespace heading {
     /*
     Take the current sensor readings.
     Several readings are taken from the magnetometer and accelerometer and averaged to remove jitter.
+
+
     These are all in the microbit's [XYZ] sensor-frame, so two rotations and a projection are needed:
     The field vector must first be rotated into the [RFD] buggy-frame (Right, Front, Down) and thence
     into the [ENG] world-frame (East,North,Gravity) 
     */
-    export function getHeading() {
-        let u = 0
-        let v = 0
-        let uNew = 0
-        let vNew = 0
-        let uFix = 0
-        let vFix = 0
-        let reading: Reading
-
-        
+    export function getReading(): Reading {
         if (debugMode) { // just choose the next test-data value (cyclically)
-            field.x = readings[0].field.x
-            field.y = readings[0].field.y
-            field.z = readings[0].field.z
-            pose.x = readings[0].pose.x
-            pose.y = readings[0].pose.y
-            pose.z = readings[0].pose.z
             test = (test + 1) % testData.length
+            return readings[test]
         } else {
+            let fieldX: number
+            let fieldY: number
+            let fieldZ: number
+            let poseX: number
+            let poseY: number
+            let poseZ: number
             // build a new sample as the average of {Window} consecutive 2D readings, {SampleGap} apart
-            field = new Vector(0, 0, 0)
-            pose = new Vector(0, 0, 0)
-            
             for (let i = 0; i < Window; i++) {
                 basic.pause(SampleGap)
-                field.x += input.magneticForce(Dimension.X)
-                field.y += input.magneticForce(Dimension.Y)
-                field.z += input.magneticForce(Dimension.Z)
-                pose.x += input.acceleration(Dimension.X)
-                pose.y += input.acceleration(Dimension.Y)
-                pose.z += input.acceleration(Dimension.Z)
+                fieldX += input.magneticForce(Dimension.X)
+                fieldY += input.magneticForce(Dimension.Y)
+                fieldZ += input.magneticForce(Dimension.Z)
+                poseX += input.acceleration(Dimension.X)
+                poseY += input.acceleration(Dimension.Y)
+                poseZ += input.acceleration(Dimension.Z)
             }
-            field.x /= Window
-            field.y /= Window
-            field.z /= Window
-            pose.x /= Window
-            pose.y /= Window
-            pose.z /= Window
+            fieldX /= Window
+            fieldY /= Window
+            fieldZ /= Window
+            poseX /= Window
+            poseY /= Window
+            poseZ /= Window
             // keep global history of single test readings (for possible later capture)
-            readings.push(new Reading(field.x, field.y, field.z, pose.x, pose.y, pose.z))
-            test++
+            let reading = new Reading(fieldX, fieldY, fieldZ, poseX, poseY, poseZ)
+            readings.push(reading)
+            return reading
         }
     }
 
