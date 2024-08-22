@@ -71,13 +71,16 @@ namespace heading {
     // sensitivity adjustment factors that will match Y & Z readings to X readings
     let yScale: number
     let zScale: number
-    // orientation vectors (held as quaternions?)
-    //let spinVector = [0,0,0,0] // the scan rotation axis ("downwards" for the buggy)
-    //let northVector = [0,0,0,0] // the direction currently defined as North
-    //let downVector = [0,0,0,0] // the current vertical (as given by the accelerometer)
 
-    let downXYZ: Vector // the scan rotation axis ("downwards" for the buggy in XYZ sensor-frame)
+    // Sensor Measurements
+    let down: Vector // buggy's Down axis (fixed, dependent on mounting)
+    let pose: Vector // current orientation of the buggy (assumed stationary)
+    let field: Vector // current magnetic field
 
+    // re-orientation rotations
+    let rotateXYZtoRFD: Quaternion // sensor [XYZ] to buggy's [Right,Front,Down] frame 
+    let rotateRFDtoENG: Quaternion // buggy's [Right,Front,Down] to world [East,North,Gravity] frame 
+    let rotateXYZtoENG: Quaternion // combination of the above two rotations
 
     // correction parameters adopted from bestView Ellipse for future readings
     let rotationSense = 1 // set to -1 if orientation means field-vector projection is "from below"
@@ -270,7 +273,7 @@ namespace heading {
         }
 
         // assess the scan-data to detect unequal axis sensitivity 
-        // (also derives the scanPeriod and downXYZ spin-axis)
+        // (also derives the scanPeriod, and the downXYZ spin-axis)
         analyseScan()
 
         // correct the scan-data for unequal axis sensitivity by rescaling y & z values
@@ -322,6 +325,31 @@ namespace heading {
         // SUCCESS!
         return 0
     }
+
+
+    export function setNorth2(): number {
+        test = 0 // reset test history
+
+        if (scanPeriod == -1) {
+            return -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
+        } else {
+            // Having successfully set up the projection parameters for the bestView, get a
+            // stable fix on the current heading, which we will then designate as "North".
+            // (This is the global fixed bias to be subtracted from all future readings)
+            north = 0
+            north = takeSingleReading()
+        }
+
+        if (!debugMode) {
+            // we've now definitely finished with the scanning data, so release its memory
+            scanTimes = []
+            scanData = []
+            scan = []
+        }
+        // SUCCESS!
+        return 0
+    }
+
 
 
 
@@ -870,19 +898,13 @@ namespace heading {
     }
 
     /*
-    Return the current direction.
+    Take the current sensor readings.
     Several readings are taken from the magnetometer and accelerometer and averaged to remove jitter.
-    These are all in the microbit's sensor-frame (S), so two rotations and a projection are needed:
-    The field vector must first be rotated into the buggy-frame (B) before being projected onto the 
-    
-    rotated again into the 
-    world-frame (END = East,North,Down)
-
+    These are all in the microbit's [XYZ] sensor-frame, so two rotations and a projection are needed:
+    The field vector must first be rotated into the [RFD] buggy-frame (Right, Front, Down) and thence
+    into the [ENG] world-frame (East,North,Gravity) 
     */
-    export function getHeading(): number {
-        //let field: number[] = [0, 0, 0]
-        let field = new Vector(0, 0, 0)
-        let down = new Vector(0, 0, 0)
+    export function getHeading() {
         let u = 0
         let v = 0
         let uNew = 0
@@ -893,31 +915,37 @@ namespace heading {
 
         
         if (debugMode) { // just choose the next test-data value (cyclically)
-            field.x = testData[test][Dimension.X]
-            field.y = testData[test][Dimension.Y]
-            field.z = testData[test][Dimension.Z]
+            field.x = readings[0].field.x
+            field.y = readings[0].field.y
+            field.z = readings[0].field.z
+            pose.x = readings[0].pose.x
+            pose.y = readings[0].pose.y
+            pose.z = readings[0].pose.z
             test = (test + 1) % testData.length
         } else {
             // build a new sample as the average of {Window} consecutive 2D readings, {SampleGap} apart
             field = new Vector(0, 0, 0)
+            pose = new Vector(0, 0, 0)
+            
             for (let i = 0; i < Window; i++) {
                 basic.pause(SampleGap)
                 field.x += input.magneticForce(Dimension.X)
                 field.y += input.magneticForce(Dimension.Y)
                 field.z += input.magneticForce(Dimension.Z)
+                pose.x += input.acceleration(Dimension.X)
+                pose.y += input.acceleration(Dimension.Y)
+                pose.z += input.acceleration(Dimension.Z)
             }
             field.x /= Window
             field.y /= Window
             field.z /= Window
-
+            pose.x /= Window
+            pose.y /= Window
+            pose.z /= Window
             // keep global history of single test readings (for possible later capture)
-            testTimes.push(input.runningTime())
-            readings.push(field)
+            readings.push(new Reading(field.x, field.y, field.z, pose.x, pose.y, pose.z))
             test++
         }
-        
-        return reading
-
     }
 
 
@@ -1112,6 +1140,10 @@ namespace heading {
      * principles the global calibration factors: yScale and zScale.
      * These are then used to correct the plane-crossings and so derive the spin-axis.
      * As a by-product, the sample timestamps allow the average spin-rotation period to be measured.
+     * 
+     * NOTE: There is no guarantee that the spin-axis is truly vertical: the buggy may be operating 
+     * on a tilted surface. Its "Down" axis would not then coincide with the world-frame "Gravity" axis.
+     * To establish their relationship, we need to call SetNorth() with the buggy at rest,
     */
     function analyseScan() {
         /* given the set of six [X,Y,Z] measurements:
@@ -1138,9 +1170,9 @@ namespace heading {
         let xFinish = 0
         let yFinish = 0
         let zFinish = 0
-        x = scan[0].x
-        y = scan[0].y
-        z = scan[0].z
+        let x = scan[0].field.x
+        let y = scan[0].field.y
+        let z = scan[0].field.z
         let xWas: number
         let yWas: number
         let zWas: number
@@ -1159,9 +1191,9 @@ namespace heading {
             xWas = x
             yWas = y
             zWas = z
-            x = scan[i].x
-            y = scan[i].y
-            z = scan[i].z
+            x = scan[i].field.x
+            y = scan[i].field.y
+            z = scan[i].field.z
 
             // avoid any exact zeroes (they complicate comparisons!)
             if (x == 0) x = xWas
@@ -1240,8 +1272,8 @@ namespace heading {
         let J = (R * Q) - (Q * M) + (M * S)
         let K = (N * R) - (R * P) + (P * M)
         
-        downXYZ = new Vector(I,J,K)
-        downXYZ = downXYZ.normalised()
+        down = new Vector(I,J,K)
+        down = down.normalised()
 
         let check = 0 // debug point...
     }
