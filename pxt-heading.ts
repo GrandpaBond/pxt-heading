@@ -74,8 +74,10 @@ namespace heading {
 
     // Sensor Measurements
     let down: Vector // buggy's Down axis (fixed, dependent on mounting)
-    let gravity: Vector // current orientation of the buggy (assumed stationary)
     let field: Vector // current magnetic field
+    let gravityXYZ: Vector // starting orientation of the buggy
+    let northXYZ: Vector // starting field of the buggy
+    let startXYZ: Reading // starting field and pose of the buggy (deemed north and upright)
 
     // re-orientation rotations
     let rotateXYZtoRFD: Quaternion // sensor [XYZ] to buggy's [Right,Front,Down] frame 
@@ -276,7 +278,7 @@ namespace heading {
         // (also derives the scanPeriod, and the downXYZ spin-axis)
         analyseScan()
 
-        // correct the scan-data for unequal axis sensitivity by rescaling y & z values
+        // correct all the scan-data for unequal axis sensitivity by rescaling y & z values
         for (let i = 0; i < nSamples; i++) {
             scan[i].field.y *= yScale
             scan[i].field.z *= zScale
@@ -347,6 +349,13 @@ namespace heading {
             // stable fix on the current heading, which we will then designate as "North".
             // (This is the global fixed bias to be subtracted from all future readings)
             let reading = getReading()
+            // apply sensitivity corrections
+            reading.field.y *= yScale
+            reading.field.z *= zScale
+            // adopt this pose as the buggy's static upright position
+            gravityXYZ = reading.pose
+            northXYZ = reading.field
+
 
 
             
@@ -945,7 +954,7 @@ namespace heading {
             poseX /= Window
             poseY /= Window
             poseZ /= Window
-            // keep global history of single test readings (for possible later capture)
+            // maintain global history of single test readings (for possible later capture)
             let reading = new Reading(fieldX, fieldY, fieldZ, poseX, poseY, poseZ)
             readings.push(reading)
             return reading
