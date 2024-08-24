@@ -278,12 +278,12 @@ namespace heading {
         // (also derives the scanPeriod, and the downXYZ spin-axis)
         analyseScan()
 
-        // correct all the scan-data for unequal axis sensitivity by rescaling y & z values
+        /* correct all the scan-data (for unequal axis sensitivity) by rescaling y & z values
         for (let i = 0; i < nSamples; i++) {
             scan[i].field.y *= yScale
             scan[i].field.z *= zScale
         }
-
+        */
        
         return 0
     }
@@ -352,13 +352,10 @@ namespace heading {
             // apply sensitivity corrections
             reading.field.y *= yScale
             reading.field.z *= zScale
-            // adopt this pose as the buggy's static upright position
-            gravityXYZ = reading.pose
-            northXYZ = reading.field
-
-
-
-            
+            // adopt this pose as the buggy's initial static upright position
+            startXYZ = reading
+            //gravityXYZ = reading.pose
+            //northXYZ = reading.field
         }
 
         if (!debugMode) {
@@ -408,6 +405,17 @@ namespace heading {
         if (scanPeriod == -1) {
             return -4 // ERROR: SUCCESSFUL SCAN IS NEEDED FIRST
         } else {
+            // read sensors
+            let reading = getReading()
+            // normalise and correct the magnetometer readings
+            reading.field.x -= xOff
+            reading.field.y -= yOff
+            reading.field.z -= zOff
+            reading.field.y *= yScale
+            reading.field.z *= zScale
+            // rotate all readings into the ENG Frame
+            // (use the realignment angle between startXYZ.pose and reading.pose)
+
 
 
 
@@ -477,7 +485,7 @@ namespace heading {
     }
 
     // SUPPORTING CLASSES
-    /* 3-D vector, with normalisation capability
+    /* 3-D vector, with methods for normalisation, dot-product and cross-product. 
     */
     export class Vector {
         x: number
@@ -490,19 +498,31 @@ namespace heading {
             this.z = dz
         }
 
-        getMagnitude(): number {
-            let rSquared = (this.x * this.x) + (this.y * this.y) + (this.z * this.z)
-            return Math.sqrt(rSquared)
+        normalised(): Vector {
+            let r = this.getMagnitude()
+            if (r == 0) {
+                return new Vector(0,0,0)
+            } else {
+                return new Vector(this.x / r, this.y / r, this.z / r)
+            }
+        }
+        dottedWith(v: Vector): number {
+            return (this.x * v.x + this.y * v.y + this.z * v.z)
         }
 
-        normalised():Vector {
-            let r = this.getMagnitude()
-            let xNorm = this.x / r
-            let yNorm = this.y / r
-            let zNorm = this.z / r
-            return new Vector(xNorm, yNorm, zNorm)
+        crossedWith(v: Vector): Vector {
+            let x = this.y * v.z - v.y * this.z
+            let y = this.z * v.x - v.z * this.x
+            let z = this.x * v.y - v.x * this.y
+            return new Vector(x, y, z)
         }
-        
+        // we are sometimes more interested in the square of the magnitude 
+        getLengthSquared(): number {
+            return ((this.x * this.x) + (this.y * this.y) + (this.z * this.z))
+        }
+        getMagnitude(): number {
+            return Math.sqrt(this.getLengthSquared())
+        }
     }
 
     export class Sample {
@@ -531,9 +551,13 @@ namespace heading {
     /*
      * A Quaternion is used here as tool for manipulating rotations between the 
      * three 3D frames of reference we are using:
-     * 1. the buggy's Body-Frame
-     * 2. the microbit's Sensor-Frame and 
-     * 3. the World-Frame in which it is navigating
+     * XYZ: the microbit's Sensor-Frame
+     * RFD: the buggy's Body-Frame (Right, Front, Down)
+     * ENG: the World-Frame in which it is navigating (East, North, Gravity)
+     * 
+     * Initial construction is from an rotation about a given axis. 
+     * Tools are provided to make it represent an alignment between two vectors,
+     * and to apply it to rotate a vector.
      */
     export class Quaternion {
         // the real part
@@ -542,22 +566,85 @@ namespace heading {
         i: number
         j: number
         k: number
+        // squares of components (precomputed for efficiency)
+        ww: number
+        ii: number
+        jj: number
+        kk: number
+        // doubled products of components (precomputed for efficiency)
+        wi2: number
+        wj2: number
+        wk2: number
+        ij2: number
+        jk2: number
+        ki2: number
 
         // given a rotation-angle and an axis-direction, build a unit quaternion
-        constructor(angle:number, axisX: number, axisY: number, axisZ: number){
-            let v = new Vector(axisX, axisY, axisZ)
-            let unitV = v.normalised()
+        constructor(angle:number, axis: Vector){
+            let unitV = axis.normalised()
             this.w = Math.cos(angle/2)
             let sinHalfAngle = Math.sin(angle / 2)
             this.i = unitV.x * sinHalfAngle
             this.j = unitV.y * sinHalfAngle
             this.k = unitV.z * sinHalfAngle
+            this.precompute()
         }
 
+        // compute the Quaternion needed to align vector (a) onto (b)
+        // by rotating about an axis normal to their plane
+        toAlignVectors(a: Vector, b: Vector) {
+            this.w = (a.getMagnitude() * b.getMagnitude()) + a.dottedWith(b)
+            if (this.w > 0.0001) { 
+                let axis = a.crossedWith(b)
+                this.i = axis.x
+                this.j = axis.y
+                this.k = axis.z
+            } else { // vectors are ~180 degrees apart
+                // just pick an arbitrary axis with a non-zero length
+               this.i = -a.z
+               this.j = a.y
+               this.k = a.x
+            }
+            this.normalise()
+            this.precompute()
+        }
+
+        normalise(){
+
+        }
+
+
+        // use this Quaternion to return a rotated Vector
         appliedToVector(v:Vector):Vector {
-            let result: Vector
+            let result = new Vector (0,0,0)
+            result.x = v.x * (this.ww + this.ii - this.jj - this.kk)
+                     + v.y * (this.ij2 - this.wk2)
+                     + v.z * (this.ki2 + this.wj2)
+
+            result.y = v.y * (this.ww + this.jj - this.kk - this.ii)
+                     + v.z * (this.jk2 - this.wi2)
+                     + v.x * (this.ij2 + this.wk2)
+
+            result.z = v.z * (this.ww + this.kk - this.ii - this.jj)
+                     + v.x * (this.ki2 - this.wj2)
+                     + v.y * (this.wi2 + this.jk2)
 
             return result
+        }
+
+        // precompute squares and products (some doubled)...
+        precompute() {
+            this.ww = this.w * this.w
+            this.ii = this.i * this.i
+            this.jj = this.j * this.j
+            this.kk = this.k * this.k
+            this.wi2 = this.w * this.i * 2
+            this.wj2 = this.w * this.j * 2
+            this.wk2 = this.w * this.k * 2
+            this.ij2 = this.i * this.j * 2
+            this.ki2 = this.i * this.k * 2
+            this.jk2 = this.j * this.k * 2
+
         }
     }
 
@@ -1290,4 +1377,5 @@ namespace heading {
 
         let check = 0 // debug point...
     }
+
 }
