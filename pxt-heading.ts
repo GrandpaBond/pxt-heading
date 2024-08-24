@@ -591,30 +591,25 @@ namespace heading {
         }
 
         // compute the Quaternion needed to align vector (a) onto (b)
-        // by rotating about an axis normal to their plane
+        // by rotating about an axis normal to their common plane
         toAlignVectors(a: Vector, b: Vector) {
             this.w = (a.getMagnitude() * b.getMagnitude()) + a.dottedWith(b)
-            if (this.w > 0.0001) { 
+            if (this.w > 0.0001) {
                 let axis = a.crossedWith(b)
                 this.i = axis.x
                 this.j = axis.y
                 this.k = axis.z
-            } else { // vectors are ~180 degrees apart
-                // just pick an arbitrary axis with a non-zero length
-               this.i = -a.z
-               this.j = a.y
-               this.k = a.x
+            } else {
+                // vectors are ~180 degrees apart, so pick an arbitrary axis with a non-zero length
+                this.i = -a.z
+                this.j = a.y
+                this.k = a.x
             }
             this.normalise()
             this.precompute()
         }
 
-        normalise(){
-
-        }
-
-
-        // use this Quaternion to return a rotated Vector
+        // use this Quaternion to generate a rotated Vector
         appliedToVector(v:Vector):Vector {
             let result = new Vector (0,0,0)
             result.x = v.x * (this.ww + this.ii - this.jj - this.kk)
@@ -631,6 +626,19 @@ namespace heading {
 
             return result
         }
+
+        // for a unit Quaternion, the squares of all its components add up to 1.
+        normalise() {
+            let r = Math.sqrt((this.w * this.w) 
+                            + (this.i * this.i) 
+                            + (this.j * this.j) 
+                            + (this.k * this.k))
+            this.w /= r
+            this.i /= r
+            this.j /= r
+            this.k /= r
+        }
+
 
         // precompute squares and products (some doubled)...
         precompute() {
